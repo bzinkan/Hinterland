@@ -1,9 +1,11 @@
 # ADR 0001: Single-table DynamoDB
 
-- **Status:** Accepted
+- **Status:** Superseded by [ADR 0005](0005-gcp-target-architecture.md) on 2026-05-05
 - **Date:** 2026-04-22
 - **Deciders:** Solo author
 - **Supersedes:** —
+
+> **Superseded.** ADR 0005 selects Cloud SQL for PostgreSQL as the operational datastore on GCP. The reasoning below remains useful as historical context for the ADR 0001 → 0005 trade — particularly the access-pattern enumeration in §Context, which still maps 1:1 onto the Postgres schema.
 
 ## Context
 
