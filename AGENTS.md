@@ -22,7 +22,7 @@ If code and docs disagree, stop and reconcile them in the same PR. Do not let ar
 
 The original docs describe an AWS serverless stack: API Gateway, Lambda, Cognito, DynamoDB, S3, SQS, and CDK.
 
-The active migration direction is GCP/Cloud Run for the API runtime. A Docker-based Cloud Run backend path is being introduced under `backend/`. Until a full GCP ADR exists, keep product and data invariants from the AWS-era docs, but avoid adding new AWS-only implementation unless the task explicitly requires it.
+The active migration direction is GCP/Cloud Run for the API runtime. The GCP target architecture is documented in [ADR 0005](docs/adr/0005-gcp-target-architecture.md) — Firebase Auth, Cloud SQL Postgres (supersedes ADR 0001), Cloud Storage, Eventarc + Cloud Tasks + Cloud Scheduler for async work, Secret Manager, Cloud Logging/Error Reporting/Monitoring. Keep product and data invariants from the AWS-era docs, but avoid adding new AWS-only implementation unless the task explicitly requires it.
 
 When migrating platform pieces, prefer compatibility layers and small reversible changes:
 
@@ -67,6 +67,11 @@ Current backend baseline:
 - `Mangum` handler remains for AWS compatibility.
 - Cloud Run runtime should use uvicorn against `app.main:app`.
 
+Migration scaffolding present:
+
+- `infra/` — legacy AWS CDK stacks. To be removed after Cloud Run is in prod (per ADR 0005).
+- `infra-gcp/dns/main.tf` — Terraform stub for the Cloud DNS zone `dragonfly-app-zone`. Import path documented in the file. The broader Terraform-vs-gcloud-scripts decision for the rest of the GCP infra is open per ADR 0005 follow-ups.
+
 ## End-to-End Plan
 
 ### 0. Repo Integrity
@@ -86,6 +91,8 @@ Exit criteria:
 - `make test` or the documented test command passes.
 - `/health` runs locally.
 
+**Status:** ✅ Met 2026-05-05. README split into exists-vs-planned sections; backend builds and `/health` runs locally and on Cloud Run.
+
 ### 1. GCP Platform Foundation
 
 Goal: deploy the existing FastAPI health endpoint to Cloud Run with minimal product change.
@@ -104,6 +111,8 @@ Exit criteria:
 - Local Docker container returns the same health response.
 - `main` remains recoverable if the migration branch is abandoned.
 
+**Status:** ✅ Met 2026-05-05. Cloud Run service `dragonfly-api` deployed in `us-central1`; `/health` returns 200 with an identity token. The `--allow-unauthenticated` flag is silently rejected by the `dragonfly-app.net` Workspace org policy `iam.allowedPolicyMemberDomains` — every endpoint requires a Google identity until Firebase Auth lands in Phase 4. Custom domain `api.dragonfly-app.net` mapped via Cloud DNS; cert provisioning in flight at last check. See `docs/runbook.md` for the smoke-test command and DNS zone reference.
+
 ### 2. GCP Architecture Decision
 
 Goal: decide and document the GCP equivalents before porting feature code.
@@ -121,6 +130,8 @@ Exit criteria:
 
 - New ADR documents the GCP target architecture and migration order.
 - Each AWS-era invariant has an equivalent GCP implementation path.
+
+**Status:** ✅ Met 2026-05-05. [ADR 0005](docs/adr/0005-gcp-target-architecture.md) selects Firebase Auth, Cloud SQL Postgres, Cloud Storage, Eventarc + Cloud Tasks + Cloud Scheduler, Secret Manager, and Cloud Logging/Error Reporting/Monitoring. ADR 0001 (single-table DynamoDB) superseded. Open follow-ups: moderation provider ADR (gates Phase 8), Postgres rewrite of `docs/data-model.md`, infra-gcp/ Terraform-vs-scripts decision.
 
 ### 3. API Foundation
 
