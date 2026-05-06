@@ -1,0 +1,336 @@
+# AGENTS.md
+
+Dragonfly is a citizen-science field app for kids ages 9-12. Kids log real observations, fill a personal Dex, complete expeditions, and contribute to iNaturalist through an app-owned project account.
+
+This file is for coding agents working in this repository. It is both a project plan and a set of guardrails. Read it before making changes.
+
+## Read First
+
+Start with these files, in this order:
+
+1. `README.md` for repo intent and current phase.
+2. `docs/architecture.md` for system shape and invariants.
+3. `docs/roadmap.md` for the Phase 1 execution plan and exit criteria.
+4. `docs/data-model.md` for entity keys and access patterns.
+5. `docs/dispatcher.md` for reward handling.
+6. `docs/mobile.md` for Expo/mobile constraints.
+7. `docs/adr/` for decisions that must not be casually reversed.
+
+If code and docs disagree, stop and reconcile them in the same PR. Do not let architecture drift silently.
+
+## Current Direction
+
+The original docs describe an AWS serverless stack: API Gateway, Lambda, Cognito, DynamoDB, S3, SQS, and CDK.
+
+The active migration direction is GCP/Cloud Run for the API runtime. A Docker-based Cloud Run backend path is being introduced under `backend/`. Until a full GCP ADR exists, keep product and data invariants from the AWS-era docs, but avoid adding new AWS-only implementation unless the task explicitly requires it.
+
+When migrating platform pieces, prefer compatibility layers and small reversible changes:
+
+- Keep `app.main:app` runnable by uvicorn.
+- Keep the `Mangum` handler until the AWS path is intentionally removed.
+- Keep environment-driven settings under the `DRAGONFLY_` prefix unless a migration ADR says otherwise.
+- Do not rewrite product logic just to move infrastructure.
+
+## Non-Negotiable Invariants
+
+Preserve these through every phase:
+
+- The observation submission endpoint shape should stay stable. Add handlers; do not keep expanding the endpoint with feature-specific branches.
+- First-find detection must use an atomic conditional write. Do not implement read-then-write first-find checks.
+- Kid-facing runtime LLM calls are forbidden. LLMs may be used for author-time tools or adult-facing reviewed summaries only.
+- The kid experience must not depend on iNaturalist, Google/Maps, moderation, or rarity refresh being available at the moment of submission.
+- Moderation is asynchronous. Do not block the hot path on image moderation.
+- iNaturalist submission is asynchronous. A kid can see success before iNat receives the observation.
+- Expedition JSON/content is source of truth. The database is a materialized view.
+- Leaderboard counters live on membership rows. Do not aggregate observations at read time for normal leaderboard reads.
+- No ads, marketing pushes, public chat, DMs, or kid-to-kid free text in Phase 1.
+
+## Working Rules
+
+- Use feature branches. Keep `main` in a deployable or at least known-good state.
+- Keep PRs small and vertical: one milestone, one migration slice, or one handler at a time.
+- Do not modify unrelated files.
+- Add or update tests when changing behavior.
+- Update docs in the same PR as behavior or architecture changes.
+- Add an ADR for changes to data access patterns, platform direction, privacy/safety policy, auth model, or kid-facing runtime AI.
+- Never commit secrets, local `.env` files, service-account keys, or real child data.
+- Prefer structured parsers and typed models over ad hoc string handling.
+
+## Repository Reality Check
+
+Some directories in `README.md` are planned and may not exist yet. Do not assume `mobile/`, `lambdas/`, `content/`, or `scripts/` exist until you see them locally.
+
+Current backend baseline:
+
+- FastAPI app in `backend/app/main.py`.
+- `/health` endpoint is the first deployment smoke test.
+- `Mangum` handler remains for AWS compatibility.
+- Cloud Run runtime should use uvicorn against `app.main:app`.
+
+## End-to-End Plan
+
+### 0. Repo Integrity
+
+Goal: a clean clone can install, test, and run the documented smoke path.
+
+Deliverables:
+
+- Make `README.md` match what exists today versus what is planned.
+- Ensure backend dependency install works from a clean clone.
+- Add missing infra or remove stale install/deploy references.
+- Ensure CI runs lint, typecheck, tests, and any content validation only when supporting files exist.
+
+Exit criteria:
+
+- `make install` succeeds or the README gives a correct replacement command.
+- `make test` or the documented test command passes.
+- `/health` runs locally.
+
+### 1. GCP Platform Foundation
+
+Goal: deploy the existing FastAPI health endpoint to Cloud Run with minimal product change.
+
+Deliverables:
+
+- `backend/Dockerfile` and `backend/.dockerignore`.
+- Cloud Run service `dragonfly-api` in project `dragonflyapp-495423`.
+- Artifact Registry and Cloud Build enabled.
+- `DRAGONFLY_ENV=dev` configured on the service.
+- Document manual deploy commands first; automate later.
+
+Exit criteria:
+
+- Cloud Run URL returns HTTP 200 from `/health`.
+- Local Docker container returns the same health response.
+- `main` remains recoverable if the migration branch is abandoned.
+
+### 2. GCP Architecture Decision
+
+Goal: decide and document the GCP equivalents before porting feature code.
+
+Decisions needed:
+
+- Auth: Firebase Auth, Identity Platform, Auth0, or another provider.
+- Data store: Firestore, Cloud SQL, AlloyDB, or keep DynamoDB during transition.
+- Object storage: Cloud Storage bucket layout for `pending/`, `observations/`, and `quarantine/`.
+- Queues/workers: Cloud Tasks, Pub/Sub, Cloud Run jobs, or Eventarc.
+- Secrets: Secret Manager.
+- Observability: Cloud Logging, Error Reporting, Monitoring alerts.
+
+Exit criteria:
+
+- New ADR documents the GCP target architecture and migration order.
+- Each AWS-era invariant has an equivalent GCP implementation path.
+
+### 3. API Foundation
+
+Goal: build the backend spine before product features.
+
+Deliverables:
+
+- Settings module with typed environment config.
+- Structured logging for request and observation flows.
+- API version prefix under `/v1`.
+- Error response conventions.
+- Health and readiness endpoints.
+- Local dev setup for chosen datastore and storage emulator if available.
+
+Exit criteria:
+
+- Backend starts locally and in Cloud Run.
+- Tests cover settings, health, and error response shape.
+
+### 4. Auth, Groups, and Roles
+
+Goal: parent/teacher/kid accounts can be created and joined to invite-only groups.
+
+Deliverables:
+
+- Parent/teacher signup or invite flow.
+- Group create endpoint with 6-character join code.
+- Kid account provisioning flow.
+- JWT/session validation dependency.
+- `/v1/me` endpoint.
+- Postman or scripted smoke collection.
+
+Exit criteria:
+
+- A parent can create a group, create a kid, sign in as the kid, and call `/v1/me`.
+
+### 5. Mobile Phase 0
+
+Goal: prove the real mobile client can talk to the deployed API.
+
+Deliverables:
+
+- Expo app scaffold.
+- Environment-switched API base URL.
+- First screen fetches `/health`.
+- Basic navigation structure for auth, observation, Dex, expeditions, and settings.
+
+Exit criteria:
+
+- Physical iOS or Android device displays the Cloud Run `/health` response.
+
+### 6. Observation Happy Path
+
+Goal: a kid can submit an observation and see it in their list.
+
+Deliverables:
+
+- Presigned or signed upload URL endpoint for photo upload.
+- Object storage prefixes: `pending/`, `observations/`, `quarantine/`.
+- Observation create endpoint.
+- Observation list endpoint, newest first.
+- Membership counter update with the observation write.
+- Mobile camera/photo picker, upload, submit, and list UI.
+
+Exit criteria:
+
+- Kid account on mobile can upload a photo and see the observation in "my observations."
+
+### 7. External Integrations
+
+Goal: enrich observations while preserving graceful degradation.
+
+Deliverables:
+
+- iNaturalist CV suggestions with fallback to manual/free-text selection.
+- Reverse geocoding cache.
+- Nearby places cache for onboarding.
+- Species cache from iNaturalist taxa.
+- Integration tests with mocked third-party APIs.
+
+Exit criteria:
+
+- 50 kid-style test observations achieve top-3 iNat CV correctness target or a risk is filed.
+- Third-party outage paths are tested.
+
+### 8. Async Workers
+
+Goal: move slow or failure-prone work off the hot path.
+
+Deliverables:
+
+- Moderation worker: `pending/` to `observations/` or `quarantine/`.
+- Review queue rows for flagged photos.
+- iNat submit worker with retry and DLQ/dead-letter handling.
+- Rarity refresh job with cursor/state row.
+- Runbook updates for failure recovery.
+
+Exit criteria:
+
+- Submitted observation appears in iNaturalist within target window.
+- Flagged test photo is quarantined and reviewable.
+- Worker failures do not break observation submission.
+
+### 9. Dispatcher and Rewards
+
+Goal: make the reward system additive and testable.
+
+Deliverables:
+
+- `Reward`, `Context`, `HandlerResult`, and handler protocol/types.
+- Dispatcher core with exception isolation.
+- Handler registry.
+- `DexHandler`, then `ExpeditionHandler`, then `RarityHandler`.
+- Moto/emulator-backed test harness or a provider-equivalent test strategy.
+- Snapshot scenarios from `docs/dispatcher.md`.
+
+Exit criteria:
+
+- All dispatcher snapshot scenarios pass.
+- Dispatcher p95 meets the documented budget.
+
+### 10. Content and Expeditions
+
+Goal: make expedition authoring sustainable.
+
+Deliverables:
+
+- Expedition Pydantic model and JSON schema.
+- `content/expeditions/` source tree.
+- `scripts/validate_content.py`.
+- `scripts/sync_expeditions.py`.
+- Author-time `draft_expedition.py` tool, with no kid-facing runtime LLM path.
+- Five starter expeditions.
+
+Exit criteria:
+
+- Starter expeditions are visible in the app and can complete through the dispatcher.
+
+### 11. Teacher Review and Beta Polish
+
+Goal: closed beta can operate safely with real groups.
+
+Deliverables:
+
+- Teacher review list and approve/reject actions.
+- Cleanup behavior for rejected or stale quarantined observations.
+- Replay script for missed dispatcher runs.
+- Alarms for API errors, worker DLQs, missed Dex rows, and budget anomalies.
+- Dogfood dashboard.
+- Privacy policy and app-store compliance checklist.
+
+Exit criteria:
+
+- First closed-beta group is invited.
+- At least one real kid submits at least one real outdoor observation.
+
+### 12. Phase 2
+
+Goal: deepen engagement without disrupting Phase 1 loops.
+
+Candidates:
+
+- Territory map using MapLibre/OSM rendering.
+- Sanctuary/world layer with `WORLD#` rows and `WorldHandler`.
+- Offline tile bundles.
+- Push notifications, transactional only.
+- Teacher dashboard beyond review queue.
+
+Rule:
+
+- Phase 2 features must plug into existing handlers, data patterns, or new ADR-approved prefixes. Do not rewrite the submission spine.
+
+### 13. Phase 3
+
+Goal: add seasonality and older-kid account ownership.
+
+Candidates:
+
+- USA-NPN phenology sync.
+- Season rewards via `SeasonHandler`.
+- Kid iNaturalist account claim flow for users 13+.
+- Richer species blurbs from reviewed author-time generation.
+
+### 14. Phase 4
+
+Goal: add long-term goals and social depth safely.
+
+Candidates:
+
+- Missions via `MissionHandler`.
+- Friend/group challenges without free text.
+- Optional friend Sanctuary viewing if privacy model is approved.
+- Offline-first refinements based on beta telemetry.
+
+## Definition of Done
+
+For any feature:
+
+- Tests pass.
+- New behavior has focused tests.
+- Docs are updated.
+- Logs expose enough context to debug failures.
+- Failure mode is known and graceful.
+- No kid-facing privacy, safety, or LLM invariant is weakened.
+
+For any platform migration:
+
+- Old and new runtime paths are clearly documented.
+- Rollback path exists.
+- Secrets are managed outside git.
+- Smoke test is documented and run.
+- Cost and alerting impact is understood.
+
