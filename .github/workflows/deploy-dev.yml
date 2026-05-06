@@ -1,16 +1,23 @@
-name: Deploy to dev
+name: Deploy to dev (PAUSED — AWS path)
 
-# Auto-deploys to the dev AWS account on every merge to main.
-# Staging and prod are separate manual-approval workflows (not yet added).
+# PAUSED 2026-05-05 as part of the GCP migration (ADR 0005).
 #
-# AWS access is via OIDC — the `AWS_DEPLOY_ROLE_DEV` secret is the ARN of an
-# IAM role in the dev account with a trust policy that accepts the GitHub OIDC
-# provider and is scoped to this repository. Setup instructions live in
-# docs/runbook.md.
+# Auto-trigger removed — this workflow no longer fires on push to main.
+# It can still be invoked manually from the Actions tab via "Run workflow"
+# if someone deliberately needs the AWS deploy path. The job content below
+# is preserved as historical reference until a Cloud Run replacement
+# workflow lands.
+#
+# Note: even before pausing, both jobs failed at install time —
+# scripts/sync_expeditions.py and infra/pyproject.toml never existed in
+# this repo. The pause just stops the noise on every push to main.
+#
+# Original behavior (kept for reference):
+#   - sync-content: pushed expedition JSON to DynamoDB via OIDC AWS auth
+#   - deploy: cdk deploy --all --require-approval never against dev account
 
 on:
-  push:
-    branches: [main]
+  workflow_dispatch:
 
 # Only one deploy at a time; cancel stale runs if a new push comes in.
 concurrency:
