@@ -1,13 +1,15 @@
 # Dragonfly — common dev commands.
 # Everything in here should run from the repo root.
 
-.PHONY: help install dev test lint fmt typecheck validate-content \
-        cdk-synth cdk-diff cdk-deploy clean
+.PHONY: help install dev dev-db dev-db-down dev-db-logs test lint fmt typecheck \
+        validate-content cdk-synth cdk-diff cdk-deploy clean
 
 help:
 	@echo "Dragonfly dev commands:"
-	@echo "  make install           — install backend + infra deps"
+	@echo "  make install           — install backend deps"
 	@echo "  make dev               — run FastAPI locally (hot reload)"
+	@echo "  make dev-db            — start local Postgres for backend dev"
+	@echo "  make dev-db-down       — stop local Postgres"
 	@echo "  make test              — run backend tests"
 	@echo "  make lint              — ruff check"
 	@echo "  make fmt               — ruff format + fix"
@@ -19,10 +21,18 @@ help:
 
 install:
 	cd backend && uv sync
-	cd infra && uv sync
 
 dev:
 	cd backend && uv run uvicorn app.main:app --reload --port 8080
+
+dev-db:
+	docker compose -f backend/compose.yaml up -d postgres
+
+dev-db-down:
+	docker compose -f backend/compose.yaml down
+
+dev-db-logs:
+	docker compose -f backend/compose.yaml logs -f postgres
 
 test:
 	cd backend && uv run pytest -v

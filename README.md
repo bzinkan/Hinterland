@@ -34,8 +34,11 @@ Prereqs: Python 3.12, `uv`. AWS CLI + CDK v2 only required for the legacy AWS de
 
 ```bash
 make install
+make dev-db                 # optional local Postgres for Phase 3+ API work
 make dev                    # FastAPI on :8080
 curl localhost:8080/health
+curl localhost:8080/ready
+curl localhost:8080/v1/meta
 ```
 
 Cloud Run (current target):

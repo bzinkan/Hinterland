@@ -151,6 +151,11 @@ Exit criteria:
 - Backend starts locally and in Cloud Run.
 - Tests cover settings, health, and error response shape.
 
+**Status:** In progress 2026-05-06. Backend foundation implemented locally:
+typed settings, structured request logging, error envelope, `/health`, `/ready`,
+`/v1/meta`, local Postgres compose scaffold, and focused tests. Cloud Run deploy
+of this slice is still pending before marking the phase complete.
+
 ### 4. Auth, Groups, and Roles
 
 Goal: parent/teacher/kid accounts can be created and joined to invite-only groups.

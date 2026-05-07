@@ -1,12 +1,11 @@
 """Dragonfly API entry point.
 
-FastAPI app wrapped with Mangum for Lambda. Also runnable locally via
-`uvicorn app.main:app --reload` for development.
+FastAPI app for Cloud Run, with the Mangum handler retained for the legacy AWS
+path until that compatibility layer is intentionally removed.
 """
 
 from __future__ import annotations
 
-import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
@@ -14,92 +13,51 @@ import structlog
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from mangum import Mangum
-from pydantic import BaseModel
-from pydantic_settings import BaseSettings, SettingsConfigDict
+
+from app.api.routes.meta import platform_router, v1_router
+from app.core.config import Settings, get_settings
+from app.core.errors import install_exception_handlers
+from app.core.logging import configure_logging, install_request_logging
 
 
-class Settings(BaseSettings):
-    """Environment-driven configuration.
+def create_app(settings: Settings | None = None) -> FastAPI:
+    active_settings = settings or get_settings()
 
-    Loaded once at cold start. Never read os.environ directly elsewhere.
-    """
+    @asynccontextmanager
+    async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+        configure_logging(active_settings)
+        log = structlog.get_logger()
+        log.info(
+            "api.startup",
+            env=active_settings.env,
+            gcp_project_id=active_settings.gcp_project_id,
+        )
+        yield
+        log.info("api.shutdown")
 
-    model_config = SettingsConfigDict(env_prefix="DRAGONFLY_", env_file=".env")
-
-    env: str = "local"  # local | dev | staging | prod
-    table_name: str = "Dragonfly"
-    s3_bucket: str = "dragonfly-photos-local"
-    aws_region: str = "us-east-1"
-    cognito_user_pool_id: str = ""
-    cognito_app_client_id: str = ""
-    inat_project_id: str = ""
-    log_level: str = "INFO"
-    cors_origins: list[str] = ["http://localhost:19006"]  # Expo web dev server
-
-
-settings = Settings()
-
-
-def configure_logging() -> None:
-    """Structured JSON logs to stdout. CloudWatch ingests as-is."""
-    logging.basicConfig(
-        format="%(message)s",
-        level=getattr(logging, settings.log_level),
+    app = FastAPI(
+        title=active_settings.app_name,
+        version=active_settings.app_version,
+        lifespan=lifespan,
     )
-    structlog.configure(
-        processors=[
-            structlog.contextvars.merge_contextvars,
-            structlog.processors.add_log_level,
-            structlog.processors.TimeStamper(fmt="iso"),
-            structlog.processors.StackInfoRenderer(),
-            structlog.processors.format_exc_info,
-            structlog.processors.JSONRenderer(),
-        ],
-        wrapper_class=structlog.make_filtering_bound_logger(getattr(logging, settings.log_level)),
-        logger_factory=structlog.PrintLoggerFactory(),
-        cache_logger_on_first_use=True,
+    app.state.settings = active_settings
+
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=active_settings.cors_origins,
+        allow_credentials=True,
+        allow_methods=["GET", "POST", "PATCH", "DELETE"],
+        allow_headers=["*"],
     )
 
-
-@asynccontextmanager
-async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-    configure_logging()
-    log = structlog.get_logger()
-    log.info("api.startup", env=settings.env, table=settings.table_name)
-    yield
-    log.info("api.shutdown")
+    install_exception_handlers(app)
+    install_request_logging(app)
+    app.include_router(platform_router)
+    app.include_router(v1_router)
+    return app
 
 
-app = FastAPI(
-    title="Dragonfly API",
-    version="0.1.0",
-    lifespan=lifespan,
-)
+app = create_app()
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=settings.cors_origins,
-    allow_credentials=True,
-    allow_methods=["GET", "POST", "PATCH", "DELETE"],
-    allow_headers=["*"],
-)
-
-
-class HealthResponse(BaseModel):
-    status: str
-    env: str
-    version: str
-
-
-@app.get("/health", response_model=HealthResponse, tags=["meta"])
-async def health() -> HealthResponse:
-    """Liveness probe. Does not touch DynamoDB.
-
-    Phase 0 exit criterion: this endpoint returns 200 from the deployed
-    Lambda, and the Expo app can display its response.
-    """
-    return HealthResponse(status="ok", env=settings.env, version=app.version)
-
-
-# Lambda entry point. API Gateway invokes this.
+# Lambda entry point. API Gateway invokes this on the legacy AWS path.
 handler = Mangum(app, lifespan="on")
