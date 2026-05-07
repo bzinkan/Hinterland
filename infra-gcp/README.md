@@ -44,17 +44,24 @@ Credentials. If you hit `oauth2: invalid_rapt`, run
 
 **The state bucket itself is currently NOT managed by this Terraform root**
 (chicken-and-egg with backend bootstrap). The `gs://dragonflyapp-tfstate`
-bucket was created via `gcloud storage buckets create` on 2026-05-07. The
-deploy SA `github-deploy-dev@dragonflyapp-495423.iam.gserviceaccount.com`
-was granted these out-of-band roles to make `terraform plan` work in CI:
+bucket was created via `gcloud storage buckets create` on 2026-05-07.
 
-- `roles/storage.objectAdmin` on the state bucket (read state + acquire locks)
-- `roles/iam.securityReviewer` at project scope (needs
-  `iam.serviceAccounts.getIamPolicy` to plan against SA IAM bindings already
-  in state)
+Importing the existing dev Cloud Run service into state added refresh
+reads on resources the deploy SA could previously skip. The deploy SA
+`github-deploy-dev@dragonflyapp-495423.iam.gserviceaccount.com` was
+granted these out-of-band roles to make `terraform plan` work in CI:
 
-A follow-up PR should import the state bucket and codify both bindings in
-this Terraform root.
+- `roles/storage.objectAdmin` on `gs://dragonflyapp-tfstate` — read state +
+  acquire locks
+- `roles/iam.securityReviewer` at project scope — `iam.serviceAccounts.getIamPolicy`
+  for SA IAM refresh
+- `roles/viewer` at project scope — broader resource refresh reads
+  (workload identity pools, etc.) that the SA's apply-only role bundle
+  didn't include
+
+A follow-up PR should import the state bucket and codify all three
+bindings in this Terraform root, then drop the broad `roles/viewer`
+in favor of the narrower service-specific viewer roles.
 
 ## Dev Plan
 
