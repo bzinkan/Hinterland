@@ -19,6 +19,7 @@ env:
   ARTIFACT_REPOSITORY: dragonfly
   SERVICE: dragonfly-api
   RUNTIME_SERVICE_ACCOUNT: dragonfly-api-dev@dragonflyapp-495423.iam.gserviceaccount.com
+  DEPLOY_SERVICE_ACCOUNT: github-deploy-dev@dragonflyapp-495423.iam.gserviceaccount.com
   CLOUDBUILD_SOURCE_BUCKET: dragonfly-build-source-dev-dragonflyapp-495423
 
 jobs:
@@ -73,7 +74,12 @@ jobs:
           gcloud run deploy "${SERVICE}" \
             --image "${IMAGE}" \
             --service-account "${RUNTIME_SERVICE_ACCOUNT}" \
-            --allow-unauthenticated \
+            --region "${REGION}" \
+            --project "${PROJECT_ID}" \
+            --quiet
+          gcloud run services add-iam-policy-binding "${SERVICE}" \
+            --member "serviceAccount:${DEPLOY_SERVICE_ACCOUNT}" \
+            --role roles/run.invoker \
             --region "${REGION}" \
             --project "${PROJECT_ID}" \
             --quiet
@@ -84,6 +90,9 @@ jobs:
             --region "${REGION}" \
             --project "${PROJECT_ID}" \
             --format='value(status.url)')"
-          curl --fail --silent --show-error "${URL}/health"
-          curl --fail --silent --show-error "${URL}/ready"
-          curl --fail --silent --show-error "${URL}/v1/meta"
+          TOKEN="$(gcloud auth print-identity-token \
+            --impersonate-service-account="${DEPLOY_SERVICE_ACCOUNT}" \
+            --audiences="${URL}")"
+          curl --fail --silent --show-error -H "Authorization: Bearer ${TOKEN}" "${URL}/health"
+          curl --fail --silent --show-error -H "Authorization: Bearer ${TOKEN}" "${URL}/ready"
+          curl --fail --silent --show-error -H "Authorization: Bearer ${TOKEN}" "${URL}/v1/meta"

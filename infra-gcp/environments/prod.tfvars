@@ -9,6 +9,9 @@ database_disk_size_gb = 20
 min_instance_count    = 1
 max_instance_count    = 20
 
-cloud_run_invoker_members = ["allUsers"]
-github_repository         = "bzinkan/Dragonfly"
+cloud_run_invoker_members = [
+  "domain:dragonfly-app.net",
+  "serviceAccount:github-deploy-prod@dragonflyapp-prod.iam.gserviceaccount.com",
+]
+github_repository = "bzinkan/Dragonfly"
 
