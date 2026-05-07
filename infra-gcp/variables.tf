@@ -57,7 +57,7 @@ variable "max_instance_count" {
 variable "cloud_run_invoker_members" {
   description = "IAM members allowed to invoke the API service."
   type        = list(string)
-  default     = ["domain:dragonfly-app.net"]
+  default     = ["allUsers"]
 }
 
 variable "github_repository" {

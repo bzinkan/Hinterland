@@ -73,6 +73,7 @@ jobs:
           gcloud run deploy "${SERVICE}" \
             --image "${IMAGE}" \
             --service-account "${RUNTIME_SERVICE_ACCOUNT}" \
+            --allow-unauthenticated \
             --region "${REGION}" \
             --project "${PROJECT_ID}" \
             --quiet
@@ -83,7 +84,6 @@ jobs:
             --region "${REGION}" \
             --project "${PROJECT_ID}" \
             --format='value(status.url)')"
-          TOKEN="$(gcloud auth print-identity-token --audiences="${URL}")"
-          curl --fail --silent --show-error -H "Authorization: Bearer ${TOKEN}" "${URL}/health"
-          curl --fail --silent --show-error -H "Authorization: Bearer ${TOKEN}" "${URL}/ready"
-          curl --fail --silent --show-error -H "Authorization: Bearer ${TOKEN}" "${URL}/v1/meta"
+          curl --fail --silent --show-error "${URL}/health"
+          curl --fail --silent --show-error "${URL}/ready"
+          curl --fail --silent --show-error "${URL}/v1/meta"
