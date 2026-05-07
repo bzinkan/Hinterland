@@ -15,7 +15,11 @@ Start with these files, in this order:
 5. `docs/ingest.md` for replayable data-pipeline rules.
 6. `docs/dispatcher.md` for reward handling.
 7. `docs/mobile.md` for Expo/mobile constraints.
-8. `docs/adr/` for decisions that must not be casually reversed.
+8. `docs/adr/` for decisions that must not be casually reversed. Most active:
+   - [ADR 0005](docs/adr/0005-gcp-target-architecture.md) — GCP target architecture (Firebase Auth, Cloud SQL Postgres, Cloud Storage, Eventarc + Cloud Tasks + Cloud Scheduler, Secret Manager, Cloud Logging). Supersedes ADR 0001.
+   - [ADR 0006](docs/adr/0006-ingest-pipelines.md) — Ingest pipelines are explicit, replayable, and audited via `ingest_runs`.
+   - [ADR 0007](docs/adr/0007-internal-ai-agent-tooling.md) — Multi-agent AI is internal/adult-only; never on a kid-facing request path.
+   - [ADR 0008](docs/adr/0008-public-cloud-run-with-firebase-enforcement.md) — Override `iam.allowedPolicyMemberDomains` on dev project so `allUsers` can invoke Cloud Run; Firebase ID token verification becomes the only auth boundary.
 
 If code and docs disagree, stop and reconcile them in the same PR. Do not let architecture drift silently.
 
@@ -157,11 +161,7 @@ Exit criteria:
 - Backend starts locally and in Cloud Run.
 - Tests cover settings, health, and error response shape.
 
-**Status:** In progress 2026-05-06. Backend foundation implemented locally:
-typed settings, structured request logging, error envelope, `/health`, `/ready`,
-`/v1/meta`, local Postgres compose scaffold, Postgres model/migration baseline,
-ingest contracts, Terraform production-foundation scaffold, and focused tests.
-Cloud Run deploy of this slice is still pending before marking the phase complete.
+**Status:** ✅ Met 2026-05-07. Backend deployed to Cloud Run (revision `dragonfly-api-00007-b8c`); `/health`, `/ready`, and `/v1/meta` all return 200 against the live service. Typed settings, structured request logging, error envelope, Postgres model + initial Alembic migration, ingest contracts under `backend/app/ingest/`, and the `infra-gcp/` Terraform foundation all landed via PRs #1–8. Custom domain `api.dragonfly-app.net` live with a managed cert. Cloud Run-dev auto-deploy workflow is wired up via Workload Identity Federation.
 
 ### 4. Auth, Groups, and Roles
 
@@ -179,6 +179,8 @@ Deliverables:
 Exit criteria:
 
 - A parent can create a group, create a kid, sign in as the kid, and call `/v1/me`.
+
+**Status:** In progress 2026-05-07. Foundation landed via PR #8 (`feat/firebase-auth`): Firebase Admin SDK dependency, ID-token verification dependency in `backend/app/core/auth.py`, `GET /v1/me` endpoint, mocked auth tests, `WWW-Authenticate` preserved through the error envelope. Firebase project configured on `dragonflyapp-495423` with Email/Password sign-in enabled and a Web app registered for the future Expo client. [ADR 0008](docs/adr/0008-public-cloud-run-with-firebase-enforcement.md) decides that dev Cloud Run becomes publicly callable (`allUsers` invoker) and Firebase ID-token verification is the only auth boundary — so mobile clients without a Google identity can still hit the API. Remaining work: parent signup endpoint, group create with 6-char join code, kid provisioning via the Firebase Admin SDK, join-code redemption endpoint, and a Postman/scripted smoke collection.
 
 ### 5. Mobile Phase 0
 
