@@ -37,7 +37,7 @@ class UserResponse(BaseModel):
     display_name: str
 
     @classmethod
-    def from_model(cls, user: models.User) -> "UserResponse":
+    def from_model(cls, user: models.User) -> UserResponse:
         return cls(
             id=user.id,
             firebase_uid=user.firebase_uid,
