@@ -64,6 +64,20 @@ def verify_firebase_id_token(token: str, settings: Settings) -> dict[str, object
     return cast(dict[str, object], claims)
 
 
+def set_firebase_custom_claims(
+    uid: str,
+    claims: dict[str, object],
+    settings: Settings,
+) -> None:
+    """Set custom claims on a Firebase user via the Admin SDK.
+
+    Custom claims propagate into the user's next ID token (after the client
+    refreshes its token). The full claim set is replaced on each call —
+    callers should pass the complete intended state, not deltas.
+    """
+    firebase_auth.set_custom_user_claims(uid, claims, app=_firebase_app(settings))
+
+
 def _claim_str(claims: dict[str, object], key: str) -> str | None:
     value = claims.get(key)
     if isinstance(value, str) and value:

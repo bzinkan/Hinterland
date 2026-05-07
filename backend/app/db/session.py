@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
-from typing import Literal, Protocol, Self
+from typing import Annotated, Literal, Protocol, Self
 
-from fastapi import Request
+from fastapi import Depends, Request
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
@@ -85,3 +85,17 @@ class Database:
 
 def get_request_database(request: Request) -> DatabaseProbe:
     return request.app.state.database  # type: ignore[no-any-return]
+
+
+async def get_db_session(request: Request) -> AsyncIterator[AsyncSession]:
+    """FastAPI dependency yielding an AsyncSession bound to the request's DB.
+
+    Each request gets a fresh session that's closed when the request returns.
+    Override in tests via `app.dependency_overrides[get_db_session]`.
+    """
+    database: Database = request.app.state.database
+    async with database.sessions() as session:
+        yield session
+
+
+DbSessionDep = Annotated[AsyncSession, Depends(get_db_session)]
