@@ -1,11 +1,17 @@
+data "google_project" "current" {
+  project_id = var.project_id
+}
+
 locals {
-  service_name       = "dragonfly-api"
-  database_instance  = "dragonfly-postgres-${var.environment}"
-  database_name      = "dragonfly"
-  database_user      = "dragonfly"
-  photos_bucket      = "dragonfly-photos-${var.environment}-${var.project_id}"
-  github_pool_id     = "github-${var.environment}"
-  github_provider_id = "github-provider"
+  service_name               = "dragonfly-api"
+  database_instance          = "dragonfly-postgres-${var.environment}"
+  database_name              = "dragonfly"
+  database_user              = "dragonfly"
+  photos_bucket              = "dragonfly-photos-${var.environment}-${var.project_id}"
+  cloudbuild_source_bucket   = "dragonfly-build-source-${var.environment}-${var.project_id}"
+  cloudbuild_service_account = "${data.google_project.current.number}-compute@developer.gserviceaccount.com"
+  github_pool_id             = "github-${var.environment}"
+  github_provider_id         = "github-provider"
   enabled_service_list = toset([
     "artifactregistry.googleapis.com",
     "cloudbuild.googleapis.com",
@@ -130,6 +136,25 @@ resource "google_storage_bucket" "photos" {
     condition {
       age            = 90
       matches_prefix = ["quarantine/"]
+    }
+  }
+
+  depends_on = [google_project_service.enabled]
+}
+
+resource "google_storage_bucket" "cloudbuild_source" {
+  name                        = local.cloudbuild_source_bucket
+  location                    = var.region
+  uniform_bucket_level_access = true
+  force_destroy               = var.environment != "prod"
+
+  lifecycle_rule {
+    action {
+      type = "Delete"
+    }
+    condition {
+      age            = 7
+      matches_prefix = ["source/"]
     }
   }
 
@@ -309,12 +334,38 @@ resource "google_project_iam_member" "github_cloudbuild" {
   member  = "serviceAccount:${google_service_account.github_deploy.email}"
 }
 
+resource "google_project_iam_member" "github_service_usage" {
+  project = var.project_id
+  role    = "roles/serviceusage.serviceUsageConsumer"
+  member  = "serviceAccount:${google_service_account.github_deploy.email}"
+}
+
 resource "google_artifact_registry_repository_iam_member" "github_artifact_writer" {
   project    = var.project_id
   location   = google_artifact_registry_repository.backend.location
   repository = google_artifact_registry_repository.backend.name
   role       = "roles/artifactregistry.writer"
   member     = "serviceAccount:${google_service_account.github_deploy.email}"
+}
+
+resource "google_storage_bucket_iam_member" "github_cloudbuild_source_object_admin" {
+  bucket = google_storage_bucket.cloudbuild_source.name
+  role   = "roles/storage.objectAdmin"
+  member = "serviceAccount:${google_service_account.github_deploy.email}"
+}
+
+resource "google_storage_bucket_iam_member" "cloudbuild_source_object_viewer" {
+  bucket = google_storage_bucket.cloudbuild_source.name
+  role   = "roles/storage.objectViewer"
+  member = "serviceAccount:${local.cloudbuild_service_account}"
+}
+
+resource "google_artifact_registry_repository_iam_member" "cloudbuild_artifact_writer" {
+  project    = var.project_id
+  location   = google_artifact_registry_repository.backend.location
+  repository = google_artifact_registry_repository.backend.name
+  role       = "roles/artifactregistry.writer"
+  member     = "serviceAccount:${local.cloudbuild_service_account}"
 }
 
 resource "google_service_account_iam_member" "github_service_account_user" {

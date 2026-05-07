@@ -19,6 +19,7 @@ env:
   ARTIFACT_REPOSITORY: dragonfly
   SERVICE: dragonfly-api
   RUNTIME_SERVICE_ACCOUNT: dragonfly-api-dev@dragonflyapp-495423.iam.gserviceaccount.com
+  CLOUDBUILD_SOURCE_BUCKET: dragonfly-build-source-dev-dragonflyapp-495423
 
 jobs:
   deploy:
@@ -41,7 +42,10 @@ jobs:
         run: |
           IMAGE="${REGION}-docker.pkg.dev/${PROJECT_ID}/${ARTIFACT_REPOSITORY}/dragonfly-api:${GITHUB_SHA}"
           echo "IMAGE=${IMAGE}" >> "${GITHUB_ENV}"
-          gcloud builds submit backend --tag "${IMAGE}" --project "${PROJECT_ID}"
+          gcloud builds submit backend \
+            --tag "${IMAGE}" \
+            --gcs-source-staging-dir "gs://${CLOUDBUILD_SOURCE_BUCKET}/source" \
+            --project "${PROJECT_ID}"
 
       - name: Deploy Cloud Run
         run: |

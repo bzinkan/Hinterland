@@ -10,6 +10,10 @@ output "artifact_repository" {
   value = google_artifact_registry_repository.backend.name
 }
 
+output "cloudbuild_source_bucket" {
+  value = google_storage_bucket.cloudbuild_source.name
+}
+
 output "cloud_sql_connection_name" {
   value = google_sql_database_instance.main.connection_name
 }
