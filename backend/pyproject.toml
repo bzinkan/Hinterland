@@ -23,7 +23,7 @@ dependencies = [
     "botocore>=1.35.0",
 
     # Auth
-    "python-jose[cryptography]>=3.3.0",  # Cognito JWT verification
+    "python-jose[cryptography]>=3.3.0",  # JWT verification helpers
 
     # HTTP client (async, for iNat)
     "httpx>=0.27.0",

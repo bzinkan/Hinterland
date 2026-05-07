@@ -9,13 +9,18 @@ legacy reference only.
 gcloud config set project dragonflyapp-495423
 gcloud config set run/region us-central1
 
-URL="$(gcloud run services describe dragonfly-api-dev --format='value(status.url)')"
-TOKEN="$(gcloud auth print-identity-token --audiences="$URL")"
+URL="$(gcloud run services describe dragonfly-api --format='value(status.url)')"
+TOKEN="$(gcloud auth print-identity-token)"
 
 curl -fsS -H "Authorization: Bearer $TOKEN" "$URL/health"
 curl -fsS -H "Authorization: Bearer $TOKEN" "$URL/ready"
 curl -fsS -H "Authorization: Bearer $TOKEN" "$URL/v1/meta"
 ```
+
+Use the URL returned by `status.url`. Cloud Run may also print alternate URL
+formats during deploy, but scripts should not hard-code either hash format.
+For service-account smoke tests, an audience-scoped token is fine:
+`gcloud auth print-identity-token --audiences="$URL"`.
 
 The `dragonfly-app.net` organization policy may reject public
 `allUsers` access. Prefer authenticated smoke tests until Firebase Auth owns
@@ -34,11 +39,25 @@ Required GitHub secrets:
 
 Use Terraform outputs from `infra-gcp` for both values.
 
+Manual dev deploy from PowerShell:
+
+```powershell
+cd C:\GitHub\Dragonfly\backend
+gcloud run deploy dragonfly-api `
+  --source . `
+  --region us-central1 `
+  --project dragonflyapp-495423 `
+  --set-env-vars="DRAGONFLY_ENV=dev,DRAGONFLY_READINESS_DATABASE_REQUIRED=false"
+```
+
+Keep `--set-env-vars="..."` quoted in PowerShell. Without quotes, Cloud Run may
+receive one malformed environment value.
+
 ## Roll Back Cloud Run
 
 ```bash
-gcloud run revisions list --service dragonfly-api-dev --region us-central1
-gcloud run services update-traffic dragonfly-api-dev \
+gcloud run revisions list --service dragonfly-api --region us-central1
+gcloud run services update-traffic dragonfly-api \
   --region us-central1 \
   --to-revisions REVISION_NAME=100
 ```

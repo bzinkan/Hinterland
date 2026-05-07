@@ -1,5 +1,5 @@
 locals {
-  service_name       = "dragonfly-api-${var.environment}"
+  service_name       = "dragonfly-api"
   database_instance  = "dragonfly-postgres-${var.environment}"
   database_name      = "dragonfly"
   database_user      = "dragonfly"

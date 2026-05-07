@@ -12,6 +12,13 @@ If the Workspace admin cannot create staging/prod projects yet, use only the
 dev tfvars until those projects exist. Do not silently convert the production
 plan to one-project env-suffixed resources.
 
+The Cloud Run service name is `dragonfly-api` in every project. Project
+boundaries carry the environment, so scripts should discover URLs through:
+
+```bash
+gcloud run services describe dragonfly-api --format='value(status.url)'
+```
+
 This root module provisions the closed-beta foundation:
 
 - Cloud Run API service
@@ -33,6 +40,16 @@ terraform plan -var-file=environments/dev.tfvars
 
 Staging/prod plans use `environments/staging.tfvars` and
 `environments/prod.tfvars` after those projects exist.
+
+The dev project already has a manually-created `dragonfly-api` service. Before
+the first Terraform apply in dev, import it or intentionally replace it:
+
+```bash
+terraform import \
+  -var-file=environments/dev.tfvars \
+  google_cloud_run_v2_service.api \
+  projects/dragonflyapp-495423/locations/us-central1/services/dragonfly-api
+```
 
 The deploy workflow expects these GitHub secrets after the first Terraform
 apply:

@@ -17,7 +17,7 @@ env:
   PROJECT_ID: dragonflyapp-495423
   REGION: us-central1
   ARTIFACT_REPOSITORY: dragonfly
-  SERVICE: dragonfly-api-dev
+  SERVICE: dragonfly-api
 
 jobs:
   deploy:
