@@ -1,6 +1,7 @@
-project_id  = "dragonflyapp-prod"
-region      = "us-central1"
-environment = "prod"
+project_id     = "dragonflyapp-prod"
+project_number = "18296780658"
+region         = "us-central1"
+environment    = "prod"
 
 api_image = "us-central1-docker.pkg.dev/dragonflyapp-prod/dragonfly/dragonfly-api:latest"
 
@@ -14,4 +15,7 @@ cloud_run_invoker_members = [
   "serviceAccount:github-deploy-prod@dragonflyapp-prod.iam.gserviceaccount.com",
 ]
 github_repository = "bzinkan/Dragonfly"
+
+billing_account_id    = "011393-C6CD59-B4C81C"
+monthly_budget_amount = 250
 
