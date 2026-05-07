@@ -30,6 +30,18 @@ This root module provisions the closed-beta foundation:
 - GitHub Workload Identity Federation
 - baseline Monitoring and optional budget resources
 
+## Remote state
+
+State lives in GCS, in `gs://dragonflyapp-tfstate/infra-gcp/default.tfstate`.
+The bucket is in `dragonflyapp-495423`, has versioning enabled, uniform
+bucket-level access, and public access prevention enforced. The `gcs` backend
+provides native state locking — no external lock table needed.
+
+A fresh clone needs no special bucket bootstrap; `terraform init` reads the
+backend block in `versions.tf` and authenticates via Application Default
+Credentials. If you hit `oauth2: invalid_rapt`, run
+`gcloud auth application-default login` to refresh the Workspace re-auth.
+
 ## Dev Plan
 
 ```bash
@@ -41,8 +53,12 @@ terraform plan -var-file=environments/dev.tfvars
 Staging/prod plans use `environments/staging.tfvars` and
 `environments/prod.tfvars` after those projects exist.
 
-The dev project already has a manually-created `dragonfly-api` service. Before
-the first Terraform apply in dev, import it or intentionally replace it:
+The dev `dragonfly-api` Cloud Run service was originally created via
+`gcloud run deploy --source` and was imported into Terraform state on
+2026-05-07 (commit on branch `chore/terraform-remote-state`). Subsequent
+applies will manage it in place; `terraform plan` should show only
+intentional changes, never a recreation. If you need to re-import after a
+state recovery, the command is:
 
 ```bash
 terraform import \
