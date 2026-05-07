@@ -31,7 +31,7 @@ The offline flow:
 3. **Celebration preview.** We render a "local-only" celebration: "Got it! We'll save this to your Dex when you're back online." No rewards are fabricated — the dispatcher runs server-side, and the real celebration fires when the submission succeeds. The offline preview is explicit about being provisional.
 4. **Background sync.** When the app detects network (`@react-native-community/netinfo`), a background task iterates the queue:
    - Request a presigned PUT URL from `/v1/photos/presign`.
-   - Upload the photo file to S3.
+   - Upload the photo file to Cloud Storage via the signed URL.
    - Call `POST /v1/observations` with the queued payload.
    - On success: delete the queue row and the local photo file; show the real celebration if the app is foregrounded.
    - On failure (5xx, network hiccup): increment `attempts`, schedule next retry with exponential backoff up to 1h.
@@ -101,7 +101,7 @@ Expo Notifications handles APNs and FCM uniformly. The expo-push-token is stored
 - Ads, partner content, cross-promotion.
 - Geographic pushes based on kid location ("a rare bird was spotted near you!"). Even though this would be cool for the product, it requires location-usage semantics we haven't earned and COPPA-reviewed.
 
-**Implementation note.** Silent push is used for expedition refresh (pull new expedition content without waking the kid's screen). All user-visible notifications are scheduled server-side by the appropriate worker (e.g. `expedition_ready` is fired by an EventBridge cron that reads `EXP#` progress rows and sends via Expo's push API).
+**Implementation note.** Silent push is used for expedition refresh (pull new expedition content without waking the kid's screen). All user-visible notifications are scheduled server-side by the appropriate worker (e.g. `expedition_ready` is fired by a Cloud Scheduler cron that reads expedition-progress rows in Postgres and sends via Expo's push API).
 
 ## Performance targets
 

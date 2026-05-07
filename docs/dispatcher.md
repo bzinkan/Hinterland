@@ -70,10 +70,10 @@ from typing import Any
 @dataclass
 class Context:
     # Core — populated at dispatch time, never mutated
-    db: DynamoTable                 # single-table client
+    db: AsyncSession                # SQLAlchemy session bound to Postgres
     user: User
     group: Group | None             # kids always have one; parents may not
-    observation: Observation        # already persisted to DynamoDB
+    observation: Observation        # already persisted to Postgres
     location: Location              # lat, lng, geohash4, geohash3
 
     # Per-handler outputs, keyed by handler name. Populated as dispatch runs.
@@ -109,7 +109,7 @@ class Handler(Protocol):
 
         Must be:
         - Idempotent (same observation twice = same result, no double writes)
-        - Self-contained (no calls to iNat, Rekognition, or other slow services)
+        - Self-contained (no calls to iNat, the moderation provider, or other slow services)
         - Fast (<100ms p95; the full dispatcher budget is 300ms)
         - Exception-safe (failures logged, other handlers still run)
         """
@@ -138,7 +138,7 @@ HANDLERS: list[Handler] = [
 
 **Ordering is a real contract.** If `ExpeditionHandler` needs to know whether a find was a first-find to award a bonus, the Dex handler must run first. Document dependencies in the handler's docstring; assert expected predecessors in tests.
 
-**Do not parallelize.** The performance win is negligible (handlers are I/O-bound against DynamoDB and boto3 already batches well) and the debugging cost of non-deterministic ordering is huge. Sequential, deterministic, easy to reason about.
+**Do not parallelize.** The performance win is negligible (handlers are I/O-bound against Postgres and a single connection pipelines roundtrips well) and the debugging cost of non-deterministic ordering is huge. Sequential, deterministic, easy to reason about.
 
 ## The dispatcher itself
 
@@ -179,7 +179,7 @@ async def dispatch(ctx: Context, handlers: list[Handler]) -> list[Reward]:
     return all_rewards
 ```
 
-**A failed handler never fails the submission.** The observation is already persisted by the time the dispatcher runs; the worst-case outcome is a missing celebration, which is recoverable (a job can replay it). Anything that *must* succeed for a submission to be valid (moderation, iNat-queueing, the DynamoDB write itself) happens outside the dispatcher, before or after.
+**A failed handler never fails the submission.** The observation is already persisted by the time the dispatcher runs; the worst-case outcome is a missing celebration, which is recoverable (a job can replay it). Anything that *must* succeed for a submission to be valid (moderation, iNat-queueing, the Postgres write itself) happens outside the dispatcher, before or after.
 
 ## Concrete Phase 1 handlers
 
@@ -257,9 +257,9 @@ Two lookups, both against `REGION#<geohash4>`:
 2. If the region exists (`META` row present) and the species row does *not*, emit an `unrecorded` reward (weight 100).
 3. If the region has `low_data: true`, look at the parent geohash-3 row instead. Never emit tier rewards from a `low_data` region — the signal isn't strong enough.
 
-The rarity data comes from the nightly Lambda (`rarity-pipeline.md`). This handler never calls iNat directly.
+The rarity data comes from the nightly Cloud Run job (`rarity-pipeline.md`). This handler never calls iNat directly.
 
-This handler also owns the `rarest_tier` counter on the user's `MEMBER#` row. When the observation's tier outranks the previously-recorded `rarest_tier`, issue a conditional `UpdateItem` to set it (using a tier-rank comparison in the condition expression). Ownership lives here because this is the handler that knows the tier; see ADR 0004.
+This handler also owns the `rarest_tier` counter on the user's membership row. When the observation's tier outranks the previously-recorded `rarest_tier`, issue a conditional `UPDATE` to set it (using a tier-rank comparison in the WHERE clause). Ownership lives here because this is the handler that knows the tier; see ADR 0004.
 
 ## Testing
 
@@ -271,9 +271,9 @@ async def run_dispatch(
     *,
     handlers: list[Handler],
     observation: Observation,
-    preload: Callable[[DynamoTable], Awaitable[None]] | None = None,
+    preload: Callable[[AsyncSession], Awaitable[None]] | None = None,
 ) -> list[Reward]:
-    """Spin up a moto DynamoDB, preload state, build Context, dispatch."""
+    """Spin up a Postgres test schema, preload state, build Context, dispatch."""
 ```
 
 Snapshot-test these scenarios, all of them, before declaring Phase 1 done:
@@ -290,7 +290,7 @@ Snapshot-test these scenarios, all of them, before declaring Phase 1 done:
 | 8 | One observation advances steps in two expeditions simultaneously      |
 | 9 | One handler raises; others still produce rewards                      |
 | 10 | Same observation submitted twice (idempotency check — no duplicates) |
-| 11 | Lambda crashes after submission transaction but before dispatch; replay recovers (see ADR 0004) |
+| 11 | API service crashes after submission transaction but before dispatch; replay recovers (see ADR 0004) |
 
 When Phase 2 ships `TerritoryHandler`, these same 10 snapshots catch any regression where the new handler interferes with a Phase 1 reward.
 

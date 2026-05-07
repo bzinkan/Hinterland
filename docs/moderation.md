@@ -1,26 +1,28 @@
 # Photo Moderation
 
-Every photo a kid uploads is screened before it's visible in the app or submitted to iNaturalist. The screening runs in S3, not in the API Lambda, so that the observation-submission hot path never blocks on Rekognition. This doc describes the pipeline, the design decisions it depends on, and the edges that need special handling.
+Every photo a kid uploads is screened before it's visible in the app or submitted to iNaturalist. The screening runs out of band on the photos bucket, not in the API service, so that the observation-submission hot path never blocks on the moderation provider. This doc describes the pipeline, the design decisions it depends on, and the edges that need special handling.
 
-Related reading: `architecture.md` (how moderation fits into the observation flow), `data-model.md` (the `REVIEW#` row schema and membership counters), `runbook.md` (incident response for quarantined photos).
+The specific moderation provider (likely Cloud Vision SafeSearch) is being settled in a follow-up ADR. This doc reads "the moderation provider" where the choice doesn't matter, and flags places that will need provider-specific configuration once the ADR lands.
+
+Related reading: `architecture.md` (how moderation fits into the observation flow), `data-model.md` (the `review_queue` table and membership counters), `runbook.md` (incident response for quarantined photos), `adr/0005-gcp-target-architecture.md` (Eventarc + Cloud Tasks + Cloud Run for async work).
 
 ## The pipeline at a glance
 
 ```
 kid uploads photo
          │
-         ▼                    presigned PUT from /v1/photos/presign
-   s3://dragonfly-photos/pending/<obs_id>.jpg
+         ▼                    V4 signed PUT from /v1/photos/presign
+   gs://dragonfly-photos-<env>-<project>/pending/<obs_id>.jpg
          │
-         │  s3:ObjectCreated:* event
+         │  Eventarc google.cloud.storage.object.v1.finalized
          ▼
-   ┌──────────────────────┐
-   │ moderation Lambda    │
-   │  ┌────────────────┐  │
-   │  │ Rekognition    │  │ DetectModerationLabels
-   │  │ /DetectMod...  │  │
-   │  └────────────────┘  │
-   └──────┬───────────────┘
+   ┌──────────────────────────┐
+   │ moderation Cloud Run     │
+   │  ┌──────────────────┐    │
+   │  │ moderation       │    │ provider-specific call
+   │  │ provider         │    │ (e.g. Cloud Vision SafeSearch)
+   │  └──────────────────┘    │
+   └──────┬───────────────────┘
           │
      ┌────┴──────┐
      │           │
@@ -29,77 +31,78 @@ kid uploads photo
      ▼           ▼
  observations/ quarantine/
      │           │
-     │           │  + write REVIEW# row
-     │           │  + update OBS# row: quarantined=true
+     │           │  + insert review_queue row
+     │           │  + update observations row: quarantined=true
      │           │
      ▼           ▼
   inat_submit  teacher review queue
+  (Cloud Tasks)
 ```
 
-The moderation Lambda is the only component that writes to `observations/` or `quarantine/` — the API Lambda only writes to `pending/` (via presigned URL), never to either resolved prefix.
+The moderation Cloud Run service is the only component that writes to `observations/` or `quarantine/` — the API service only writes to `pending/` (via signed URL), never to either resolved prefix.
 
 ## Design decisions baked into this pipeline
 
-**Moderation is synchronous with photo arrival, not with observation submission.** The kid uploads to `pending/`, then calls `POST /v1/observations`. Those two API calls are independent. The observation submission persists the `OBS#` row before moderation has finished. The kid sees their celebration immediately. This is the correct trade-off for the kid UX (they never wait on Rekognition) at the cost of a small window where the `OBS#` row exists but its photo isn't yet approved. The mobile app renders an observation-without-photo placeholder during that window.
+**Moderation is synchronous with photo arrival, not with observation submission.** The kid uploads to `pending/`, then calls `POST /v1/observations`. Those two API calls are independent. The observation submission persists the `observations` row before moderation has finished. The kid sees their celebration immediately. This is the correct trade-off for the kid UX (they never wait on the moderation provider) at the cost of a small window where the observations row exists but its photo isn't yet approved. The mobile app renders an observation-without-photo placeholder during that window.
 
-**iNat submit waits for moderation.** We do not want to push an unmoderated photo to iNaturalist. The SQS message that `inat_submit` consumes is enqueued by the moderation Lambda on the clean path, not by the API Lambda at submission time. If moderation takes 2 seconds, iNat submit starts 2 seconds later. If moderation flags the photo, no SQS message is ever enqueued and iNat never sees it.
+**iNat submit waits for moderation.** We do not want to push an unmoderated photo to iNaturalist. The Cloud Tasks task that `inat_submit` consumes is enqueued by the moderation Cloud Run service on the clean path, not by the API service at submission time. If moderation takes 2 seconds, iNat submit starts 2 seconds later. If moderation flags the photo, no Cloud Tasks task is ever enqueued and iNat never sees it.
 
-**Quarantine moves, it doesn't delete.** Flagged photos are copied to `quarantine/`, not deleted from S3. A human (teacher) review path can recover a false positive. The S3 lifecycle rule in `data_stack.py` deletes `quarantine/` objects after 30 days; by that point the review has either closed or been auto-rejected (see `runbook.md`).
+**Quarantine moves, it doesn't delete.** Flagged photos are copied to `quarantine/`, not deleted from Cloud Storage. A human (teacher) review path can recover a false positive. The Cloud Storage lifecycle rule on the photos bucket (configured in `infra-gcp/main.tf`) deletes `quarantine/` objects after 90 days; by that point the review has either closed or been auto-rejected (see `runbook.md`).
 
-**Failed Rekognition does not default-allow.** If Rekognition errors (throttle, service outage, transient 5xx), the photo stays in `pending/` and the Lambda retries with exponential backoff. The S3 lifecycle rule clears abandoned `pending/` objects after 24 hours; if moderation hasn't succeeded by then, the photo is gone and the observation's `photo_key` points nowhere — the mobile app treats this as a failed observation and surfaces it in the kid's "retry" list. This is intentional. Defaulting to "allow" on Rekognition failure means every Rekognition outage becomes a content-safety incident.
+**Failed moderation does not default-allow.** If the moderation provider errors (throttle, service outage, transient 5xx), the photo stays in `pending/` and the Cloud Run service raises so Eventarc can retry per its policy. The Cloud Storage lifecycle rule clears abandoned `pending/` objects after 24 hours; if moderation hasn't succeeded by then, the photo is gone and the observation's `photo_key` points nowhere — the mobile app treats this as a failed observation and surfaces it in the kid's "retry" list. This is intentional. Defaulting to "allow" on moderation failure means every moderation-provider outage becomes a content-safety incident.
 
-## Rekognition configuration
+## Moderation provider configuration
 
-The moderation Lambda calls `rekognition:DetectModerationLabels` with:
+The moderation Cloud Run service calls the chosen provider's safe-content endpoint (Cloud Vision SafeSearch's `images.annotate` with feature `SAFE_SEARCH_DETECTION` is the leading candidate per the open follow-up ADR). Provider-agnostic config:
 
-- `MinConfidence` = 60 (moderate sensitivity — tune after gathering false-positive data)
-- Label taxonomy v7 (`Explicit`, `Non-Explicit Nudity of Intimate parts and Kissing`, `Violence`, `Drugs & Tobacco`, `Alcohol`, `Rude Gestures`, `Hate Symbols`, `Gambling`). The full current taxonomy is at [https://docs.aws.amazon.com/rekognition/latest/dg/moderation.html](https://docs.aws.amazon.com/rekognition/latest/dg/moderation.html) — pinned to the taxonomy version in SSM so a taxonomy update doesn't silently change behavior.
+- A confidence-or-likelihood threshold (provider-specific scale; tune after gathering false-positive data on a kid-photo test set).
+- A label set that triggers flagging (e.g. `adult`, `violence`, `racy` for SafeSearch). Pinned to a config version so a provider update doesn't silently change behavior.
 
-Flag rule: **flag if any top-level parent label in the returned set has confidence ≥ threshold.** Subcategory-only matches (e.g. a low-confidence child label with no parent match) are allowed through. Threshold and label set are loaded from SSM Parameter Store at cold start:
+Flag rule: **flag if any configured label in the response meets the threshold.** Threshold and label set are loaded from Secret Manager (or runtime env) at cold start:
 
-- `/dragonfly/{env}/moderation/min_confidence` (default 60)
-- `/dragonfly/{env}/moderation/flag_labels` (JSON array of top-level labels)
+- `DRAGONFLY_MODERATION_THRESHOLD` (provider-specific scale)
+- `DRAGONFLY_MODERATION_FLAG_LABELS` (JSON array)
 
-Changing the rule is a one-minute SSM update, no deploy required. That's deliberate — if we hit a real-world incident we need to tighten fast.
+Changing the rule is a Cloud Run revision env-var update, no full redeploy required. That's deliberate — if we hit a real-world incident we need to tighten fast.
 
-## What the moderation Lambda writes
+## What the moderation Cloud Run service writes
 
 On the clean path:
 
-1. `CopyObject` from `pending/<obs_id>.jpg` to `observations/<obs_id>.jpg`.
-2. `DeleteObject` on the `pending/` copy.
-3. `UpdateItem` on the `OBS#` row: `SET photo_key = :new, moderation_status = "clean"`.
-4. `SendMessage` to the iNat submit queue with the observation ID.
+1. GCS object copy from `pending/<obs_id>.jpg` to `observations/<obs_id>.jpg`.
+2. GCS delete on the `pending/` object.
+3. `UPDATE observations SET photo_key = :new, moderation_status = 'clean' WHERE id = :obs_id`.
+4. `cloudtasks:CreateTask` against the iNat submit queue with the observation ID.
 
 On the flag path:
 
-1. `CopyObject` from `pending/<obs_id>.jpg` to `quarantine/<obs_id>.jpg`.
-2. `DeleteObject` on the `pending/` copy.
-3. `UpdateItem` on the `OBS#` row: `SET photo_key = :quarantine_key, moderation_status = "quarantined", moderation_labels = :labels` (labels stored for the teacher review UI to explain *why*).
-4. `PutItem` for a `REVIEW#<ts>#<obsId>` row under the kid's group partition, with `GSI1PK = STATUS#pending` so admins can list across groups.
-5. No iNat submit message.
+1. GCS object copy from `pending/<obs_id>.jpg` to `quarantine/<obs_id>.jpg`.
+2. GCS delete on the `pending/` object.
+3. `UPDATE observations SET photo_key = :quarantine_key, moderation_status = 'quarantined', moderation_labels = :labels WHERE id = :obs_id` (labels stored for the teacher review UI to explain *why*).
+4. `INSERT INTO review_queue (id, group_id, photo_id, observation_id, status, ...)` with `status = 'pending'`. Indexed by `(group_id, status)` for fast teacher-review listing per group.
+5. No iNat submit task.
 
-On the error path (Rekognition 5xx, network fault):
+On the error path (provider 5xx, network fault):
 
-1. No S3 moves.
-2. Lambda raises; SQS (S3 event notifications are wrapped by an SQS queue at the CDK level — see `WorkersStack` when it lands) redelivers per its retry policy.
-3. After N retries, message goes to a DLQ; `runbook.md` covers the response.
-4. Lifecycle rule on `pending/` eventually cleans the stuck photo after 24 hours.
+1. No GCS moves.
+2. The Cloud Run service raises a non-2xx; Eventarc retries the trigger per its retry policy (configurable on the trigger resource).
+3. After exhausting retries, Eventarc routes to a dead-letter Pub/Sub topic if configured; `runbook.md` covers the response.
+4. The lifecycle rule on `pending/` eventually cleans the stuck photo after 24 hours.
 
 ## Teacher review lifecycle
 
-Quarantined photos are resolved by a teacher approving or rejecting the `REVIEW#` row from the mobile app (Week 11 in `roadmap.md`).
+Quarantined photos are resolved by a teacher approving or rejecting the `review_queue` row from the mobile app (Week 11 in `roadmap.md`).
 
-- **Approve.** Move photo from `quarantine/` to `observations/`, update `OBS#` row (`moderation_status = "approved_on_review"`, clear the quarantine flag), enqueue the delayed iNat submit, mark `REVIEW#` as `approved` with reviewer id and timestamp.
-- **Reject.** Delete the `OBS#` row and its `DEX#` row (if any), decrement the user's `MEMBER#` counters, mark `REVIEW#` as `rejected`. The photo in `quarantine/` is left for the 30-day S3 lifecycle to sweep — we keep it briefly for audit and appeal.
+- **Approve.** Move photo from `quarantine/` to `observations/`, update the observations row (`moderation_status = 'approved_on_review'`, clear the quarantine flag), enqueue the delayed iNat submit (Cloud Tasks), mark the `review_queue` row as `approved` with reviewer id and timestamp.
+- **Reject.** Delete the observations row and its `dex_entries` row (if any), decrement the user's membership counters, mark the `review_queue` row as `rejected`. The photo in `quarantine/` is left for the 90-day Cloud Storage lifecycle to sweep — we keep it briefly for audit and appeal.
 - **Stale (no decision in 30 days).** The nightly sweep (`scripts/sweep_stale_reviews.py`) auto-rejects the review and runs the rejection path. See `runbook.md`.
 
 Counters stay correct across all three paths because approve-on-review is an idempotent no-op on the counters (they were never bumped at submission, because on the flag path we don't bump) — wait, that's wrong. Let me be precise: `observation_count` *is* bumped at submission (by the submission transaction, before moderation has run). A flagged observation's `observation_count` stays bumped until the teacher reviews. On approve, nothing changes. On reject, the counter decrements. This is the correct semantic: the kid's observation count is what they've *submitted*, not what's been approved; the Dex (which is only written by `DexHandler` after moderation, per ADR 0004) is what's been *earned*.
 
-Actually — `DexHandler` runs at submission time, not after moderation. So a first-find on a photo that later gets quarantined will have its `DEX#` row and `dex_count` bumped, and on reject those need to be un-done. This is handled by the rejection path: `DELETE` the `DEX#` row, `ADD dex_count :minus_one` on the `MEMBER#` row.
+Actually — `DexHandler` runs at submission time, not after moderation. So a first-find on a photo that later gets quarantined will have its `dex_entries` row and `dex_count` bumped, and on reject those need to be un-done. This is handled by the rejection path: `DELETE` the `dex_entries` row, `UPDATE memberships SET dex_count = dex_count - 1 WHERE user_id = ...`.
 
 ## What this doc doesn't cover
 
-- **Text moderation** — if and when we add observation notes (kids can type a short caption). Plan is to use Rekognition's `DetectText` for photo content then send extracted text plus the kid's caption through a moderation model, but that's a Phase 3 discussion at earliest.
+- **Text moderation** — if and when we add observation notes (kids can type a short caption). Plan is to OCR the photo (provider's text-detection API) for any text appearing in the image, then send the extracted text plus the kid's caption through a text-moderation model, but that's a Phase 3 discussion at earliest.
 - **Appeals.** A rejected kid currently has no in-app path to contest. If appeals become a real need, the `REVIEW#` row gets a second status field and the workflow grows. Not for Phase 1.
 - **Moderation metrics dashboard.** Counts by label, false-positive rate against teacher-overridden approvals, per-kid flag rate. These are observability improvements for post-beta.

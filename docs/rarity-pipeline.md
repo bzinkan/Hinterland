@@ -2,7 +2,7 @@
 
 The rarity cache is how Dragonfly tells a kid that their observation matters beyond "you logged a thing." `RarityHandler` (see `dispatcher.md`) reads a per-region, per-species tier row and emits a reward sized to match: `legendary` for something almost no one has logged in this geohash cell, `abundant` suppressed entirely. The data powering those lookups is refreshed by a nightly batch job against iNaturalist — not at observation time, because iNat rate limits matter more than freshness for this feature.
 
-Related reading: `architecture.md` (how the nightly Lambda fits into the worker topology), `data-model.md` (the `REGION#<geohash4>/SPECIES#<taxonId>` key pattern), `dispatcher.md` (how `RarityHandler` interprets the tier values), `adr/0001-single-table-dynamodb.md` (the partition design the rarity rows live in).
+Related reading: `architecture.md` (how the nightly Cloud Run job fits into the worker topology), `data-model.md` (the `rarity_cache` table keyed by `(region_geohash4, taxon_id)`), `dispatcher.md` (how `RarityHandler` interprets the tier values), `adr/0005-gcp-target-architecture.md` (Cloud SQL Postgres replaces ADR 0001's DynamoDB).
 
 ## Why a nightly cache instead of a live lookup
 
@@ -16,9 +16,9 @@ Cost: rarity data lags iNat reality by up to 24 hours. For a feature about "how 
 
 ## Trigger and shape
 
-- **Schedule.** EventBridge cron, `cron(0 3 * * ? *)` — 03:00 UTC. Picked to be well off US peak and off European peak so our iNat usage doesn't compete with human traffic.
-- **Resource.** One Lambda, ARM64, 2GB memory, 15-minute timeout (AWS max for a Lambda invocation).
-- **Continuation.** The job writes its cursor to `JOB#rarity/STATE` on every region batch. If it runs out of time, a second cron at 04:00 UTC re-invokes and the Lambda reads the cursor and resumes. Target: whole-world refresh completes in one nightly run at our beta scale; multi-run continuation is the safety net.
+- **Schedule.** Cloud Scheduler cron, `0 3 * * *` — 03:00 UTC. Picked to be well off US peak and off European peak so our iNat usage doesn't compete with human traffic.
+- **Resource.** One Cloud Run job, 1 vCPU, 2GB memory. Cloud Run job task timeout is configurable up to 24h, so the wall-clock ceiling is generous; we still aim for a single sub-hour run.
+- **Continuation.** The job writes its cursor to a `job_state` row keyed `name='rarity'` on every region batch. If it runs out of time or hits a transient failure, a second cron at 04:00 UTC re-invokes and the job reads the cursor and resumes. Target: whole-world refresh completes in one nightly run at our beta scale; multi-run continuation is the safety net.
 - **Parallelism.** Strictly none. A single-threaded walk that respects iNat's rate limit is the whole design. Parallelizing would either throttle us or get us 429'd.
 
 ## The algorithm
@@ -66,13 +66,13 @@ Note: "unrecorded" here means unrecorded in *our* nightly snapshot, which is der
 
 ## Capacity and cost at our scale
 
-A full refresh for Phase 1 beta regions (say, 200 geohash-4 cells averaging 300 species each) is 60k `PutItem` calls, concentrated in a 15-minute window. Consumed write units: ~60k × 1 WCU = 60k WCU over 15 min, average 67 WCU/s. DynamoDB on-demand absorbs this trivially; the table never sees user-driven writes at that rate, so the rarity job doesn't interact with hot-path capacity.
+A full refresh for Phase 1 beta regions (say, 200 geohash-4 cells averaging 300 species each) is 60k `INSERT ... ON CONFLICT DO UPDATE` calls into `rarity_cache`, concentrated in a 15-minute window. Average ~67 writes/s. Cloud SQL Postgres on a `db-g1-small` absorbs this trivially; user-driven writes never share the rarity hot path because the job batches in chunks and runs at 03:00 UTC.
 
 iNat API cost is the dominant constraint. 200 regions × 1 species-counts call per region = 200 calls per run. Well inside iNat's 10k/day budget and well inside the 60 req/min pacing. Room to grow 10–20x before rate limits become the binding constraint.
 
 ## Observability
 
-The job emits one structured log line per region (`rarity.region_complete` with `{region, species_count, low_data, duration_ms}`) and one per run (`rarity.run_complete` with `{regions_total, regions_processed, duration_ms, api_calls, throttles}`). CloudWatch alarms fire on:
+The job emits one structured log line per region (`rarity.region_complete` with `{region, species_count, low_data, duration_ms}`) and one per run (`rarity.run_complete` with `{regions_total, regions_processed, duration_ms, api_calls, throttles}`). Cloud Monitoring alerts fire on:
 
 - Run duration > 12 minutes (signal: we're close to self-continuation).
 - Run has not completed for 48 hours (signal: cursor stuck or cron not firing).

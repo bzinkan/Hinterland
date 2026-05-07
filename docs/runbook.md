@@ -5,26 +5,32 @@ legacy reference only.
 
 ## Smoke Test Cloud Run
 
+The canonical URL for dev is the Cloud DNS-mapped custom domain. Hit the
+three platform probes from any shell — no auth header required, since
+[ADR 0008](adr/0008-public-cloud-run-with-firebase-enforcement.md) made
+dev `/health`, `/ready`, and `/v1/meta` publicly invokable:
+
 ```bash
-gcloud config set project dragonflyapp-495423
-gcloud config set run/region us-central1
-
-URL="$(gcloud run services describe dragonfly-api --format='value(status.url)')"
-TOKEN="$(gcloud auth print-identity-token)"
-
-curl -fsS -H "Authorization: Bearer $TOKEN" "$URL/health"
-curl -fsS -H "Authorization: Bearer $TOKEN" "$URL/ready"
-curl -fsS -H "Authorization: Bearer $TOKEN" "$URL/v1/meta"
+curl -fsS https://api.dragonfly-app.net/health
+curl -fsS https://api.dragonfly-app.net/ready
+curl -fsS https://api.dragonfly-app.net/v1/meta
 ```
 
-Use the URL returned by `status.url`. Cloud Run may also print alternate URL
-formats during deploy, but scripts should not hard-code either hash format.
-For service-account smoke tests, an audience-scoped token is fine:
-`gcloud auth print-identity-token --audiences="$URL"`.
+Each should return a JSON body with HTTP 200. If any returns 403, ADR 0008's
+Terraform was never applied (or the org policy override regressed); re-run
+the targeted `terraform apply` for `google_org_policy_policy.domain_restricted_sharing`
+and `google_cloud_run_v2_service_iam_member.api_invokers`.
 
-The `dragonfly-app.net` organization policy may reject public
-`allUsers` access. Prefer authenticated smoke tests until Firebase Auth owns
-the product auth boundary.
+The Cloud Run-assigned URL (`https://dragonfly-api-<hash>-uc.a.run.app`) is
+also valid but is an implementation detail. Discover it via
+`gcloud run services describe dragonfly-api --region us-central1
+--format='value(status.url)'` if needed.
+
+Once Phase 4 lands (parent signup, group create, kid provisioning), every
+endpoint other than the three platform probes will require a Firebase ID
+token in `Authorization: Bearer ...`. Auth is enforced at the application
+layer; the IAM gate stays open for `allUsers` so mobile clients can reach
+the service without a Google identity.
 
 ## Deploy Dev
 

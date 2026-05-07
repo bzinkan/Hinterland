@@ -84,6 +84,17 @@ jobs:
             --project "${PROJECT_ID}" \
             --quiet
 
+      - name: Tag image as :latest
+        # Keeps the floating :latest tag pointed at the most recent successful
+        # deploy so Terraform's api_image="...:latest" reference always resolves
+        # to a real image. The SHA-tagged image is the immutable truth; :latest
+        # is a convenience pointer for dev. Prod should pin a SHA in tfvars.
+        run: |
+          gcloud artifacts docker tags add \
+            "${IMAGE}" \
+            "${REGION}-docker.pkg.dev/${PROJECT_ID}/${ARTIFACT_REPOSITORY}/dragonfly-api:latest" \
+            --quiet --project "${PROJECT_ID}"
+
       - name: Smoke probes
         run: |
           URL="$(gcloud run services describe "${SERVICE}" \
