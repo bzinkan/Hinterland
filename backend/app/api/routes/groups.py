@@ -18,7 +18,7 @@ router = APIRouter(prefix="/v1", tags=["groups"])
 
 log = structlog.get_logger()
 
-# Crockford base32: A–Z + 0–9 minus the visually ambiguous I, L, O, U.
+# Crockford base32: A-Z + 0-9 minus the visually ambiguous I, L, O, U.
 # 32 chars, 6 positions = ~1B codes. Generous against collisions for the
 # closed-beta scale.
 _JOIN_CODE_ALPHABET = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"
@@ -77,7 +77,7 @@ async def create_group(
     Collisions are detected before commit and retried up to 5 times; the
     32^6 ≈ 1B code space makes that effectively never trigger at our scale.
 
-    Idempotency is **not** offered here — a parent who calls `POST /v1/groups`
+    Idempotency is **not** offered here -- a parent who calls `POST /v1/groups`
     twice creates two groups. Phase 1's family flow creates exactly one group
     per parent, so the client should gate the call.
     """
