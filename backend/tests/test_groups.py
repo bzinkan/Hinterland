@@ -466,13 +466,17 @@ def test_create_kid_cleans_up_firebase_user_on_db_failure(
     )
     fake_session.commit = AsyncMock(side_effect=RuntimeError("simulated DB failure"))
 
-    response = groups_client.post(
-        f"/v1/groups/{_GROUP_ID}/kids",
-        headers={"Authorization": "Bearer valid"},
-        json={"display_name": "Sparrow", "age_band": "9-10"},
-    )
+    # TestClient with the default `raise_server_exceptions=True` re-raises
+    # unhandled server-side exceptions; in production the global handler
+    # would return 500, but the test only cares that the cleanup ran before
+    # the exception propagated.
+    with pytest.raises(RuntimeError, match="simulated DB failure"):
+        groups_client.post(
+            f"/v1/groups/{_GROUP_ID}/kids",
+            headers={"Authorization": "Bearer valid"},
+            json={"display_name": "Sparrow", "age_band": "9-10"},
+        )
 
-    assert response.status_code == 500
     # Firebase user was created, then deleted on the cleanup path.
     assert fb_calls["create_user"] == ["Sparrow"]
     assert fb_calls["delete_user"] == [_KID_FIREBASE_UID]
