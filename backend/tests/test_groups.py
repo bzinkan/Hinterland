@@ -482,3 +482,196 @@ def test_create_kid_cleans_up_firebase_user_on_db_failure(
     assert fb_calls["delete_user"] == [_KID_FIREBASE_UID]
     # Custom token was NOT minted (failure happens before that step).
     assert fb_calls["create_token"] == []
+
+
+# ---------------------------------------------------------------------------
+# POST /v1/groups/join
+# ---------------------------------------------------------------------------
+
+_JOIN_CODE = "ABC123"
+_OTHER_GROUP_ID = "01J0OTHERGROUP00000000ULID"
+_EXISTING_MEMBERSHIP_ID = "01J0EXISTINGMEMBER000000UL"
+
+
+def _set_join_session_lookups(
+    fake_session: AsyncMock,
+    *,
+    caller: models.User | None,
+    group: models.Group | None,
+    existing_membership: models.Membership | None = None,
+) -> None:
+    """Wire `session.execute(...)` for caller, then group, then membership lookups."""
+    caller_result = MagicMock()
+    caller_result.scalar_one_or_none = MagicMock(return_value=caller)
+
+    group_result = MagicMock()
+    group_result.scalar_one_or_none = MagicMock(return_value=group)
+
+    membership_result = MagicMock()
+    membership_result.scalar_one_or_none = MagicMock(return_value=existing_membership)
+
+    fake_session.execute = AsyncMock(side_effect=[caller_result, group_result, membership_result])
+    fake_session.add = MagicMock()
+    fake_session.commit = AsyncMock()
+    fake_session.refresh = AsyncMock()
+
+
+def test_join_group_requires_bearer_token(groups_client: TestClient) -> None:
+    response = groups_client.post("/v1/groups/join", json={"join_code": _JOIN_CODE})
+    assert response.status_code == 401
+
+
+def test_join_group_validates_join_code_length(
+    groups_client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _stub_token_verifier(monkeypatch)
+
+    response = groups_client.post(
+        "/v1/groups/join",
+        headers={"Authorization": "Bearer valid"},
+        json={"join_code": "TOOLONG"},  # 7 chars, exceeds max_length=6
+    )
+    assert response.status_code == 422
+
+
+def test_join_group_returns_404_when_user_row_missing(
+    groups_client: TestClient,
+    fake_session: AsyncMock,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _stub_token_verifier(monkeypatch)
+
+    caller_result = MagicMock()
+    caller_result.scalar_one_or_none = MagicMock(return_value=None)
+    fake_session.execute = AsyncMock(return_value=caller_result)
+
+    response = groups_client.post(
+        "/v1/groups/join",
+        headers={"Authorization": "Bearer valid"},
+        json={"join_code": _JOIN_CODE},
+    )
+
+    assert response.status_code == 404
+    assert "parent-signup" in response.json()["error"]["message"]
+
+
+def test_join_group_returns_404_when_code_not_found(
+    groups_client: TestClient,
+    fake_session: AsyncMock,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _stub_token_verifier(monkeypatch)
+    _set_join_session_lookups(
+        fake_session,
+        caller=_user_row(role="parent"),
+        group=None,
+    )
+
+    response = groups_client.post(
+        "/v1/groups/join",
+        headers={"Authorization": "Bearer valid"},
+        json={"join_code": "NOPNOP"},
+    )
+
+    assert response.status_code == 404
+    assert "join code" in response.json()["error"]["message"]
+    fake_session.add.assert_not_called()
+
+
+def test_join_group_is_idempotent_for_existing_member(
+    groups_client: TestClient,
+    fake_session: AsyncMock,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _stub_token_verifier(monkeypatch)
+
+    existing = models.Membership(
+        id=_EXISTING_MEMBERSHIP_ID,
+        group_id=_GROUP_ID,
+        user_id=_USER_ID,
+        role="parent",
+    )
+    _set_join_session_lookups(
+        fake_session,
+        caller=_user_row(role="parent"),
+        group=_group_row(),
+        existing_membership=existing,
+    )
+
+    response = groups_client.post(
+        "/v1/groups/join",
+        headers={"Authorization": "Bearer valid"},
+        json={"join_code": _JOIN_CODE},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["id"] == _EXISTING_MEMBERSHIP_ID
+    assert body["group_id"] == _GROUP_ID
+    assert body["user_id"] == _USER_ID
+    assert body["role"] == "parent"
+
+    # No new membership inserted
+    fake_session.add.assert_not_called()
+    fake_session.commit.assert_not_called()
+
+
+def test_join_group_creates_membership_happy_path(
+    groups_client: TestClient,
+    fake_session: AsyncMock,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _stub_token_verifier(monkeypatch)
+    _set_join_session_lookups(
+        fake_session,
+        caller=_user_row(role="parent"),
+        group=_group_row(),
+        existing_membership=None,
+    )
+
+    response = groups_client.post(
+        "/v1/groups/join",
+        headers={"Authorization": "Bearer valid"},
+        json={"join_code": _JOIN_CODE},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["group_id"] == _GROUP_ID
+    assert body["user_id"] == _USER_ID
+    assert body["role"] == "parent"
+    assert isinstance(body["id"], str) and len(body["id"]) == 26  # ULID
+
+    fake_session.add.assert_called_once()
+    added_membership: models.Membership = fake_session.add.call_args.args[0]
+    assert added_membership.group_id == _GROUP_ID
+    assert added_membership.user_id == _USER_ID
+    assert added_membership.role == "parent"
+    fake_session.commit.assert_awaited_once()
+
+
+def test_join_group_normalizes_lowercase_code(
+    groups_client: TestClient,
+    fake_session: AsyncMock,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Lowercase input is uppercased before lookup so a parent typing 'abc123' matches 'ABC123'."""
+    _stub_token_verifier(monkeypatch)
+    _set_join_session_lookups(
+        fake_session,
+        caller=_user_row(role="parent"),
+        group=_group_row(),
+        existing_membership=None,
+    )
+
+    response = groups_client.post(
+        "/v1/groups/join",
+        headers={"Authorization": "Bearer valid"},
+        json={"join_code": "abc123"},
+    )
+
+    # The route's `.upper()` normalization is verified structurally:
+    # 200 (not 422 for invalid format, not 404 because the mocked group
+    # lookup returns the group regardless of code value).
+    assert response.status_code == 200

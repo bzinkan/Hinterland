@@ -294,3 +294,115 @@ async def create_kid(
         age_band=str(kid.age_band),
         custom_token=custom_token,
     )
+
+
+# ---------------------------------------------------------------------------
+# POST /v1/groups/join -- redeem a 6-char join code
+# ---------------------------------------------------------------------------
+
+
+class GroupJoinRequest(BaseModel):
+    # Accept any 6-char string here; mismatches resolve to 404 at lookup time.
+    # The Crockford alphabet check is intentionally not enforced in the schema
+    # so a malformed code returns "code not found" rather than a 422 telling
+    # an end user about our internal alphabet choice.
+    join_code: str = Field(..., min_length=6, max_length=6)
+
+
+class MembershipResponse(BaseModel):
+    id: str
+    group_id: str
+    user_id: str
+    role: str
+
+    @classmethod
+    def from_model(cls, membership: models.Membership) -> MembershipResponse:
+        return cls(
+            id=membership.id,
+            group_id=membership.group_id,
+            user_id=membership.user_id,
+            role=membership.role,
+        )
+
+
+@router.post(
+    "/groups/join",
+    response_model=MembershipResponse,
+)
+async def join_group(
+    request_body: GroupJoinRequest,
+    current_user: CurrentUserDep,
+    session: DbSessionDep,
+) -> MembershipResponse:
+    """Redeem a 6-char join code; create a membership for the calling user.
+
+    Used by adults joining an existing group (e.g. a co-parent joining the
+    family group, or a co-teacher joining a class). Kids never use the join
+    code path -- they're admin-created via the kid-provisioning endpoint.
+
+    Idempotent: if the calling user is already a member of the matched
+    group, returns the existing membership row without inserting a duplicate.
+    The join code does not expire and does not consume on redeem; the
+    `uq_memberships_group_user` unique constraint is the durable backstop
+    against duplicates.
+    """
+    user_result = await session.execute(
+        select(models.User).where(models.User.firebase_uid == current_user.uid)
+    )
+    user = user_result.scalar_one_or_none()
+    if user is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=(
+                "Calling Firebase user has no `users` row. "
+                "Sign up via /v1/auth/parent-signup or the teacher equivalent first."
+            ),
+        )
+
+    # Normalize to upper-case so a parent typing the code by hand isn't
+    # tripped up by lowercase input.
+    candidate_code = request_body.join_code.upper()
+    group_result = await session.execute(
+        select(models.Group).where(models.Group.join_code == candidate_code)
+    )
+    group = group_result.scalar_one_or_none()
+    if group is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="That join code doesn't match any group.",
+        )
+
+    membership_result = await session.execute(
+        select(models.Membership).where(
+            models.Membership.group_id == group.id,
+            models.Membership.user_id == user.id,
+        )
+    )
+    existing_membership = membership_result.scalar_one_or_none()
+    if existing_membership is not None:
+        log.info(
+            "groups.join.idempotent",
+            group_id=group.id,
+            user_id=user.id,
+            membership_id=existing_membership.id,
+        )
+        return MembershipResponse.from_model(existing_membership)
+
+    membership = models.Membership(
+        id=str(ULID()),
+        group_id=group.id,
+        user_id=user.id,
+        role=user.role,
+    )
+    session.add(membership)
+    await session.commit()
+    await session.refresh(membership)
+
+    log.info(
+        "groups.join.created",
+        group_id=group.id,
+        user_id=user.id,
+        membership_id=membership.id,
+        role=user.role,
+    )
+    return MembershipResponse.from_model(membership)
