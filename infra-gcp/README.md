@@ -30,6 +30,39 @@ This root module provisions the closed-beta foundation:
 - GitHub Workload Identity Federation
 - baseline Monitoring and optional budget resources
 
+## Remote state
+
+State lives in GCS, in `gs://dragonflyapp-tfstate/infra-gcp/default.tfstate`.
+The bucket is in `dragonflyapp-495423`, has versioning enabled, uniform
+bucket-level access, and public access prevention enforced. The `gcs` backend
+provides native state locking — no external lock table needed.
+
+A fresh clone needs no special bucket bootstrap; `terraform init` reads the
+backend block in `versions.tf` and authenticates via Application Default
+Credentials. If you hit `oauth2: invalid_rapt`, run
+`gcloud auth application-default login` to refresh the Workspace re-auth.
+
+**The state bucket itself is currently NOT managed by this Terraform root**
+(chicken-and-egg with backend bootstrap). The `gs://dragonflyapp-tfstate`
+bucket was created via `gcloud storage buckets create` on 2026-05-07.
+
+Importing the existing dev Cloud Run service into state added refresh
+reads on resources the deploy SA could previously skip. The deploy SA
+`github-deploy-dev@dragonflyapp-495423.iam.gserviceaccount.com` was
+granted these out-of-band roles to make `terraform plan` work in CI:
+
+- `roles/storage.objectAdmin` on `gs://dragonflyapp-tfstate` — read state +
+  acquire locks
+- `roles/iam.securityReviewer` at project scope — `iam.serviceAccounts.getIamPolicy`
+  for SA IAM refresh
+- `roles/viewer` at project scope — broader resource refresh reads
+  (workload identity pools, etc.) that the SA's apply-only role bundle
+  didn't include
+
+A follow-up PR should import the state bucket and codify all three
+bindings in this Terraform root, then drop the broad `roles/viewer`
+in favor of the narrower service-specific viewer roles.
+
 ## Dev Plan
 
 ```bash
@@ -41,8 +74,12 @@ terraform plan -var-file=environments/dev.tfvars
 Staging/prod plans use `environments/staging.tfvars` and
 `environments/prod.tfvars` after those projects exist.
 
-The dev project already has a manually-created `dragonfly-api` service. Before
-the first Terraform apply in dev, import it or intentionally replace it:
+The dev `dragonfly-api` Cloud Run service was originally created via
+`gcloud run deploy --source` and was imported into Terraform state on
+2026-05-07 (commit on branch `chore/terraform-remote-state`). Subsequent
+applies will manage it in place; `terraform plan` should show only
+intentional changes, never a recreation. If you need to re-import after a
+state recovery, the command is:
 
 ```bash
 terraform import \
