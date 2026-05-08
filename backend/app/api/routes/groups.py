@@ -1,18 +1,28 @@
-"""Group create + join routes."""
+"""Group create + kid-provisioning + join routes."""
 
 from __future__ import annotations
 
 import secrets
+from typing import Annotated, Literal
 
 import structlog
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from ulid import ULID
 
-from app.core.auth import CurrentUserDep
+from app.core.auth import (
+    CurrentUserDep,
+    create_firebase_custom_token,
+    create_firebase_user,
+    delete_firebase_user,
+    set_firebase_custom_claims,
+)
+from app.core.config import Settings, get_request_settings
 from app.db import models
 from app.db.session import DbSessionDep
+
+AgeBand = Literal["9-10", "11-12", "13+"]
 
 router = APIRouter(prefix="/v1", tags=["groups"])
 
@@ -142,3 +152,147 @@ async def create_group(
         owner_role=user.role,
     )
     return GroupResponse.from_model(group)
+
+
+# ---------------------------------------------------------------------------
+# POST /v1/groups/{group_id}/kids -- admin-create a kid via Firebase Admin SDK
+# ---------------------------------------------------------------------------
+
+
+_KID_PROVISIONER_ROLES = frozenset({"parent", "teacher"})
+
+
+class KidCreateRequest(BaseModel):
+    display_name: str = Field(..., min_length=1, max_length=80)
+    age_band: AgeBand
+
+
+class KidCreateResponse(BaseModel):
+    """Public shape of a freshly-provisioned kid + the Firebase custom token.
+
+    The custom token is one-time-use; the parent hands it to the kid's
+    device, the kid's Firebase Web SDK calls `signInWithCustomToken`, and
+    from then on the kid's app uses normal ID tokens.
+    """
+
+    id: str
+    firebase_uid: str
+    display_name: str
+    age_band: str
+    custom_token: str
+
+
+@router.post(
+    "/groups/{group_id}/kids",
+    response_model=KidCreateResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_kid(
+    group_id: str,
+    request_body: KidCreateRequest,
+    current_user: CurrentUserDep,
+    session: DbSessionDep,
+    settings: Annotated[Settings, Depends(get_request_settings)],
+) -> KidCreateResponse:
+    """Admin-create a kid account inside a group.
+
+    Authorization: caller must have a `users` row with role parent or teacher
+    AND must own the target group. Phase 1 keeps this strict (only the owner)
+    -- co-parent / co-teacher flows can ride the join-code redemption path.
+
+    Side effects (in order):
+    1. Create a Firebase user with no email via Admin SDK.
+    2. Set custom claims `{role: 'kid', group_id, parent_user_id}` so the
+       kid's ID tokens carry their identity context once they sign in.
+    3. Insert `users` and `memberships` rows in one transaction.
+    4. Mint a Firebase custom token for the kid's first sign-in.
+
+    On any failure after step 1, the Firebase user is best-effort deleted to
+    avoid orphan auth records.
+    """
+    user_result = await session.execute(
+        select(models.User).where(models.User.firebase_uid == current_user.uid)
+    )
+    caller = user_result.scalar_one_or_none()
+    if caller is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=(
+                "Calling Firebase user has no `users` row. "
+                "Sign up via /v1/auth/parent-signup or the teacher equivalent first."
+            ),
+        )
+    if caller.role not in _KID_PROVISIONER_ROLES:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Role '{caller.role}' cannot provision kids.",
+        )
+
+    group_result = await session.execute(
+        select(models.Group).where(models.Group.id == group_id)
+    )
+    group = group_result.scalar_one_or_none()
+    if group is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Group '{group_id}' not found.",
+        )
+    if group.owner_user_id != caller.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only the group owner can provision kids in this group.",
+        )
+
+    kid_firebase_uid = create_firebase_user(
+        display_name=request_body.display_name,
+        settings=settings,
+    )
+
+    try:
+        set_firebase_custom_claims(
+            kid_firebase_uid,
+            {"role": "kid", "group_id": group.id, "parent_user_id": caller.id},
+            settings,
+        )
+
+        kid = models.User(
+            id=str(ULID()),
+            firebase_uid=kid_firebase_uid,
+            role="kid",
+            display_name=request_body.display_name,
+            age_band=request_body.age_band,
+            parent_user_id=caller.id,
+        )
+        membership = models.Membership(
+            id=str(ULID()),
+            group_id=group.id,
+            user_id=kid.id,
+            role="kid",
+        )
+        session.add(kid)
+        session.add(membership)
+        await session.commit()
+        await session.refresh(kid)
+    except Exception:
+        # Best-effort cleanup so we don't leak a Firebase user that has no
+        # corresponding `users` row. Swallow cleanup errors -- raising here
+        # would mask the original cause.
+        delete_firebase_user(kid_firebase_uid, settings)
+        raise
+
+    custom_token = create_firebase_custom_token(kid_firebase_uid, settings)
+
+    log.info(
+        "groups.create_kid",
+        group_id=group.id,
+        kid_id=kid.id,
+        parent_id=caller.id,
+    )
+
+    return KidCreateResponse(
+        id=kid.id,
+        firebase_uid=kid.firebase_uid,
+        display_name=kid.display_name,
+        age_band=str(kid.age_band),
+        custom_token=custom_token,
+    )

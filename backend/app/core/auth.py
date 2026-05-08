@@ -72,10 +72,54 @@ def set_firebase_custom_claims(
     """Set custom claims on a Firebase user via the Admin SDK.
 
     Custom claims propagate into the user's next ID token (after the client
-    refreshes its token). The full claim set is replaced on each call —
+    refreshes its token). The full claim set is replaced on each call --
     callers should pass the complete intended state, not deltas.
     """
     firebase_auth.set_custom_user_claims(uid, claims, app=_firebase_app(settings))
+
+
+def create_firebase_user(
+    *,
+    display_name: str,
+    settings: Settings,
+) -> str:
+    """Create a Firebase user with no email (for kid accounts) and return its UID.
+
+    Kids never have email addresses. The returned UID is the canonical
+    identity; the caller is responsible for storing it on the corresponding
+    `users` row and setting custom claims.
+    """
+    record = firebase_auth.create_user(
+        display_name=display_name,
+        app=_firebase_app(settings),
+    )
+    return cast(str, record.uid)
+
+
+def delete_firebase_user(uid: str, settings: Settings) -> None:
+    """Delete a Firebase user by UID. Used for cleanup on partial-create failure.
+
+    Swallows `UserNotFoundError` so it's safe to call defensively even if the
+    user was never actually created.
+    """
+    try:
+        firebase_auth.delete_user(uid, app=_firebase_app(settings))
+    except firebase_auth.UserNotFoundError:
+        return
+
+
+def create_firebase_custom_token(uid: str, settings: Settings) -> str:
+    """Mint a Firebase custom token the client can exchange for an ID token.
+
+    Used to hand a freshly-provisioned kid account off to the kid's device:
+    the parent gives the kid the custom token (or scans a QR), the kid's
+    Firebase Web SDK calls `signInWithCustomToken`, and from then on the
+    kid's app uses normal ID tokens.
+    """
+    token = firebase_auth.create_custom_token(uid, app=_firebase_app(settings))
+    if isinstance(token, bytes):
+        return token.decode("utf-8")
+    return cast(str, token)
 
 
 def _claim_str(claims: dict[str, object], key: str) -> str | None:
