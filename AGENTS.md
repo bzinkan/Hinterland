@@ -180,7 +180,21 @@ Exit criteria:
 
 - A parent can create a group, create a kid, sign in as the kid, and call `/v1/me`.
 
-**Status:** In progress 2026-05-07. Foundation landed via PR #8 (`feat/firebase-auth`): Firebase Admin SDK dependency, ID-token verification dependency in `backend/app/core/auth.py`, `GET /v1/me` endpoint, mocked auth tests, `WWW-Authenticate` preserved through the error envelope. Firebase project configured on `dragonflyapp-495423` with Email/Password sign-in enabled and a Web app registered for the future Expo client. [ADR 0008](docs/adr/0008-public-cloud-run-with-firebase-enforcement.md) decides that dev Cloud Run becomes publicly callable (`allUsers` invoker) and Firebase ID-token verification is the only auth boundary — so mobile clients without a Google identity can still hit the API. Remaining work: parent signup endpoint, group create with 6-char join code, kid provisioning via the Firebase Admin SDK, join-code redemption endpoint, and a Postman/scripted smoke collection.
+**Status:** Endpoint surface complete 2026-05-08. Foundation: PR #8 landed Firebase Admin SDK + ID-token verification + `GET /v1/me`; Firebase project configured on `dragonflyapp-495423` with Email/Password sign-in and a Web app registered; [ADR 0008](docs/adr/0008-public-cloud-run-with-firebase-enforcement.md) decided dev Cloud Run is publicly callable with Firebase ID-token verification as the only auth boundary. All four Phase 4 endpoints implemented:
+
+- `POST /v1/auth/parent-signup` (PR #13) — idempotent `users` upsert keyed by `firebase_uid`, sets the Firebase custom claim `role=parent`.
+- `POST /v1/groups` (PR #14) — group create with a Crockford-base32 6-char join code (no I/L/O/U), CSPRNG-generated, collision-checked with retry. Atomic Group + owner Membership insert.
+- `POST /v1/groups/{group_id}/kids` (PR #15) — admin-create a kid via Firebase Admin SDK (no email), set custom claims `{role: 'kid', group_id, parent_user_id}`, insert User + Membership, mint a Firebase custom token. Best-effort Firebase cleanup on partial-create failure.
+- `POST /v1/groups/join` (PR #16) — idempotent join-code redemption; lowercase normalized at the boundary.
+
+Authorization on all four routes gates on canonical `users.role` from Postgres rather than the Firebase ID-token claim, so a parent who just signed up doesn't have to refresh their token before creating a group. The custom claim is a convenience cache of the same fact.
+
+Tests: every endpoint covers 401/4xx/5xx/happy-path with `AsyncMock(spec=AsyncSession)` for the DB and module-level monkeypatches for the Firebase Admin wrappers.
+
+Remaining for Phase 4 ✅ Met:
+
+1. End-to-end smoke test against deployed dev: parent signs up via Firebase Web SDK → creates group → admin-creates kid → kid signs in via the custom token → kid calls `/v1/me`. Single happy-path run from a real device or curl is enough.
+2. `docs/postman/` (or `scripts/smoke_phase4.py`) checked in as the reproducible smoke collection.
 
 ### 5. Mobile Phase 0
 
