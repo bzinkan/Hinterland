@@ -127,6 +127,82 @@ For Cloud Run environments, run migrations from a controlled deploy job or
 one-off admin machine with the same `DRAGONFLY_DATABASE_*` settings as the
 target service. Do not run migrations from app startup.
 
+The `dragonfly-migrate` Cloud Run Job already exists and runs `alembic
+upgrade head` against `dragonfly-postgres-dev` using the runtime SA's
+Cloud SQL connection. Re-execute it after any new migration:
+
+```bash
+TOKEN=$(gcloud auth application-default print-access-token)
+curl -X POST -H "Authorization: Bearer $TOKEN" \
+  -H "X-Goog-User-Project: dragonflyapp-495423" \
+  "https://run.googleapis.com/v2/projects/dragonflyapp-495423/locations/us-central1/jobs/dragonfly-migrate:run" \
+  -d '{}'
+```
+
+## Cleanup Smoke Test Users
+
+`scripts/smoke_phase4.py` runs after every dev deploy (per the workflow's
+`Phase 4 end-to-end smoke` step) and creates a parent + a kid in Firebase
+Auth and the corresponding rows in Postgres. Email pattern:
+`smoke+<ts>@dragonfly-test.invalid`.
+
+`backend/admin/cleanup_smoke_users.py` deletes the accumulated users from
+both Firebase and Postgres in the right FK order. Run as a Cloud Run Job
+using the same image as `dragonfly-api`. Create the job once (or per
+re-image), then re-execute as needed.
+
+Create the job (one-time, or after any change to the cleanup script):
+
+```bash
+PROJECT=dragonflyapp-495423
+SA=dragonfly-api-dev@$PROJECT.iam.gserviceaccount.com
+INSTANCE=$PROJECT:us-central1:dragonfly-postgres-dev
+IMAGE=us-central1-docker.pkg.dev/$PROJECT/dragonfly/dragonfly-api:latest
+TOKEN=$(gcloud auth application-default print-access-token)
+
+# Replace the job spec; PUT-style upsert by re-creating after delete if it
+# already exists, or use --jobId to a new name.
+curl -X POST \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -H "X-Goog-User-Project: $PROJECT" \
+  "https://run.googleapis.com/v2/projects/$PROJECT/locations/us-central1/jobs?jobId=dragonfly-cleanup-smoke" \
+  -d "{
+    \"labels\": {\"purpose\": \"cleanup-smoke\"},
+    \"template\": {\"template\": {
+      \"serviceAccount\": \"$SA\",
+      \"maxRetries\": 0,
+      \"timeout\": \"600s\",
+      \"volumes\": [{\"name\": \"cloudsql\", \"cloudSqlInstance\": {\"instances\": [\"$INSTANCE\"]}}],
+      \"containers\": [{
+        \"image\": \"$IMAGE\",
+        \"command\": [\"python\", \"-m\", \"admin.cleanup_smoke_users\"],
+        \"env\": [
+          {\"name\": \"DRAGONFLY_ENV\", \"value\": \"dev\"},
+          {\"name\": \"DRAGONFLY_DATABASE_HOST\", \"value\": \"/cloudsql/$INSTANCE\"},
+          {\"name\": \"DRAGONFLY_DATABASE_NAME\", \"value\": \"dragonfly\"},
+          {\"name\": \"DRAGONFLY_DATABASE_USER\", \"value\": \"dragonfly\"},
+          {\"name\": \"DRAGONFLY_CLOUD_SQL_INSTANCE\", \"value\": \"$INSTANCE\"},
+          {\"name\": \"DRAGONFLY_DATABASE_PASSWORD\", \"valueSource\": {\"secretKeyRef\": {\"secret\": \"dragonfly-dev-database-password\", \"version\": \"latest\"}}}
+        ],
+        \"volumeMounts\": [{\"name\": \"cloudsql\", \"mountPath\": \"/cloudsql\"}]
+      }]
+    }}
+  }"
+```
+
+Run the job (idempotent; safe to call repeatedly):
+
+```bash
+curl -X POST -H "Authorization: Bearer $TOKEN" \
+  -H "X-Goog-User-Project: $PROJECT" \
+  "https://run.googleapis.com/v2/projects/$PROJECT/locations/us-central1/jobs/dragonfly-cleanup-smoke:run" \
+  -d '{}'
+```
+
+Job logs (Cloud Logging) will show the `cleanup_smoke.*` structured
+events: `discovered`, `parent_pg_ids`, `kid_pg_ids`, the four delete
+counts, and `deleted_firebase_users`.
+
 ## Restore Cloud SQL
 
 1. Identify the target restore time.
