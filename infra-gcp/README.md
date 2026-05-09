@@ -44,24 +44,24 @@ Credentials. If you hit `oauth2: invalid_rapt`, run
 
 **The state bucket itself is currently NOT managed by this Terraform root**
 (chicken-and-egg with backend bootstrap). The `gs://dragonflyapp-tfstate`
-bucket was created via `gcloud storage buckets create` on 2026-05-07.
+bucket was created via `gcloud storage buckets create` on 2026-05-07. The
+`roles/storage.objectAdmin` binding for the deploy SA on that bucket is
+also out-of-band and should be imported + codified together with the
+bucket itself in a future PR.
 
-Importing the existing dev Cloud Run service into state added refresh
-reads on resources the deploy SA could previously skip. The deploy SA
-`github-deploy-dev@dragonflyapp-495423.iam.gserviceaccount.com` was
-granted these out-of-band roles to make `terraform plan` work in CI:
+The other deploy-SA bindings that were temporarily out-of-band are now in
+this Terraform root: `roles/iam.securityReviewer` and `roles/viewer` at
+project scope (for `terraform plan` refresh reads), and
+`roles/artifactregistry.repoAdmin` on the `dragonfly` repo (for the
+deploy workflow's `:latest` tag step). The runtime SA's
+`roles/firebaseauth.admin` (for Admin SDK user-mgmt calls) and
+`roles/iam.serviceAccountTokenCreator` self-binding (for
+`create_custom_token` via `iam.signBlob`) are also codified.
 
-- `roles/storage.objectAdmin` on `gs://dragonflyapp-tfstate` — read state +
-  acquire locks
-- `roles/iam.securityReviewer` at project scope — `iam.serviceAccounts.getIamPolicy`
-  for SA IAM refresh
-- `roles/viewer` at project scope — broader resource refresh reads
-  (workload identity pools, etc.) that the SA's apply-only role bundle
-  didn't include
-
-A follow-up PR should import the state bucket and codify all three
-bindings in this Terraform root, then drop the broad `roles/viewer`
-in favor of the narrower service-specific viewer roles.
+The `roles/orgpolicy.policyAdmin` grant for `brian@dragonfly-app.net` at
+the **organization** level is intentionally NOT in this Terraform root
+— managing org-level IAM from a project-scoped Terraform is unusual and
+that grant is a one-time bootstrap.
 
 ## Dev Plan
 
