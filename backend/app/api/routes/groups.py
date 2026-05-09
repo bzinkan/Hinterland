@@ -267,7 +267,13 @@ async def create_kid(
             user_id=kid.id,
             role="kid",
         )
+        # Flush the kid User insert before adding the Membership so the FK
+        # target exists by the time the Membership INSERT runs. SQLAlchemy's
+        # topological sort gets confused by the self-referential User
+        # parent_user_id FK in the same flush as a Membership FK to users.id;
+        # the explicit flush forces the right order.
         session.add(kid)
+        await session.flush()
         session.add(membership)
         await session.commit()
         await session.refresh(kid)

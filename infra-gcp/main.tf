@@ -262,6 +262,16 @@ resource "google_cloud_run_v2_service" "api" {
         value = "true"
       }
 
+      env {
+        # Skip the per-request user lookup that check_revoked=True triggers.
+        # Signature/iss/aud/exp validation still runs -- that's the meaningful
+        # security check. The runtime SA doesn't have firebaseauth.users.get
+        # permission, so check_revoked=True would 401 every authenticated
+        # request. Revisit if/when the SA gets that role.
+        name  = "DRAGONFLY_FIREBASE_CHECK_REVOKED"
+        value = "false"
+      }
+
       volume_mounts {
         name       = "cloudsql"
         mount_path = "/cloudsql"
