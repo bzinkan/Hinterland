@@ -184,6 +184,25 @@ resource "google_storage_bucket_iam_member" "api_photos_object_admin" {
   member = "serviceAccount:${google_service_account.api.email}"
 }
 
+# Firebase Admin SDK on the runtime SA. Needed for set_custom_user_claims
+# (parent-signup, kid create) and create_user (kid create). Includes
+# firebaseauth.users.get which the SDK also uses when check_revoked=True.
+resource "google_project_iam_member" "api_firebaseauth_admin" {
+  project = var.project_id
+  role    = "roles/firebaseauth.admin"
+  member  = "serviceAccount:${google_service_account.api.email}"
+}
+
+# Lets the runtime SA sign blobs against itself, which is what
+# firebase_admin.auth.create_custom_token does internally (via
+# iam.signBlob) when no explicit service-account JSON is provided. This
+# is the standard pattern for ADC-based custom token minting.
+resource "google_service_account_iam_member" "api_token_creator_self" {
+  service_account_id = google_service_account.api.name
+  role               = "roles/iam.serviceAccountTokenCreator"
+  member             = "serviceAccount:${google_service_account.api.email}"
+}
+
 resource "google_cloud_run_v2_service" "api" {
   name                = local.service_name
   location            = var.region
@@ -260,16 +279,6 @@ resource "google_cloud_run_v2_service" "api" {
       env {
         name  = "DRAGONFLY_READINESS_DATABASE_REQUIRED"
         value = "true"
-      }
-
-      env {
-        # Skip the per-request user lookup that check_revoked=True triggers.
-        # Signature/iss/aud/exp validation still runs -- that's the meaningful
-        # security check. The runtime SA doesn't have firebaseauth.users.get
-        # permission, so check_revoked=True would 401 every authenticated
-        # request. Revisit if/when the SA gets that role.
-        name  = "DRAGONFLY_FIREBASE_CHECK_REVOKED"
-        value = "false"
       }
 
       volume_mounts {
@@ -394,11 +403,54 @@ resource "google_project_iam_member" "github_service_usage" {
   member  = "serviceAccount:${google_service_account.github_deploy.email}"
 }
 
+# `terraform plan` in CI needs IAM-policy read access on the resources
+# already in state. roles/iam.securityReviewer covers the SA IAM reads
+# (iam.serviceAccounts.getIamPolicy) that the google provider performs
+# on every refresh.
+resource "google_project_iam_member" "github_deploy_security_reviewer" {
+  project = var.project_id
+  role    = "roles/iam.securityReviewer"
+  member  = "serviceAccount:${google_service_account.github_deploy.email}"
+}
+
+# Broader resource-read role for `terraform plan` to refresh the rest of
+# the state (workloadIdentityPools.get, etc.). Coarser than ideal; the
+# alternative is granting six narrower viewer roles. Revisit if a
+# narrower bundle becomes worth the maintenance.
+resource "google_project_iam_member" "github_deploy_viewer" {
+  project = var.project_id
+  role    = "roles/viewer"
+  member  = "serviceAccount:${google_service_account.github_deploy.email}"
+}
+
+# Lets gcloud's source-deploy flow read the Cloud Build staging bucket
+# and push artifacts. Cloud Build switched from its own SA to the
+# Compute Engine default SA in 2024, and that SA needs the builds.builder
+# role explicitly to operate. Required by the workflow's Build image
+# step using `gcloud builds submit --tag`.
+resource "google_project_iam_member" "cloudbuild_compute_builds_builder" {
+  project = var.project_id
+  role    = "roles/cloudbuild.builds.builder"
+  member  = "serviceAccount:${local.cloudbuild_service_account}"
+}
+
 resource "google_artifact_registry_repository_iam_member" "github_artifact_writer" {
   project    = var.project_id
   location   = google_artifact_registry_repository.backend.location
   repository = google_artifact_registry_repository.backend.name
   role       = "roles/artifactregistry.writer"
+  member     = "serviceAccount:${google_service_account.github_deploy.email}"
+}
+
+# repoAdmin (specifically tags.delete + tags.create) is needed for the
+# deploy workflow's "Tag image as :latest" step, which moves the
+# floating tag to the freshly-built SHA. roles/artifactregistry.writer
+# does NOT include tags.delete, so the move was failing before this.
+resource "google_artifact_registry_repository_iam_member" "github_deploy_repo_admin" {
+  project    = var.project_id
+  location   = google_artifact_registry_repository.backend.location
+  repository = google_artifact_registry_repository.backend.name
+  role       = "roles/artifactregistry.repoAdmin"
   member     = "serviceAccount:${google_service_account.github_deploy.email}"
 }
 
