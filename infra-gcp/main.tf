@@ -82,6 +82,10 @@ resource "google_sql_database_instance" "main" {
   deletion_protection = var.environment == "prod"
 
   settings {
+    # ENTERPRISE keeps the legacy shared-core tiers (db-g1-small, etc.) which
+    # ENTERPRISE_PLUS rejects. Cheap dev posture; revisit for prod when we
+    # care about the perf/availability features ENTERPRISE_PLUS adds.
+    edition           = "ENTERPRISE"
     tier              = var.database_tier
     availability_type = var.environment == "prod" ? "REGIONAL" : "ZONAL"
     disk_size         = var.database_disk_size_gb
