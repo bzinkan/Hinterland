@@ -107,3 +107,11 @@ jobs:
           curl --fail --silent --show-error -H "Authorization: Bearer ${TOKEN}" "${URL}/health"
           curl --fail --silent --show-error -H "Authorization: Bearer ${TOKEN}" "${URL}/ready"
           curl --fail --silent --show-error -H "Authorization: Bearer ${TOKEN}" "${URL}/v1/meta"
+
+      - name: Phase 4 end-to-end smoke
+        # Runs the full Firebase signUp -> parent-signup -> groups -> kids ->
+        # /v1/me round-trip via scripts/smoke_phase4.py. Stdlib-only Python,
+        # no extra deps to install. Hits api.dragonfly-app.net by default.
+        # Test users (smoke+<ts>@dragonfly-test.invalid) accumulate in Firebase
+        # + Postgres on every run; periodic cleanup is a follow-up.
+        run: python scripts/smoke_phase4.py
