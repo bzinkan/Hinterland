@@ -20,6 +20,7 @@ COPY --from=builder /app/.venv /app/.venv
 COPY app/ ./app/
 COPY alembic.ini ./
 COPY alembic/ ./alembic/
+COPY admin/ ./admin/
 
 ENV PATH="/app/.venv/bin:${PATH}"
 
