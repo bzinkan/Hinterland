@@ -180,21 +180,24 @@ Exit criteria:
 
 - A parent can create a group, create a kid, sign in as the kid, and call `/v1/me`.
 
-**Status:** Endpoint surface complete 2026-05-08. Foundation: PR #8 landed Firebase Admin SDK + ID-token verification + `GET /v1/me`; Firebase project configured on `dragonflyapp-495423` with Email/Password sign-in and a Web app registered; [ADR 0008](docs/adr/0008-public-cloud-run-with-firebase-enforcement.md) decided dev Cloud Run is publicly callable with Firebase ID-token verification as the only auth boundary. All four Phase 4 endpoints implemented:
+**Status:** ✅ Met 2026-05-09. Foundation: PR #8 landed Firebase Admin SDK + ID-token verification + `GET /v1/me`; Firebase project configured on `dragonflyapp-495423` with Email/Password sign-in and a Web app registered; [ADR 0008](docs/adr/0008-public-cloud-run-with-firebase-enforcement.md) decided dev Cloud Run is publicly callable with Firebase ID-token verification as the only auth boundary. All four Phase 4 endpoints implemented:
 
 - `POST /v1/auth/parent-signup` (PR #13) — idempotent `users` upsert keyed by `firebase_uid`, sets the Firebase custom claim `role=parent`.
 - `POST /v1/groups` (PR #14) — group create with a Crockford-base32 6-char join code (no I/L/O/U), CSPRNG-generated, collision-checked with retry. Atomic Group + owner Membership insert.
-- `POST /v1/groups/{group_id}/kids` (PR #15) — admin-create a kid via Firebase Admin SDK (no email), set custom claims `{role: 'kid', group_id, parent_user_id}`, insert User + Membership, mint a Firebase custom token. Best-effort Firebase cleanup on partial-create failure.
+- `POST /v1/groups/{group_id}/kids` (PR #15) — admin-create a kid via Firebase Admin SDK (no email), set custom claims `{role, group_id, parent_id}`, insert User + Membership, mint a Firebase custom token. Best-effort Firebase cleanup on partial-create failure.
 - `POST /v1/groups/join` (PR #16) — idempotent join-code redemption; lowercase normalized at the boundary.
 
 Authorization on all four routes gates on canonical `users.role` from Postgres rather than the Firebase ID-token claim, so a parent who just signed up doesn't have to refresh their token before creating a group. The custom claim is a convenience cache of the same fact.
 
-Tests: every endpoint covers 401/4xx/5xx/happy-path with `AsyncMock(spec=AsyncSession)` for the DB and module-level monkeypatches for the Firebase Admin wrappers.
+Tests: every endpoint covers 401/4xx/5xx/happy-path with `AsyncMock(spec=AsyncSession)` for the DB and module-level monkeypatches for the Firebase Admin wrappers (PR #15 also has a partial-create-cleanup test).
 
-Remaining for Phase 4 ✅ Met:
+End-to-end smoke (`scripts/smoke_phase4.py`, PR #18) runs all 7 round-trip steps against the deployed dev service: Firebase signUp → parent-signup → token refresh → groups create → kids create → custom-token sign-in → kid `/v1/me`. **All 7 green as of 2026-05-09 against revision `dragonfly-api-00014-*` backed by Cloud SQL `dragonfly-postgres-dev` (db-g1-small, ENTERPRISE edition).**
 
-1. End-to-end smoke test against deployed dev: parent signs up via Firebase Web SDK → creates group → admin-creates kid → kid signs in via the custom token → kid calls `/v1/me`. Single happy-path run from a real device or curl is enough.
-2. `docs/postman/` (or `scripts/smoke_phase4.py`) checked in as the reproducible smoke collection.
+Out-of-band IAM grants needed (codify in Terraform as a follow-up):
+
+- `roles/firebaseauth.admin` on the runtime SA `dragonfly-api-dev@…` at project scope — Admin SDK `set_custom_user_claims` and `create_user` need it.
+- `roles/iam.serviceAccountTokenCreator` on the runtime SA *to itself* — `create_custom_token` calls `iam:signBlob` against the same SA.
+- `DRAGONFLY_FIREBASE_CHECK_REVOKED=false` env var on Cloud Run — temporary; flip back to `true` once the runtime SA also gets `firebaseauth.users.get` (ironically already in `firebaseauth.admin`, so this can be removed in the same follow-up).
 
 ### 5. Mobile Phase 0
 
