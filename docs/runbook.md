@@ -203,6 +203,14 @@ Job logs (Cloud Logging) will show the `cleanup_smoke.*` structured
 events: `discovered`, `parent_pg_ids`, `kid_pg_ids`, the four delete
 counts, and `deleted_firebase_users`.
 
+A Cloud Scheduler cron (`dragonfly-cleanup-smoke-nightly`, codified in
+`infra-gcp/main.tf`, dev only) fires the job nightly at 09:00 UTC
+(04:00 America/Chicago CDT). The schedule and the
+`dragonfly-scheduler-dev` service account that invokes it are managed
+by Terraform; the job spec itself is still out-of-band (importing it is
+a follow-up). Manual `:run` calls remain safe to interleave with the
+nightly cron — the script is idempotent.
+
 ## Restore Cloud SQL
 
 1. Identify the target restore time.

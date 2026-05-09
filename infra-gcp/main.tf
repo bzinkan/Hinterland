@@ -12,9 +12,11 @@ locals {
   cloudbuild_service_account = "${data.google_project.current.number}-compute@developer.gserviceaccount.com"
   github_pool_id             = "github-${var.environment}"
   github_provider_id         = "github-provider"
+  cleanup_smoke_job_name     = "dragonfly-cleanup-smoke"
   enabled_service_list = toset([
     "artifactregistry.googleapis.com",
     "cloudbuild.googleapis.com",
+    "cloudscheduler.googleapis.com",
     "compute.googleapis.com",
     "firebase.googleapis.com",
     "identitytoolkit.googleapis.com",
@@ -522,6 +524,68 @@ resource "google_monitoring_alert_policy" "api_5xx" {
   }
 
   notification_channels = var.notification_channel_ids
+}
+
+# Nightly drain of the smoke+*@dragonfly-test.invalid users that
+# scripts/smoke_phase4.py creates after every deploy. The Cloud Run Job
+# itself (dragonfly-cleanup-smoke) is currently created out-of-band via
+# REST -- see docs/runbook.md "Cleanup Smoke Test Users". Importing the
+# job into Terraform is a follow-up; the schedule is the urgent piece
+# since accumulation is otherwise manual to drain.
+#
+# Dev only: smoke runs only after dev deploys, so staging/prod don't
+# accumulate. Gated on environment so a future opt-in is one tfvars line.
+resource "google_service_account" "scheduler" {
+  count = var.environment == "dev" ? 1 : 0
+
+  account_id   = "dragonfly-scheduler-${var.environment}"
+  display_name = "Dragonfly Cloud Scheduler ${var.environment}"
+
+  depends_on = [google_project_service.enabled]
+}
+
+# Scheduler SA needs run.invoker on the cleanup job to execute it.
+# References the job by name string (not resource attribute) since the
+# job lives outside Terraform today.
+resource "google_cloud_run_v2_job_iam_member" "scheduler_cleanup_invoker" {
+  count = var.environment == "dev" ? 1 : 0
+
+  project  = var.project_id
+  location = var.region
+  name     = local.cleanup_smoke_job_name
+  role     = "roles/run.invoker"
+  member   = "serviceAccount:${google_service_account.scheduler[0].email}"
+}
+
+# 09:00 UTC = 04:00 America/Chicago (CDT) / 03:00 CST. Well clear of the
+# deploy window and the post-deploy smoke step, so cleanup never races a
+# fresh smoke user it just created.
+resource "google_cloud_scheduler_job" "cleanup_smoke" {
+  count = var.environment == "dev" ? 1 : 0
+
+  name        = "dragonfly-cleanup-smoke-nightly"
+  description = "Nightly drain of smoke+*@dragonfly-test.invalid users"
+  schedule    = "0 9 * * *"
+  time_zone   = "Etc/UTC"
+  region      = var.region
+
+  retry_config {
+    retry_count = 1
+  }
+
+  http_target {
+    http_method = "POST"
+    uri         = "https://${var.region}-run.googleapis.com/apis/run.googleapis.com/v1/namespaces/${var.project_id}/jobs/${local.cleanup_smoke_job_name}:run"
+
+    oauth_token {
+      service_account_email = google_service_account.scheduler[0].email
+    }
+  }
+
+  depends_on = [
+    google_project_service.enabled,
+    google_cloud_run_v2_job_iam_member.scheduler_cleanup_invoker,
+  ]
 }
 
 resource "google_billing_budget" "environment" {
