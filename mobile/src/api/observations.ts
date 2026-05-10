@@ -54,6 +54,50 @@ export function createObservation(payload: ObservationCreate): Promise<Observati
 }
 
 // ---------------------------------------------------------------------------
+// PATCH /v1/observations/{id}
+// ---------------------------------------------------------------------------
+
+export type ObservationPatch = {
+  taxon_id?: number | null;
+  species_name?: string | null;
+  place_name?: string | null;
+};
+
+export function patchObservation(
+  observationId: string,
+  payload: ObservationPatch,
+): Promise<Observation> {
+  return apiRequest<Observation>(`/v1/observations/${observationId}`, {
+    method: "PATCH",
+    body: payload,
+  });
+}
+
+// ---------------------------------------------------------------------------
+// POST /v1/observations/{id}/identify
+// ---------------------------------------------------------------------------
+
+export type CvSuggestion = {
+  taxon_id: number;
+  common_name: string | null;
+  scientific_name: string | null;
+  score: number;
+};
+
+export type IdentifyResponse = {
+  observation_id: string;
+  suggestions: CvSuggestion[];
+  cv_unavailable: boolean;
+};
+
+export function identifyObservation(observationId: string): Promise<IdentifyResponse> {
+  return apiRequest<IdentifyResponse>(
+    `/v1/observations/${observationId}/identify`,
+    { method: "POST" },
+  );
+}
+
+// ---------------------------------------------------------------------------
 // GET /v1/observations/me
 // ---------------------------------------------------------------------------
 
