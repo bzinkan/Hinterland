@@ -63,7 +63,25 @@ const config: ExpoConfig = {
     output: "static",
     favicon: "./assets/images/favicon.png",
   },
-  plugins: ["expo-router", "expo-secure-store"],
+  plugins: [
+    "expo-router",
+    "expo-secure-store",
+    [
+      "expo-camera",
+      {
+        cameraPermission:
+          "Dragonfly uses your camera to take photos of plants and animals you find.",
+        recordAudioAndroid: false,
+      },
+    ],
+    [
+      "expo-image-picker",
+      {
+        photosPermission:
+          "Dragonfly uses your photo library so you can pick a photo of a plant or animal you found.",
+      },
+    ],
+  ],
   experiments: {
     typedRoutes: true,
   },
