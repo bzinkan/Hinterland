@@ -9,12 +9,13 @@ connection; parallelizing buys nothing and costs determinism).
 from __future__ import annotations
 
 from app.dispatcher.handlers.dex import DexHandler
+from app.dispatcher.handlers.rarity import RarityHandler
 from app.dispatcher.types import Handler
 
 HANDLERS: list[Handler] = [
     DexHandler(),
-    # ExpeditionHandler() -- Phase 9 slice 3
-    # RarityHandler()     -- Phase 9 slice 2
+    RarityHandler(),
+    # ExpeditionHandler() -- Phase 9 slice 3 (stub) / Phase 10 (full)
     # TerritoryHandler()  -- Phase 2
     # SeasonHandler()     -- Phase 3
     # MissionHandler()    -- Phase 4
