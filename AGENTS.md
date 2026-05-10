@@ -215,6 +215,8 @@ Exit criteria:
 
 - Physical iOS or Android device displays the Cloud Run `/health` response.
 
+**Status:** ✅ Met 2026-05-09. New top-level `mobile/` Expo app (SDK 54, Expo Router 6, React 19, RN 0.81, TypeScript strict) landed in PR #28. `app.config.ts` switches API base URL, bundle id (`com.dragonfly.app[.dev|.staging]`), and Expo Update channel by `APP_ENV`. Five-tab nav: Home (live `/health` fetch with status pill), Observe / Dex / Expeditions (placeholders), Settings (shows active env + API URL). `eas.json` carries the three build profiles per `docs/mobile.md`. Verified end-to-end: physical Android device (SM-G998U via Expo Go on `192.168.1.x` LAN) shows `● ok` with `env: dev · version: 0.1.0` from `https://api.dragonfly-app.net`. Intentionally bare — Nativewind, Zustand, TanStack Query, Sentry, expo-camera/-location/-image-manipulator/-sqlite, the offline queue, the celebration sequence, and EAS Update wiring each land with the phase that needs them (Phases 6–11).
+
 ### 6. Observation Happy Path
 
 Goal: a kid can submit an observation and see it in their list.
