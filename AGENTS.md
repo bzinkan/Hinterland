@@ -234,6 +234,8 @@ Exit criteria:
 
 - Kid account on mobile can upload a photo and see the observation in "my observations."
 
+**Status:** ✅ Met 2026-05-09. Backend trio shipped end-to-end: `POST /v1/photos/presign` (PR #30) issues V4 signed PUT URLs via IAM signBlob (no private key needed); `POST /v1/observations` (PR #31) inserts the row and atomically bumps `memberships.observation_count` via `UPDATE … RETURNING id` — preserves the no-read-then-write invariant; `GET /v1/observations/me` (PR #32) is cursor-paginated newest-first, joining `photos` for status. Mobile: API client + bearer-token store + TanStack Query (PR #33), camera capture + image-manipulator resize to 1600px/0.8 JPEG + Zustand draft store (PR #34), submit screen running presign → PUT → create with per-step status (PR #35), Home tab listing my observations with pull-to-refresh and cursor-paginated "Load more" (PR #36). GCS `pending/` prefix uses the existing `dragonfly-photos-dev-…` bucket and its 24h lifecycle rule. `observations/` and `quarantine/` prefixes are reserved for the moderation worker (Phase 8). Photo bytes themselves still need a signed-GET endpoint to render in the list — Phase 7 follow-up. Real Firebase sign-in replaces the dev "paste an ID token" Settings shortcut also in Phase 7+.
+
 ### 7. External Integrations
 
 Goal: enrich observations while preserving graceful degradation.
