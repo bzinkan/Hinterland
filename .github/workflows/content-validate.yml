@@ -36,9 +36,14 @@ jobs:
         run: uv run python ../scripts/validate_content.py
 
       - name: Confirm JSON schema is up to date
-        working-directory: backend
-        # regenerate_schema.py is idempotent; if the committed schema doesn't
-        # match the Pydantic model, git diff --exit-code fails.
+        # regenerate_schema.py is idempotent; if the committed schema
+        # doesn't match the Pydantic model, the diff catches it.
+        # The schema lives at the repo root under content/schema/, so
+        # run the diff from there. The script itself is invoked via
+        # `cd backend` so uv resolves the right venv.
         run: |
-          uv run python ../scripts/regenerate_schema.py
-          git diff --exit-code content/schema/expedition.schema.json
+          (cd backend && uv run python ../scripts/regenerate_schema.py)
+          git diff --exit-code content/schema/expedition.schema.json || (
+            echo "::error::content/schema/expedition.schema.json is out of date. Run scripts/regenerate_schema.py and commit."
+            exit 1
+          )
