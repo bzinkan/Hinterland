@@ -38,6 +38,9 @@ from app.core.config import Settings, get_request_settings
 from app.core.storage import SignedUrlGeneratorDep
 from app.db import models
 from app.db.session import DbSessionDep
+from app.dispatcher.core import dispatch
+from app.dispatcher.registry import HANDLERS
+from app.dispatcher.types import Context, Reward
 from app.inat.client import InatClientDep, InatUnavailable
 from app.inat.cv import score_image
 from app.services import species_cache
@@ -56,6 +59,32 @@ class ObservationCreateRequest(BaseModel):
     place_name: str | None = Field(default=None, max_length=200)
 
 
+class RewardDTO(BaseModel):
+    """Public shape of a dispatcher Reward over the API.
+
+    Mirrors `app.dispatcher.types.Reward`. The mobile celebration sequence
+    sorts these by `weight` desc and renders one at a time.
+    """
+
+    type: str
+    title: str
+    detail: str
+    icon: str
+    weight: int
+    payload: dict[str, object] = Field(default_factory=dict)
+
+    @classmethod
+    def from_reward(cls, reward: Reward) -> RewardDTO:
+        return cls(
+            type=reward.type,
+            title=reward.title,
+            detail=reward.detail,
+            icon=reward.icon,
+            weight=reward.weight,
+            payload=dict(reward.payload),
+        )
+
+
 class ObservationResponse(BaseModel):
     id: str
     user_id: str
@@ -67,9 +96,14 @@ class ObservationResponse(BaseModel):
     taxon_id: int | None
     species_name: str | None
     place_name: str | None
+    rewards: list[RewardDTO] = Field(default_factory=list)
 
     @classmethod
-    def from_model(cls, obs: models.Observation) -> ObservationResponse:
+    def from_model(
+        cls,
+        obs: models.Observation,
+        rewards: list[Reward] | None = None,
+    ) -> ObservationResponse:
         return cls(
             id=obs.id,
             user_id=obs.user_id,
@@ -81,6 +115,7 @@ class ObservationResponse(BaseModel):
             taxon_id=obs.taxon_id,
             species_name=obs.species_name,
             place_name=obs.place_name,
+            rewards=[RewardDTO.from_reward(r) for r in (rewards or [])],
         )
 
 
@@ -181,7 +216,30 @@ async def create_observation(
         geohash4=geohash4,
     )
 
-    return ObservationResponse.from_model(observation)
+    # Dispatcher runs after the observation is persisted. Failure here
+    # never surfaces to the client -- worst case is a missing celebration
+    # which a future replay job can recover. The kid still sees their
+    # observation, just without the rewards.
+    rewards: list[Reward] = []
+    try:
+        group = (
+            await session.execute(select(models.Group).where(models.Group.id == group_id))
+        ).scalar_one_or_none()
+        ctx = Context(
+            db=session,
+            user=user_row,
+            group=group,
+            observation=observation,
+            photo=photo,
+        )
+        rewards = await dispatch(ctx, HANDLERS)
+    except Exception:
+        log.exception(
+            "observations.dispatch_failed",
+            observation_id=obs_id,
+        )
+
+    return ObservationResponse.from_model(observation, rewards=rewards)
 
 
 # ---------------------------------------------------------------------------
