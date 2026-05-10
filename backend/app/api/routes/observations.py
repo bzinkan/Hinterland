@@ -1,29 +1,36 @@
-"""Observation create endpoint.
+"""Observation routes.
 
 `POST /v1/observations` finalizes an observation after the photo has landed
 in `pending/`. It is the second leg of the kid's submission flow:
 
 1. Mobile calls `POST /v1/photos/presign` -> gets `photo_id` + signed URL
 2. Mobile PUTs the photo bytes to the signed URL (lands in `pending/`)
-3. Mobile calls THIS endpoint with `photo_id` + lat/lng + optional taxon
-4. The Eventarc-triggered moderation worker (Phase 8) runs out of band
-   on the `pending/` finalize event and moves the photo to
-   `observations/` or `quarantine/`
+3. Mobile calls `POST /v1/observations` with `photo_id` + lat/lng + taxon
+4. The Eventarc-triggered moderation worker (Phase 8) runs out of band on
+   the `pending/` finalize event and moves the photo to `observations/`
+   or `quarantine/`
 
-The kid sees the celebration on this endpoint's 201, BEFORE moderation.
-That's the documented trade-off in `docs/moderation.md` -- we never block
-the hot path on the moderation provider.
+The kid sees the celebration on the create 201, BEFORE moderation. That's
+the documented trade-off in `docs/moderation.md` -- we never block the
+hot path on the moderation provider.
+
+`GET /v1/observations/me` returns the current user's observations, newest
+first, paginated by ULID cursor (`before=<id>`). Photo bytes themselves
+are fetched via a separate signed-GET endpoint (later slice); this list
+returns only metadata + the underlying `photo` bucket key so the client
+knows what to request.
 """
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Annotated
 
 import geohash
 import structlog
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
-from sqlalchemy import func, select, update
+from sqlalchemy import desc, func, select, update
 from ulid import ULID
 
 from app.core.auth import CurrentUserDep
@@ -171,3 +178,108 @@ async def create_observation(
     )
 
     return ObservationResponse.from_model(observation)
+
+
+# ---------------------------------------------------------------------------
+# GET /v1/observations/me
+# ---------------------------------------------------------------------------
+
+# Page size bounds. 50 is the largest single batch we'll ever serve to the
+# kid app -- the Dex tab uses FlashList virtualization (per docs/mobile.md)
+# and pages by 20 by default. Higher caps invite accidental N+1 fetches.
+_DEFAULT_LIMIT = 20
+_MAX_LIMIT = 50
+
+
+class ObservationListItem(BaseModel):
+    """Single observation in the list response.
+
+    Includes enough photo metadata that the client can render a placeholder
+    + request a signed GET URL on demand. The signed URL endpoint is a
+    follow-up slice; we deliberately don't bake URLs into the list because
+    they'd expire mid-scroll.
+    """
+
+    id: str
+    user_id: str
+    group_id: str
+    photo_id: str
+    photo_object_name: str
+    photo_status: str
+    latitude: float
+    longitude: float
+    geohash4: str | None
+    taxon_id: int | None
+    species_name: str | None
+    place_name: str | None
+    created_at: datetime
+
+
+class ObservationListResponse(BaseModel):
+    items: list[ObservationListItem]
+    next_cursor: str | None = Field(
+        default=None,
+        description=(
+            "Pass back as `before` to fetch the next page. Null when this is the last page."
+        ),
+    )
+
+
+@router.get("/me", response_model=ObservationListResponse)
+async def list_my_observations(
+    current_user: CurrentUserDep,
+    session: DbSessionDep,
+    limit: Annotated[int, Query(ge=1, le=_MAX_LIMIT)] = _DEFAULT_LIMIT,
+    before: Annotated[str | None, Query(min_length=26, max_length=26)] = None,
+) -> ObservationListResponse:
+    user_row = (
+        await session.execute(
+            select(models.User).where(models.User.firebase_uid == current_user.uid)
+        )
+    ).scalar_one_or_none()
+    if user_row is None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="No Postgres user for this Firebase identity",
+        )
+
+    # ULIDs are lex-sortable AND time-sortable, so DESC on id gives newest
+    # first without a separate created_at index. Cursor is just the last id
+    # we returned; "give me rows older than this".
+    stmt = (
+        select(models.Observation, models.Photo)
+        .join(models.Photo, models.Observation.photo_id == models.Photo.id)
+        .where(models.Observation.user_id == user_row.id)
+    )
+    if before is not None:
+        stmt = stmt.where(models.Observation.id < before)
+    stmt = stmt.order_by(desc(models.Observation.id)).limit(limit + 1)
+
+    rows = (await session.execute(stmt)).all()
+
+    has_more = len(rows) > limit
+    page = rows[:limit]
+
+    items = [
+        ObservationListItem(
+            id=obs.id,
+            user_id=obs.user_id,
+            group_id=obs.group_id,
+            photo_id=obs.photo_id,
+            photo_object_name=photo.object_name,
+            photo_status=photo.status,
+            latitude=obs.latitude,
+            longitude=obs.longitude,
+            geohash4=obs.geohash4,
+            taxon_id=obs.taxon_id,
+            species_name=obs.species_name,
+            place_name=obs.place_name,
+            created_at=obs.created_at,
+        )
+        for obs, photo in page
+    ]
+
+    return ObservationListResponse(
+        items=items,
+        next_cursor=items[-1].id if has_more and items else None,
+    )

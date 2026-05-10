@@ -1,4 +1,5 @@
 from collections.abc import AsyncIterator, Iterator
+from datetime import UTC, datetime
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
@@ -269,3 +270,179 @@ def test_create_happy_path(
     assert obs.photo_id == _PHOTO_ID
     assert obs.geohash4 == body["geohash4"]
     fake_session.commit.assert_awaited_once()
+
+
+# ---------------------------------------------------------------------------
+# GET /v1/observations/me
+# ---------------------------------------------------------------------------
+
+
+def _obs_with_photo(
+    obs_id: str,
+    *,
+    taxon_id: int | None = None,
+    species_name: str | None = None,
+) -> tuple[models.Observation, models.Photo]:
+    photo = models.Photo(
+        id=f"PHOTO{obs_id[:21]}",
+        user_id=_USER_ID,
+        bucket="dragonfly-photos-test",
+        object_name=f"pending/{obs_id}.jpg",
+        status="pending",
+        content_type="image/jpeg",
+    )
+    obs = models.Observation(
+        id=obs_id,
+        user_id=_USER_ID,
+        group_id=_GROUP_ID,
+        photo_id=photo.id,
+        latitude=39.1,
+        longitude=-84.5,
+        geohash4="dnp1",
+        taxon_id=taxon_id,
+        species_name=species_name,
+        place_name=None,
+    )
+    obs.created_at = datetime(2026, 5, 9, 23, 0, 0, tzinfo=UTC)
+    return obs, photo
+
+
+def _wire_list_query(
+    fake_session: AsyncMock,
+    *,
+    user: models.User | None,
+    rows: list[tuple[models.Observation, models.Photo]] | None = None,
+) -> None:
+    user_result = MagicMock()
+    user_result.scalar_one_or_none = MagicMock(return_value=user)
+
+    list_result = MagicMock()
+    list_result.all = MagicMock(return_value=rows or [])
+
+    side_effects: list[Any] = [user_result]
+    if user is not None:
+        side_effects.append(list_result)
+
+    fake_session.execute = AsyncMock(side_effect=side_effects)
+
+
+def test_list_requires_bearer_token(observations_client: TestClient) -> None:
+    response = observations_client.get("/v1/observations/me")
+    assert response.status_code == 401
+
+
+def test_list_403_when_no_postgres_user(
+    monkeypatch: pytest.MonkeyPatch,
+    observations_client: TestClient,
+    fake_session: AsyncMock,
+) -> None:
+    _stub_token_verifier(monkeypatch)
+    _wire_list_query(fake_session, user=None)
+
+    response = observations_client.get(
+        "/v1/observations/me",
+        headers={"Authorization": "Bearer fake"},
+    )
+    assert response.status_code == 403
+
+
+def test_list_returns_empty_for_new_user(
+    monkeypatch: pytest.MonkeyPatch,
+    observations_client: TestClient,
+    fake_session: AsyncMock,
+) -> None:
+    _stub_token_verifier(monkeypatch)
+    _wire_list_query(fake_session, user=_user_row(), rows=[])
+
+    response = observations_client.get(
+        "/v1/observations/me",
+        headers={"Authorization": "Bearer fake"},
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["items"] == []
+    assert body["next_cursor"] is None
+
+
+def test_list_returns_items_newest_first_no_more_pages(
+    monkeypatch: pytest.MonkeyPatch,
+    observations_client: TestClient,
+    fake_session: AsyncMock,
+) -> None:
+    _stub_token_verifier(monkeypatch)
+    rows = [
+        _obs_with_photo("01J0OBS00000000000000003", taxon_id=3, species_name="C"),
+        _obs_with_photo("01J0OBS00000000000000002", taxon_id=2, species_name="B"),
+        _obs_with_photo("01J0OBS00000000000000001", taxon_id=1, species_name="A"),
+    ]
+    _wire_list_query(fake_session, user=_user_row(), rows=rows)
+
+    response = observations_client.get(
+        "/v1/observations/me",
+        headers={"Authorization": "Bearer fake"},
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert len(body["items"]) == 3
+    assert [item["id"] for item in body["items"]] == [
+        "01J0OBS00000000000000003",
+        "01J0OBS00000000000000002",
+        "01J0OBS00000000000000001",
+    ]
+    assert body["next_cursor"] is None
+    # Photo metadata included
+    assert body["items"][0]["photo_object_name"].startswith("pending/")
+    assert body["items"][0]["photo_status"] == "pending"
+
+
+def test_list_returns_next_cursor_when_more_pages_exist(
+    monkeypatch: pytest.MonkeyPatch,
+    observations_client: TestClient,
+    fake_session: AsyncMock,
+) -> None:
+    """limit=2 with 3 rows in the result set => returns 2 items + next_cursor."""
+    _stub_token_verifier(monkeypatch)
+    # Endpoint asks for limit+1 to detect overflow; if 3 come back for limit=2,
+    # has_more=True and we trim to 2.
+    rows = [
+        _obs_with_photo("01J0OBS00000000000000003"),
+        _obs_with_photo("01J0OBS00000000000000002"),
+        _obs_with_photo("01J0OBS00000000000000001"),
+    ]
+    _wire_list_query(fake_session, user=_user_row(), rows=rows)
+
+    response = observations_client.get(
+        "/v1/observations/me?limit=2",
+        headers={"Authorization": "Bearer fake"},
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert len(body["items"]) == 2
+    assert body["items"][-1]["id"] == "01J0OBS00000000000000002"
+    # next_cursor is the last returned id (caller passes it as `before` next time)
+    assert body["next_cursor"] == "01J0OBS00000000000000002"
+
+
+def test_list_rejects_limit_above_max(
+    monkeypatch: pytest.MonkeyPatch,
+    observations_client: TestClient,
+) -> None:
+    _stub_token_verifier(monkeypatch)
+    response = observations_client.get(
+        "/v1/observations/me?limit=999",
+        headers={"Authorization": "Bearer fake"},
+    )
+    assert response.status_code == 422
+
+
+def test_list_rejects_malformed_cursor(
+    monkeypatch: pytest.MonkeyPatch,
+    observations_client: TestClient,
+) -> None:
+    _stub_token_verifier(monkeypatch)
+    # ULIDs are 26 chars; anything else is rejected by the Query constraint.
+    response = observations_client.get(
+        "/v1/observations/me?before=tooshort",
+        headers={"Authorization": "Bearer fake"},
+    )
+    assert response.status_code == 422
