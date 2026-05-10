@@ -61,6 +61,14 @@ class Settings(BaseSettings):
     geocoding_user_agent: str = "Dragonfly/0.1 (+https://dragonfly-app.net)"
     geocoding_request_timeout_seconds: float = 5.0
 
+    # Photo moderation. Per ADR 0009, the runtime gate is Cloud Vision
+    # SafeSearch in production. Dev / CI default to "noop" -- every
+    # photo is treated as clean. Per-label thresholds are baked into the
+    # CloudVisionSafeSearchModerator class; the env vars below tune them.
+    moderation_provider: Literal["noop", "cloud_vision_safesearch"] = "noop"
+    vision_api_endpoint: str = "https://vision.googleapis.com/v1"
+    vision_request_timeout_seconds: float = 8.0
+
     cloud_sql_instance: str = ""
     database_host: str = "localhost"
     database_port: int = 5432

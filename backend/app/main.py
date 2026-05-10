@@ -17,6 +17,7 @@ from mangum import Mangum
 from app.api.routes.auth import router as auth_router
 from app.api.routes.geocode import router as geocode_router
 from app.api.routes.groups import router as groups_router
+from app.api.routes.internal_moderation import router as internal_moderation_router
 from app.api.routes.meta import platform_router, v1_router
 from app.api.routes.observations import router as observations_router
 from app.api.routes.photos import router as photos_router
@@ -68,6 +69,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(photos_router)
     app.include_router(observations_router)
     app.include_router(geocode_router)
+    app.include_router(internal_moderation_router)
     return app
 
 

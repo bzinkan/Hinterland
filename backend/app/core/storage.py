@@ -51,6 +51,24 @@ class SignedUrlGenerator(Protocol):
         """
         ...
 
+    def copy_object(
+        self,
+        *,
+        src_bucket: str,
+        src_object: str,
+        dst_bucket: str,
+        dst_object: str,
+    ) -> None:
+        """Copy a GCS object server-side. Used by the moderation worker
+        to move `pending/<id>.jpg` to `observations/<id>.jpg` or
+        `quarantine/<id>.jpg` per ADR 0009 + `docs/moderation.md`."""
+        ...
+
+    def delete_object(self, *, bucket: str, object_name: str) -> None:
+        """Delete a GCS object. Paired with `copy_object` to implement a
+        move (copy then delete) on the moderation hot path."""
+        ...
+
 
 class GcsSignedUrlGenerator:
     """ADC-backed implementation. Uses IAM signBlob, no private key required."""
@@ -95,6 +113,24 @@ class GcsSignedUrlGenerator:
         bucket_obj = self._client.bucket(bucket)
         blob = bucket_obj.blob(object_name)
         return cast(bytes, blob.download_as_bytes())
+
+    def copy_object(
+        self,
+        *,
+        src_bucket: str,
+        src_object: str,
+        dst_bucket: str,
+        dst_object: str,
+    ) -> None:
+        src_bucket_obj = self._client.bucket(src_bucket)
+        src_blob = src_bucket_obj.blob(src_object)
+        dst_bucket_obj = self._client.bucket(dst_bucket)
+        src_bucket_obj.copy_blob(src_blob, dst_bucket_obj, new_name=dst_object)
+
+    def delete_object(self, *, bucket: str, object_name: str) -> None:
+        bucket_obj = self._client.bucket(bucket)
+        blob = bucket_obj.blob(object_name)
+        blob.delete()
 
 
 def get_signed_url_generator(request: Request) -> SignedUrlGenerator:

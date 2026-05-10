@@ -46,8 +46,20 @@ class _StubSignedUrlGenerator:
         )
 
     def fetch_object_bytes(self, *, bucket: str, object_name: str) -> bytes:
-        # Not exercised by the presign tests; the identify tests use their
-        # own stub.
+        # Not exercised by the presign tests; other tests use their own stub.
+        raise NotImplementedError
+
+    def copy_object(
+        self,
+        *,
+        src_bucket: str,
+        src_object: str,
+        dst_bucket: str,
+        dst_object: str,
+    ) -> None:
+        raise NotImplementedError
+
+    def delete_object(self, *, bucket: str, object_name: str) -> None:
         raise NotImplementedError
 
 

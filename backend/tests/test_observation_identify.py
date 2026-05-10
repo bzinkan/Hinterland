@@ -39,6 +39,19 @@ class _StubStorage:
         self.fetch_calls.append((bucket, object_name))
         return self.bytes_to_return
 
+    def copy_object(
+        self,
+        *,
+        src_bucket: str,
+        src_object: str,
+        dst_bucket: str,
+        dst_object: str,
+    ) -> None:
+        raise NotImplementedError
+
+    def delete_object(self, *, bucket: str, object_name: str) -> None:
+        raise NotImplementedError
+
 
 def _stub_token_verifier(monkeypatch: pytest.MonkeyPatch) -> None:
     def fake_verify(token: str, settings: Settings) -> dict[str, object]:
