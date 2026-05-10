@@ -21,6 +21,7 @@ from app.api.routes.internal_moderation import router as internal_moderation_rou
 from app.api.routes.meta import platform_router, v1_router
 from app.api.routes.observations import router as observations_router
 from app.api.routes.photos import router as photos_router
+from app.api.routes.review_queue import router as review_queue_router
 from app.core.config import Settings, get_settings
 from app.core.errors import install_exception_handlers
 from app.core.logging import configure_logging, install_request_logging
@@ -69,6 +70,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(photos_router)
     app.include_router(observations_router)
     app.include_router(geocode_router)
+    app.include_router(review_queue_router)
     app.include_router(internal_moderation_router)
     return app
 
