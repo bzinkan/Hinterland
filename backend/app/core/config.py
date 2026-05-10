@@ -51,6 +51,16 @@ class Settings(BaseSettings):
     inat_oauth_token: str = ""
     inat_request_timeout_seconds: float = 8.0
 
+    # Reverse-geocoding provider. "noop" returns None for every lookup --
+    # the kid sees no place_name; the observation itself still saves.
+    # "nominatim" hits the public Nominatim instance (1 req/sec, no
+    # commercial use); fine for dev. Production needs a contracted
+    # provider (Google Maps, self-hosted Nominatim) per `docs/runbook.md`.
+    geocoding_provider: Literal["noop", "nominatim"] = "noop"
+    geocoding_nominatim_base_url: str = "https://nominatim.openstreetmap.org"
+    geocoding_user_agent: str = "Dragonfly/0.1 (+https://dragonfly-app.net)"
+    geocoding_request_timeout_seconds: float = 5.0
+
     cloud_sql_instance: str = ""
     database_host: str = "localhost"
     database_port: int = 5432

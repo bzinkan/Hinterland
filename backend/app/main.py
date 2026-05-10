@@ -15,6 +15,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from mangum import Mangum
 
 from app.api.routes.auth import router as auth_router
+from app.api.routes.geocode import router as geocode_router
 from app.api.routes.groups import router as groups_router
 from app.api.routes.meta import platform_router, v1_router
 from app.api.routes.observations import router as observations_router
@@ -66,6 +67,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(groups_router)
     app.include_router(photos_router)
     app.include_router(observations_router)
+    app.include_router(geocode_router)
     return app
 
 
