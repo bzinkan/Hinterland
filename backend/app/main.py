@@ -17,6 +17,7 @@ from mangum import Mangum
 from app.api.routes.auth import router as auth_router
 from app.api.routes.groups import router as groups_router
 from app.api.routes.meta import platform_router, v1_router
+from app.api.routes.observations import router as observations_router
 from app.api.routes.photos import router as photos_router
 from app.core.config import Settings, get_settings
 from app.core.errors import install_exception_handlers
@@ -64,6 +65,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(auth_router)
     app.include_router(groups_router)
     app.include_router(photos_router)
+    app.include_router(observations_router)
     return app
 
 
