@@ -1,5 +1,6 @@
 import { CameraView, useCameraPermissions } from "expo-camera";
 import * as ImageManipulator from "expo-image-manipulator";
+import { router } from "expo-router";
 import { useRef, useState } from "react";
 import {
   ActivityIndicator,
@@ -82,11 +83,8 @@ export default function ObserveScreen() {
                 width: preview.width,
                 height: preview.height,
               });
-              Alert.alert(
-                "Photo saved",
-                "Submit flow lands in the next slice.",
-              );
               setPreview(null);
+              router.push("/observe-submit");
             }}
           >
             <Text style={styles.buttonText}>Use photo</Text>

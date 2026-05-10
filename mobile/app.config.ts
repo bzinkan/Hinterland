@@ -81,6 +81,13 @@ const config: ExpoConfig = {
           "Dragonfly uses your photo library so you can pick a photo of a plant or animal you found.",
       },
     ],
+    [
+      "expo-location",
+      {
+        locationAlwaysAndWhenInUsePermission:
+          "Dragonfly uses your location to remember where you spotted each species.",
+      },
+    ],
   ],
   experiments: {
     typedRoutes: true,
