@@ -1,0 +1,34 @@
+{
+  "id": "school_starter",
+  "title": "Schoolyard Survey",
+  "subtitle": "Even the spot you walk past every day",
+  "tier": 1,
+  "duration_minutes": 20,
+  "environments": ["school"],
+  "intro": "Schools are sampled every day by kids who never look. Be the one who does.",
+  "outro": "You documented something nobody else has. That's how field science starts.",
+  "prerequisites": [],
+  "steps": [
+    {
+      "id": "near_the_fence",
+      "description": "Find something living near the fence or edge of the yard",
+      "match": { "kind": "any_organism" },
+      "hint": "Edges and fences collect more variety than the middle of any space."
+    },
+    {
+      "id": "near_a_door",
+      "description": "Find something living near a door, entrance, or wall",
+      "match": { "kind": "any_organism" },
+      "hint": "Spiders, ants, weeds, lichens, mosses on bricks -- doorway corners are reliable."
+    },
+    {
+      "id": "off_the_beaten_path",
+      "description": "Find something at least 50 meters from your other finds today",
+      "match": {
+        "kind": "not_within_radius_of_existing",
+        "radius_meters": 50
+      },
+      "hint": "Push yourself away from the spot everyone photographs. Around the corner, behind the building, the far edge."
+    }
+  ]
+}

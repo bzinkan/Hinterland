@@ -1,0 +1,31 @@
+{
+  "id": "backyard_starter",
+  "title": "Start Where You Are",
+  "subtitle": "Your first expedition",
+  "tier": 1,
+  "duration_minutes": 20,
+  "environments": ["yard", "park", "street", "school", "other"],
+  "intro": "Look around. Even the most familiar place is full of life you've never noticed. Find three living things and log them.",
+  "outro": "You just contributed real data to science. Welcome to Dragonfly.",
+  "prerequisites": [],
+  "steps": [
+    {
+      "id": "any_plant",
+      "description": "Find a plant -- any plant",
+      "match": { "kind": "iconic_taxon", "value": "Plantae" },
+      "hint": "Grass, a weed in a sidewalk crack, a tree, a houseplant by a window -- all count."
+    },
+    {
+      "id": "any_insect",
+      "description": "Find an insect or bug",
+      "match": { "kind": "iconic_taxon", "value": "Insecta" },
+      "hint": "Check under a leaf, near flowers, or on a wall."
+    },
+    {
+      "id": "wildcard",
+      "description": "Find one more living thing -- your choice",
+      "match": { "kind": "any_organism" },
+      "hint": "Bird, fungus, spider, snail -- surprise us."
+    }
+  ]
+}

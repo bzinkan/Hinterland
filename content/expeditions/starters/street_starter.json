@@ -1,0 +1,31 @@
+{
+  "id": "street_starter",
+  "title": "Sidewalk Science",
+  "subtitle": "Cities are habitats too",
+  "tier": 1,
+  "duration_minutes": 20,
+  "environments": ["street"],
+  "intro": "Concrete is a habitat. Plants grow through it, insects build under it, birds fly above it. Look closer.",
+  "outro": "The city is alive. You just proved it.",
+  "prerequisites": [],
+  "steps": [
+    {
+      "id": "plant_in_a_crack",
+      "description": "Find a plant growing where it's not supposed to",
+      "match": { "kind": "iconic_taxon", "value": "Plantae" },
+      "hint": "Sidewalk crack, brick wall seam, gutter -- pioneer plants are everywhere."
+    },
+    {
+      "id": "bug_on_a_wall",
+      "description": "Find a bug on a wall, fence, or window",
+      "match": { "kind": "iconic_taxon", "value": "Insecta" },
+      "hint": "Spiders count too -- check corners and under awnings."
+    },
+    {
+      "id": "bird_overhead",
+      "description": "Find a bird",
+      "match": { "kind": "iconic_taxon", "value": "Aves" },
+      "hint": "Pigeons, sparrows, gulls, hawks circling -- city birds are good practice subjects."
+    }
+  ]
+}

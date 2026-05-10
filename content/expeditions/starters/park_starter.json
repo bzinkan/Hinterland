@@ -1,0 +1,37 @@
+{
+  "id": "park_starter",
+  "title": "Park Patrol",
+  "subtitle": "Your local park is its own ecosystem",
+  "tier": 1,
+  "duration_minutes": 20,
+  "environments": ["park"],
+  "intro": "A park is a habitat -- soil, trees, edges, water. Find three pieces of it.",
+  "outro": "You just turned a walk into research.",
+  "prerequisites": [],
+  "steps": [
+    {
+      "id": "a_tree",
+      "description": "Find a tree",
+      "match": { "kind": "iconic_taxon", "value": "Plantae" },
+      "hint": "Get the bark or a leaf in the photo. Both help with ID."
+    },
+    {
+      "id": "something_flying",
+      "description": "Find something flying",
+      "match": {
+        "kind": "any_of",
+        "matches": [
+          { "kind": "iconic_taxon", "value": "Aves" },
+          { "kind": "iconic_taxon", "value": "Insecta" }
+        ]
+      },
+      "hint": "A bird, a bee, a butterfly, a fly -- whatever you can get a clear shot of."
+    },
+    {
+      "id": "something_new",
+      "description": "Find something on the ground you haven't logged before",
+      "match": { "kind": "not_in_dex" },
+      "hint": "Mushroom, pinecone with a bug on it, a snail trail. Look down."
+    }
+  ]
+}

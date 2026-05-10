@@ -1,0 +1,31 @@
+{
+  "id": "anywhere_starter",
+  "title": "Found Anywhere",
+  "subtitle": "Wherever you are, that's a place",
+  "tier": 1,
+  "duration_minutes": 20,
+  "environments": ["other"],
+  "intro": "A car, a boat, a hospital window, a grandparent's apartment. Anywhere has organisms in it -- find three you don't already have.",
+  "outro": "There is no boring place. You proved it.",
+  "prerequisites": [],
+  "steps": [
+    {
+      "id": "first_new_thing",
+      "description": "Find one new living thing",
+      "match": { "kind": "not_in_dex" },
+      "hint": "Look at where you actually are -- not where you wish you were."
+    },
+    {
+      "id": "second_new_thing",
+      "description": "Find a second new living thing",
+      "match": { "kind": "not_in_dex" },
+      "hint": "Different organism. Plant, then bug. Or bug, then bird."
+    },
+    {
+      "id": "third_new_thing",
+      "description": "Find a third new living thing",
+      "match": { "kind": "not_in_dex" },
+      "hint": "If you're stuck, look smaller. Lichens, moss, a fly on a windowsill all count."
+    }
+  ]
+}
