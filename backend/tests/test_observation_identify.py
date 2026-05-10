@@ -55,8 +55,11 @@ def _build_client(
     inat_client: httpx.AsyncClient | None = None,
 ) -> Iterator[TestClient]:
     app = create_app(Settings(env="local", app_version="test", inat_oauth_token=inat_token))
-    if storage is not None:
-        app.state.signed_url_generator = storage
+    # FastAPI resolves all dependencies before the handler runs, so even
+    # tests that 401/403/404 before touching storage would otherwise pull
+    # the real GcsSignedUrlGenerator (which needs ADC). Always inject a
+    # stub.
+    app.state.signed_url_generator = storage if storage is not None else _StubStorage()
     if inat_client is not None:
         app.state.inat_client = inat_client
 
