@@ -58,7 +58,9 @@ def _build_client(
     *,
     signer: SignedUrlGenerator | None = None,
 ) -> Iterator[TestClient]:
-    app = create_app(Settings(env="local", app_version="test", photos_bucket="dragonfly-photos-test"))
+    app = create_app(
+        Settings(env="local", app_version="test", photos_bucket="dragonfly-photos-test")
+    )
     if signer is not None:
         app.state.signed_url_generator = signer
 
