@@ -45,6 +45,11 @@ class _StubSignedUrlGenerator:
             datetime(2026, 5, 9, 23, 30, 0, tzinfo=UTC),
         )
 
+    def fetch_object_bytes(self, *, bucket: str, object_name: str) -> bytes:
+        # Not exercised by the presign tests; the identify tests use their
+        # own stub.
+        raise NotImplementedError
+
 
 def _stub_token_verifier(monkeypatch: pytest.MonkeyPatch, uid: str = _FIREBASE_UID) -> None:
     def fake_verify(token: str, settings: Settings) -> dict[str, object]:
