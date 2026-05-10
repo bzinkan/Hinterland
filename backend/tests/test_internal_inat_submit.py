@@ -18,7 +18,7 @@ from app.db import models
 from app.db.session import get_db_session
 from app.main import create_app
 
-_OBS_ID = "01J0OBSID00000000000000ULID"
+_OBS_ID = "01J0OBSID0000000000000ULID"  # 26 chars (ULID size)
 _PHOTO_ID = "01J0PHOTOID00000000000ULID"
 
 
