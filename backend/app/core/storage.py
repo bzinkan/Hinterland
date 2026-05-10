@@ -19,7 +19,13 @@ from google.cloud import storage
 
 
 class SignedUrlGenerator(Protocol):
-    """Generates V4 signed PUT URLs for the photos bucket."""
+    """Photo bucket facade: signed-PUT URL generation + server-side reads.
+
+    Named `SignedUrlGenerator` for backwards compatibility with PR #30; the
+    role expanded in PR #38 (Phase 7) to include `fetch_object_bytes` for
+    the identify-endpoint's iNat CV call. Tests can implement either or
+    both methods on a stub depending on which paths the test exercises.
+    """
 
     def generate_put_url(
         self,
@@ -33,6 +39,15 @@ class SignedUrlGenerator(Protocol):
 
         The URL is bound to `content_type` -- the client MUST PUT with a
         matching `Content-Type` header or the upload will be rejected.
+        """
+        ...
+
+    def fetch_object_bytes(self, *, bucket: str, object_name: str) -> bytes:
+        """Read a photo's raw bytes from GCS.
+
+        Used by the iNat identify endpoint to feed the kid's photo into
+        the CV call. Server-side download keeps the iNat token off the
+        mobile binary and lets us cache responses by photo_id later.
         """
         ...
 
@@ -75,6 +90,11 @@ class GcsSignedUrlGenerator:
         )
         expires_at = datetime.now(UTC) + expires_in
         return cast(str, url), expires_at
+
+    def fetch_object_bytes(self, *, bucket: str, object_name: str) -> bytes:
+        bucket_obj = self._client.bucket(bucket)
+        blob = bucket_obj.blob(object_name)
+        return cast(bytes, blob.download_as_bytes())
 
 
 def get_signed_url_generator(request: Request) -> SignedUrlGenerator:
