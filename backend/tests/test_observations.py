@@ -155,7 +155,7 @@ def test_create_403_when_token_missing_group_id(
         headers={"Authorization": "Bearer fake"},
     )
     assert response.status_code == 403
-    assert "group_id" in response.json()["detail"]
+    assert "group_id" in response.json()["error"]["message"]
 
 
 def test_create_404_when_photo_missing_or_wrong_owner(
@@ -188,7 +188,7 @@ def test_create_409_when_photo_not_pending(
         headers={"Authorization": "Bearer fake"},
     )
     assert response.status_code == 409
-    assert "clean" in response.json()["detail"]
+    assert "clean" in response.json()["error"]["message"]
 
 
 def test_create_403_when_membership_missing(
