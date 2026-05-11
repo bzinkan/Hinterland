@@ -1,0 +1,68 @@
+name: Deploy parent web (dev)
+
+# Builds the Expo web bundle and ships it to Firebase Hosting site
+# `dragonfly-parents-dev`. Triggered when the mobile/web bundle could
+# have changed (mobile sources, app config, this workflow).
+#
+# Custom-domain wiring (parents.dragonfly-app.net) is a one-time human
+# step in the Firebase Hosting console -- see
+# docs/risks/0006-web-deploy-dns.md.
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "mobile/**"
+      - ".github/workflows/deploy-web-dev.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-web-dev
+  cancel-in-progress: false
+
+env:
+  PROJECT_ID: dragonflyapp-495423
+  HOSTING_TARGET: parents
+  APP_ENV: development
+
+jobs:
+  deploy:
+    name: Build + deploy to Firebase Hosting
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    defaults:
+      run:
+        working-directory: mobile
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: mobile/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Export web bundle
+        run: npx expo export --platform web
+
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - name: Install Firebase CLI
+        run: npm install --no-save firebase-tools@^14
+
+      - name: Deploy hosting
+        run: |
+          npx firebase-tools deploy \
+            --only "hosting:${HOSTING_TARGET}" \
+            --project "${PROJECT_ID}" \
+            --non-interactive \
+            --force

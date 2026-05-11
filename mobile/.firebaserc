@@ -1,0 +1,14 @@
+{
+  "projects": {
+    "default": "dragonflyapp-495423"
+  },
+  "targets": {
+    "dragonflyapp-495423": {
+      "hosting": {
+        "parents": [
+          "dragonfly-parents-dev"
+        ]
+      }
+    }
+  }
+}

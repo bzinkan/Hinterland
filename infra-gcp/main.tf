@@ -19,6 +19,7 @@ locals {
     "cloudscheduler.googleapis.com",
     "compute.googleapis.com",
     "firebase.googleapis.com",
+    "firebasehosting.googleapis.com",
     "identitytoolkit.googleapis.com",
     "iam.googleapis.com",
     "iamcredentials.googleapis.com",
@@ -402,6 +403,16 @@ resource "google_project_iam_member" "github_cloudbuild" {
 resource "google_project_iam_member" "github_service_usage" {
   project = var.project_id
   role    = "roles/serviceusage.serviceUsageConsumer"
+  member  = "serviceAccount:${google_service_account.github_deploy.email}"
+}
+
+# Lets the GitHub deploy SA push the parent web bundle to Firebase
+# Hosting site `dragonfly-parents-dev`. The hosting site itself + the
+# `parents.dragonfly-app.net` custom domain are created by hand in the
+# Firebase Console -- see docs/risks/0006-web-deploy-dns.md.
+resource "google_project_iam_member" "github_firebase_hosting_admin" {
+  project = var.project_id
+  role    = "roles/firebasehosting.admin"
   member  = "serviceAccount:${google_service_account.github_deploy.email}"
 }
 
