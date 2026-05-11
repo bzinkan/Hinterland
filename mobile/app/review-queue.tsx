@@ -10,6 +10,7 @@ import {
   StyleSheet,
 } from "react-native";
 
+import DesktopContainer from "@/components/DesktopContainer";
 import { Text, View } from "@/components/Themed";
 import { ApiError } from "@/src/api/client";
 import {
@@ -45,10 +46,12 @@ export default function ReviewQueueScreen() {
 
   if (query.isPending) {
     return (
-      <View style={styles.center}>
-        <Stack.Screen options={{ title: "Review Queue" }} />
-        <ActivityIndicator />
-      </View>
+      <DesktopContainer>
+        <View style={styles.center}>
+          <Stack.Screen options={{ title: "Review Queue" }} />
+          <ActivityIndicator />
+        </View>
+      </DesktopContainer>
     );
   }
 
@@ -56,62 +59,66 @@ export default function ReviewQueueScreen() {
     const err = query.error;
     const isUnauthed = err instanceof ApiError && (err.status === 401 || err.status === 403);
     return (
-      <View style={styles.center}>
-        <Stack.Screen options={{ title: "Review Queue" }} />
-        <Text style={styles.heading}>
-          {isUnauthed ? "Adults only" : "Couldn't load queue"}
-        </Text>
-        <Text style={styles.body}>
-          {isUnauthed
-            ? "The review queue is for parent and teacher accounts."
-            : err.message}
-        </Text>
-        <Pressable
-          style={[styles.button, styles.buttonGhost]}
-          onPress={() => router.back()}
-        >
-          <Text style={styles.buttonText}>Back</Text>
-        </Pressable>
-      </View>
+      <DesktopContainer>
+        <View style={styles.center}>
+          <Stack.Screen options={{ title: "Review Queue" }} />
+          <Text style={styles.heading}>
+            {isUnauthed ? "Adults only" : "Couldn't load queue"}
+          </Text>
+          <Text style={styles.body}>
+            {isUnauthed
+              ? "The review queue is for parent and teacher accounts."
+              : err.message}
+          </Text>
+          <Pressable
+            style={[styles.button, styles.buttonGhost]}
+            onPress={() => router.back()}
+          >
+            <Text style={styles.buttonText}>Back</Text>
+          </Pressable>
+        </View>
+      </DesktopContainer>
     );
   }
 
   const items = query.data?.items ?? [];
 
   return (
-    <FlatList
-      data={items}
-      keyExtractor={(item) => item.id}
-      contentContainerStyle={styles.list}
-      ListHeaderComponent={
-        <Stack.Screen options={{ title: `Review Queue (${items.length})` }} />
-      }
-      ListEmptyComponent={
-        <View style={styles.empty}>
-          <Text style={styles.heading}>Nothing pending</Text>
-          <Text style={styles.body}>
-            All quarantined photos in your groups have been resolved.
-          </Text>
-        </View>
-      }
-      refreshControl={
-        <RefreshControl
-          refreshing={query.isRefetching}
-          onRefresh={() => void query.refetch()}
-        />
-      }
-      renderItem={({ item }) => (
-        <ReviewCard
-          item={item}
-          onApprove={() => approve.mutate(item.id)}
-          onReject={() => reject.mutate(item.id)}
-          busy={
-            (approve.isPending && approve.variables === item.id) ||
-            (reject.isPending && reject.variables === item.id)
-          }
-        />
-      )}
-    />
+    <DesktopContainer>
+      <FlatList
+        data={items}
+        keyExtractor={(item) => item.id}
+        contentContainerStyle={styles.list}
+        ListHeaderComponent={
+          <Stack.Screen options={{ title: `Review Queue (${items.length})` }} />
+        }
+        ListEmptyComponent={
+          <View style={styles.empty}>
+            <Text style={styles.heading}>Nothing pending</Text>
+            <Text style={styles.body}>
+              All quarantined photos in your groups have been resolved.
+            </Text>
+          </View>
+        }
+        refreshControl={
+          <RefreshControl
+            refreshing={query.isRefetching}
+            onRefresh={() => void query.refetch()}
+          />
+        }
+        renderItem={({ item }) => (
+          <ReviewCard
+            item={item}
+            onApprove={() => approve.mutate(item.id)}
+            onReject={() => reject.mutate(item.id)}
+            busy={
+              (approve.isPending && approve.variables === item.id) ||
+              (reject.isPending && reject.variables === item.id)
+            }
+          />
+        )}
+      />
+    </DesktopContainer>
   );
 }
 

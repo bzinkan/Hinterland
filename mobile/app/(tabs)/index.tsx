@@ -7,6 +7,7 @@ import {
   StyleSheet,
 } from "react-native";
 
+import DesktopContainer from "@/components/DesktopContainer";
 import { Text, View } from "@/components/Themed";
 import { ApiError } from "@/src/api/client";
 import type { ObservationListItem } from "@/src/api/observations";
@@ -23,9 +24,11 @@ export default function HomeScreen() {
 
   if (query.isPending) {
     return (
-      <View style={styles.center}>
-        <ActivityIndicator />
-      </View>
+      <DesktopContainer>
+        <View style={styles.center}>
+          <ActivityIndicator />
+        </View>
+      </DesktopContainer>
     );
   }
 
@@ -33,56 +36,62 @@ export default function HomeScreen() {
     const err = query.error;
     const isUnauthed = err instanceof ApiError && err.status === 401;
     return (
-      <View style={styles.center}>
-        <Text style={styles.heading}>
-          {isUnauthed ? "Not signed in" : "Couldn't load observations"}
-        </Text>
-        <Text style={styles.body}>
-          {isUnauthed
-            ? "Open Settings and paste a Firebase ID token, then come back."
-            : err.message}
-        </Text>
-        <Pressable style={[styles.button, styles.buttonGhost]} onPress={onRefresh}>
-          <Text style={styles.buttonText}>Retry</Text>
-        </Pressable>
-      </View>
+      <DesktopContainer>
+        <View style={styles.center}>
+          <Text style={styles.heading}>
+            {isUnauthed ? "Not signed in" : "Couldn't load observations"}
+          </Text>
+          <Text style={styles.body}>
+            {isUnauthed
+              ? "Open Settings and paste a Firebase ID token, then come back."
+              : err.message}
+          </Text>
+          <Pressable style={[styles.button, styles.buttonGhost]} onPress={onRefresh}>
+            <Text style={styles.buttonText}>Retry</Text>
+          </Pressable>
+        </View>
+      </DesktopContainer>
     );
   }
 
   if (items.length === 0) {
     return (
-      <View style={styles.center}>
-        <Text style={styles.heading}>No observations yet</Text>
-        <Text style={styles.body}>
-          Tap the Observe tab to capture your first photo.
-        </Text>
-      </View>
+      <DesktopContainer>
+        <View style={styles.center}>
+          <Text style={styles.heading}>No observations yet</Text>
+          <Text style={styles.body}>
+            Tap the Observe tab to capture your first photo.
+          </Text>
+        </View>
+      </DesktopContainer>
     );
   }
 
   return (
-    <FlatList
-      data={items}
-      keyExtractor={(item) => item.id}
-      contentContainerStyle={styles.list}
-      refreshControl={
-        <RefreshControl refreshing={query.isRefetching} onRefresh={onRefresh} />
-      }
-      renderItem={({ item }) => <ObservationRow item={item} />}
-      ListFooterComponent={
-        query.hasNextPage ? (
-          <Pressable
-            style={[styles.button, styles.buttonGhost, styles.loadMore]}
-            disabled={query.isFetchingNextPage}
-            onPress={() => void query.fetchNextPage()}
-          >
-            <Text style={styles.buttonText}>
-              {query.isFetchingNextPage ? "Loading…" : "Load more"}
-            </Text>
-          </Pressable>
-        ) : null
-      }
-    />
+    <DesktopContainer>
+      <FlatList
+        data={items}
+        keyExtractor={(item) => item.id}
+        contentContainerStyle={styles.list}
+        refreshControl={
+          <RefreshControl refreshing={query.isRefetching} onRefresh={onRefresh} />
+        }
+        renderItem={({ item }) => <ObservationRow item={item} />}
+        ListFooterComponent={
+          query.hasNextPage ? (
+            <Pressable
+              style={[styles.button, styles.buttonGhost, styles.loadMore]}
+              disabled={query.isFetchingNextPage}
+              onPress={() => void query.fetchNextPage()}
+            >
+              <Text style={styles.buttonText}>
+                {query.isFetchingNextPage ? "Loading…" : "Load more"}
+              </Text>
+            </Pressable>
+          ) : null
+        }
+      />
+    </DesktopContainer>
   );
 }
 

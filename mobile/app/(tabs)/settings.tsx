@@ -1,7 +1,8 @@
 import { router } from "expo-router";
 import { useEffect, useState } from "react";
-import { Alert, Pressable, StyleSheet, TextInput } from "react-native";
+import { Alert, Pressable, ScrollView, StyleSheet, TextInput } from "react-native";
 
+import DesktopContainer from "@/components/DesktopContainer";
 import { Text, View } from "@/components/Themed";
 import {
   clearBearerToken,
@@ -44,8 +45,9 @@ export default function SettingsScreen() {
   }
 
   return (
-    <View style={styles.container}>
-      <Text style={styles.title}>Settings</Text>
+    <DesktopContainer>
+      <ScrollView contentContainerStyle={styles.container}>
+        <Text style={styles.title}>Settings</Text>
       <View
         style={styles.separator}
         lightColor="#eee"
@@ -119,8 +121,9 @@ export default function SettingsScreen() {
         >
           <Text style={styles.buttonText}>Clear</Text>
         </Pressable>
-      </View>
-    </View>
+        </View>
+      </ScrollView>
+    </DesktopContainer>
   );
 }
 
