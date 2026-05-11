@@ -124,6 +124,7 @@ class Observation(TimestampMixin, Base):
     place_name: Mapped[str | None] = mapped_column(String(200))
     inat_observation_id: Mapped[int | None] = mapped_column(Integer)
     submitted_to_inat_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    dispatched_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     rewards: Mapped[list[JsonDict]] = mapped_column(JSONB, nullable=False, default=list)
 
 

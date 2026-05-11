@@ -23,7 +23,7 @@ knows what to request.
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Annotated
 
 import geohash
@@ -218,8 +218,12 @@ async def create_observation(
 
     # Dispatcher runs after the observation is persisted. Failure here
     # never surfaces to the client -- worst case is a missing celebration
-    # which a future replay job can recover. The kid still sees their
-    # observation, just without the rewards.
+    # which `admin/dispatcher_replay.py` recovers nightly. The kid still
+    # sees their observation, just without the rewards.
+    #
+    # On success we stamp `observations.dispatched_at` so the replay
+    # task knows to skip this row. A failure here leaves it NULL --
+    # the replay picks it up on its next run.
     rewards: list[Reward] = []
     try:
         group = (
@@ -233,6 +237,8 @@ async def create_observation(
             photo=photo,
         )
         rewards = await dispatch(ctx, HANDLERS)
+        observation.dispatched_at = datetime.now(UTC)
+        await session.commit()
     except Exception:
         log.exception(
             "observations.dispatch_failed",
