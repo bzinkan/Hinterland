@@ -69,6 +69,21 @@ class SignedUrlGenerator(Protocol):
         move (copy then delete) on the moderation hot path."""
         ...
 
+    def generate_get_url(
+        self,
+        *,
+        bucket: str,
+        object_name: str,
+        expires_in: timedelta,
+    ) -> tuple[str, datetime]:
+        """Return `(signed_url, expires_at)` for a single GET.
+
+        Used by the review-queue UI to render quarantined photos for
+        teachers, and by the My Observations list to render clean photos
+        for kids. Same IAM-signing pattern as `generate_put_url`.
+        """
+        ...
+
 
 class GcsSignedUrlGenerator:
     """ADC-backed implementation. Uses IAM signBlob, no private key required."""
@@ -131,6 +146,27 @@ class GcsSignedUrlGenerator:
         bucket_obj = self._client.bucket(bucket)
         blob = bucket_obj.blob(object_name)
         blob.delete()
+
+    def generate_get_url(
+        self,
+        *,
+        bucket: str,
+        object_name: str,
+        expires_in: timedelta,
+    ) -> tuple[str, datetime]:
+        # Same metadata-server refresh pattern as generate_put_url.
+        self._credentials.refresh(google.auth.transport.requests.Request())
+        bucket_obj = self._client.bucket(bucket)
+        blob = bucket_obj.blob(object_name)
+        url = blob.generate_signed_url(
+            version="v4",
+            expiration=expires_in,
+            method="GET",
+            service_account_email=self._credentials.service_account_email,
+            access_token=self._credentials.token,
+        )
+        expires_at = datetime.now(UTC) + expires_in
+        return cast(str, url), expires_at
 
 
 def get_signed_url_generator(request: Request) -> SignedUrlGenerator:

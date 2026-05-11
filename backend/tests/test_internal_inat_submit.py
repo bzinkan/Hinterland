@@ -45,6 +45,9 @@ class _StubStorage:
     def delete_object(self, *, bucket: str, object_name: str) -> None:
         raise NotImplementedError
 
+    def generate_get_url(self, **_: object) -> tuple[str, object]:
+        raise NotImplementedError
+
 
 def _build_client(
     fake_session: AsyncMock,

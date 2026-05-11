@@ -50,6 +50,9 @@ class _StubStorage:
     def delete_object(self, *, bucket: str, object_name: str) -> None:
         self.delete_calls.append((bucket, object_name))
 
+    def generate_get_url(self, **_: object) -> tuple[str, object]:
+        raise NotImplementedError
+
 
 class _StubModerator:
     def __init__(self, result: ModerationResult | Exception) -> None:

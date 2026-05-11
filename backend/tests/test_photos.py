@@ -62,6 +62,18 @@ class _StubSignedUrlGenerator:
     def delete_object(self, *, bucket: str, object_name: str) -> None:
         raise NotImplementedError
 
+    def generate_get_url(
+        self,
+        *,
+        bucket: str,
+        object_name: str,
+        expires_in: timedelta,
+    ) -> tuple[str, datetime]:
+        return (
+            f"https://storage.googleapis.com/{bucket}/{object_name}?signed=stub-get",
+            datetime(2026, 5, 10, 23, 30, 0, tzinfo=UTC),
+        )
+
 
 def _stub_token_verifier(monkeypatch: pytest.MonkeyPatch, uid: str = _FIREBASE_UID) -> None:
     def fake_verify(token: str, settings: Settings) -> dict[str, object]:
@@ -208,3 +220,119 @@ def test_presign_rejects_unsupported_content_type(
     )
     assert response.status_code == 422  # pydantic validation
     fake_session.add.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# GET /v1/photos/{id}/url
+# ---------------------------------------------------------------------------
+
+
+def _photo_row(*, owner: str = _USER_ID, status: str = "clean") -> models.Photo:
+    return models.Photo(
+        id="01J0PHOTOID00000000000ULID",
+        user_id=owner,
+        bucket="dragonfly-photos-test",
+        object_name="observations/01J0PHOTOID00000000000ULID.jpg",
+        status=status,
+        content_type="image/jpeg",
+    )
+
+
+def _wire_photo_url(
+    fake_session: AsyncMock,
+    *,
+    user: models.User | None,
+    photo: models.Photo | None,
+    membership_pairs: list[tuple[str, str]] | None = None,
+) -> None:
+    """Wire user lookup -> photo lookup -> (optional) memberships join."""
+    user_result = MagicMock()
+    user_result.scalar_one_or_none = MagicMock(return_value=user)
+    photo_result = MagicMock()
+    photo_result.scalar_one_or_none = MagicMock(return_value=photo)
+    memberships_result = MagicMock()
+    memberships_result.all = MagicMock(return_value=membership_pairs or [])
+
+    side_effects: list[object] = [user_result]
+    if user is not None:
+        side_effects.append(photo_result)
+        if photo is not None and photo.user_id != user.id:
+            # _intersecting_groups runs only when caller != owner
+            side_effects.append(memberships_result)
+
+    fake_session.execute = AsyncMock(side_effect=side_effects)
+
+
+def test_photo_url_requires_bearer(photos_client: TestClient) -> None:
+    response = photos_client.get("/v1/photos/x/url")
+    assert response.status_code == 401
+
+
+def test_photo_url_403_when_no_postgres_user(
+    monkeypatch: pytest.MonkeyPatch,
+    photos_client: TestClient,
+    fake_session: AsyncMock,
+) -> None:
+    _stub_token_verifier(monkeypatch)
+    _wire_photo_url(fake_session, user=None, photo=None)
+    response = photos_client.get("/v1/photos/x/url", headers={"Authorization": "Bearer fake"})
+    assert response.status_code == 403
+
+
+def test_photo_url_404_when_photo_missing(
+    monkeypatch: pytest.MonkeyPatch,
+    photos_client: TestClient,
+    fake_session: AsyncMock,
+) -> None:
+    _stub_token_verifier(monkeypatch)
+    _wire_photo_url(fake_session, user=_user_row(), photo=None)
+    response = photos_client.get("/v1/photos/x/url", headers={"Authorization": "Bearer fake"})
+    assert response.status_code == 404
+
+
+def test_photo_url_owner_caller_returns_signed_url(
+    monkeypatch: pytest.MonkeyPatch,
+    photos_client: TestClient,
+    fake_session: AsyncMock,
+) -> None:
+    _stub_token_verifier(monkeypatch)
+    _wire_photo_url(fake_session, user=_user_row(), photo=_photo_row(owner=_USER_ID))
+    response = photos_client.get("/v1/photos/x/url", headers={"Authorization": "Bearer fake"})
+    assert response.status_code == 200
+    body = response.json()
+    assert body["url"].startswith("https://storage.googleapis.com/")
+    assert body["expires_at"]
+
+
+def test_photo_url_404_when_no_group_overlap(
+    monkeypatch: pytest.MonkeyPatch,
+    photos_client: TestClient,
+    fake_session: AsyncMock,
+) -> None:
+    """Different owner, no shared groups -> 404 like missing."""
+    _stub_token_verifier(monkeypatch)
+    _wire_photo_url(
+        fake_session,
+        user=_user_row(),
+        photo=_photo_row(owner="someone-else"),
+        membership_pairs=[(_USER_ID, "g1"), ("someone-else", "g2")],
+    )
+    response = photos_client.get("/v1/photos/x/url", headers={"Authorization": "Bearer fake"})
+    assert response.status_code == 404
+
+
+def test_photo_url_adult_in_same_group_returns_url(
+    monkeypatch: pytest.MonkeyPatch,
+    photos_client: TestClient,
+    fake_session: AsyncMock,
+) -> None:
+    """Different owner BUT shared group -> signed URL returned."""
+    _stub_token_verifier(monkeypatch)
+    _wire_photo_url(
+        fake_session,
+        user=_user_row(),
+        photo=_photo_row(owner="someone-else"),
+        membership_pairs=[(_USER_ID, "shared"), ("someone-else", "shared")],
+    )
+    response = photos_client.get("/v1/photos/x/url", headers={"Authorization": "Bearer fake"})
+    assert response.status_code == 200

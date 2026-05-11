@@ -50,6 +50,9 @@ class _StubStorage:
     def delete_object(self, *, bucket: str, object_name: str) -> None:
         self.delete_calls.append((bucket, object_name))
 
+    def generate_get_url(self, **_: object) -> tuple[str, object]:
+        raise NotImplementedError
+
 
 def _stub_token_verifier(monkeypatch: pytest.MonkeyPatch) -> None:
     def fake_verify(token: str, settings: Settings) -> dict[str, object]:

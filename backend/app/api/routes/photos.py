@@ -16,6 +16,7 @@ import structlog
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 from ulid import ULID
 
 from app.core.auth import CurrentUserDep
@@ -110,3 +111,81 @@ async def presign_photo(
         content_type=payload.content_type,
         expires_at=expires_at,
     )
+
+
+# ---------------------------------------------------------------------------
+# GET /v1/photos/{photo_id}/url -- short-lived signed GET for rendering
+# ---------------------------------------------------------------------------
+
+# 5 minutes is enough for the mobile client to render + cache the image.
+# Shorter than presign because GET is read-only and can be re-issued
+# cheaply.
+_PHOTO_GET_TTL = timedelta(minutes=5)
+
+
+class PhotoUrlResponse(BaseModel):
+    photo_id: str
+    url: str
+    expires_at: datetime
+
+
+async def _intersecting_groups(
+    session: AsyncSession, *, caller_user_id: str, photo_owner_id: str
+) -> bool:
+    """True if caller and photo owner share any group. Authorization
+    boundary for the signed-GET endpoint -- adults reviewing quarantined
+    photos and kids viewing their own both qualify (a kid is in their own
+    group; the photo owner == them when it's their photo)."""
+    if caller_user_id == photo_owner_id:
+        return True
+    rows = (
+        await session.execute(
+            select(models.Membership.user_id, models.Membership.group_id).where(
+                models.Membership.user_id.in_([caller_user_id, photo_owner_id])
+            )
+        )
+    ).all()
+    seen: dict[str, set[str]] = {caller_user_id: set(), photo_owner_id: set()}
+    for uid, gid in rows:
+        seen[uid].add(gid)
+    return bool(seen[caller_user_id] & seen[photo_owner_id])
+
+
+@router.get("/{photo_id}/url", response_model=PhotoUrlResponse)
+async def photo_get_url(
+    photo_id: str,
+    current_user: CurrentUserDep,
+    session: DbSessionDep,
+    signer: SignedUrlGeneratorDep,
+    settings: Annotated[Settings, Depends(get_request_settings)],
+) -> PhotoUrlResponse:
+    user_row = (
+        await session.execute(
+            select(models.User).where(models.User.firebase_uid == current_user.uid)
+        )
+    ).scalar_one_or_none()
+    if user_row is None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="No Postgres user for this Firebase identity",
+        )
+
+    photo = (
+        await session.execute(select(models.Photo).where(models.Photo.id == photo_id))
+    ).scalar_one_or_none()
+    if photo is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Photo not found")
+
+    if not await _intersecting_groups(
+        session, caller_user_id=user_row.id, photo_owner_id=photo.user_id
+    ):
+        # Caller has no group overlap with the photo owner -- 404 like
+        # missing, no enumeration leak.
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Photo not found")
+
+    url, expires_at = signer.generate_get_url(
+        bucket=photo.bucket,
+        object_name=photo.object_name,
+        expires_in=_PHOTO_GET_TTL,
+    )
+    return PhotoUrlResponse(photo_id=photo.id, url=url, expires_at=expires_at)

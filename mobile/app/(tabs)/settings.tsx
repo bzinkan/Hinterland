@@ -1,3 +1,4 @@
+import { router } from "expo-router";
 import { useEffect, useState } from "react";
 import { Alert, Pressable, StyleSheet, TextInput } from "react-native";
 
@@ -55,6 +56,24 @@ export default function SettingsScreen() {
       <Text style={styles.value}>env: {env.appEnv}</Text>
       <Text style={styles.value}>API: {env.apiBaseUrl}</Text>
       <Text style={styles.value}>updates channel: {env.updatesChannel}</Text>
+
+      <View
+        style={styles.separator}
+        lightColor="#eee"
+        darkColor="rgba(255,255,255,0.1)"
+      />
+
+      <Text style={styles.label}>Adult tools</Text>
+      <Pressable
+        style={[styles.button, styles.buttonGhost]}
+        onPress={() => router.push("/review-queue")}
+      >
+        <Text style={styles.buttonText}>Open review queue</Text>
+      </Pressable>
+      <Text style={styles.help}>
+        Parents and teachers only. Kid accounts get a "not available"
+        message.
+      </Text>
 
       <View
         style={styles.separator}
