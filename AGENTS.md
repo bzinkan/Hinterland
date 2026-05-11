@@ -332,6 +332,8 @@ Exit criteria:
 - First closed-beta group is invited.
 - At least one real kid submits at least one real outdoor observation.
 
+**Status:** ✅ Met 2026-05-10 from the code's perspective. PRs #59-62 shipped: signed-GET photo URL + mobile review queue UI consuming the Phase 8 review_queue endpoints (PR #59), `admin/sweep_stale_reviews.py` auto-rejecting reviews open >30 days per `docs/moderation.md` (PR #60), `observations.dispatched_at` column + Alembic migration + `admin/dispatcher_replay.py` re-dispatching crashed observations per `docs/dispatcher.md` snapshot 11 (PR #61), three Cloud Monitoring alarms (api p95 latency / Cloud SQL CPU / Cloud Run instance count) + a 2x2 dogfood dashboard for the closed-beta period (PR #62), privacy policy DRAFT + app-store compliance checklist + risk doc capturing the human-action items that gate the actual beta launch. **The Phase 11 exit criteria ("first closed-beta group is invited" + "at least one real kid submits at least one real outdoor observation") are NOT met by code alone** -- they need: lawyer review of the privacy policy, resolution of risks 0001-0004, Terraform apply of the new monitoring resources, Cloud Scheduler wiring of the three new admin tasks, app-store submissions, beta-tester onboarding sessions. All captured with an ordered checklist in [risk 0005](docs/risks/0005-beta-launch-human-action-items.md).
+
 ### 12. Phase 2
 
 Goal: deepen engagement without disrupting Phase 1 loops.
