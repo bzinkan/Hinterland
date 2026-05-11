@@ -5,10 +5,25 @@ type AppEnv = "development" | "preview" | "production";
 const APP_ENV: AppEnv =
   (process.env.APP_ENV as AppEnv | undefined) ?? "development";
 
+type FirebaseConfig = {
+  apiKey: string;
+  authDomain: string;
+  projectId: string;
+};
+
 type EnvConfig = {
   apiBaseUrl: string;
   bundleIdSuffix: string;
   updatesChannel: string;
+  firebase: FirebaseConfig;
+};
+
+// Firebase Web API keys are public identifiers, not secrets -- access is
+// gated by Firebase Auth + Security Rules. Safe to embed in client bundles.
+const FIREBASE_DEV: FirebaseConfig = {
+  apiKey: "AIzaSyAg2gIzrXoYbeLx5cKWB1QXCZiDWEF2Yh4",
+  authDomain: "dragonflyapp-495423.firebaseapp.com",
+  projectId: "dragonflyapp-495423",
 };
 
 const ENV: Record<AppEnv, EnvConfig> = {
@@ -16,16 +31,19 @@ const ENV: Record<AppEnv, EnvConfig> = {
     apiBaseUrl: "https://api.dragonfly-app.net",
     bundleIdSuffix: ".dev",
     updatesChannel: "development",
+    firebase: FIREBASE_DEV,
   },
   preview: {
     apiBaseUrl: "https://api.staging.dragonfly-app.net",
     bundleIdSuffix: ".staging",
     updatesChannel: "preview",
+    firebase: FIREBASE_DEV,
   },
   production: {
     apiBaseUrl: "https://api.dragonfly-app.net",
     bundleIdSuffix: "",
     updatesChannel: "production",
+    firebase: FIREBASE_DEV,
   },
 };
 
@@ -96,6 +114,7 @@ const config: ExpoConfig = {
     appEnv: APP_ENV,
     apiBaseUrl: env.apiBaseUrl,
     updatesChannel: env.updatesChannel,
+    firebase: env.firebase,
   },
 };
 

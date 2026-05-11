@@ -9,6 +9,7 @@ import 'react-native-reanimated';
 
 import { useColorScheme } from '@/components/useColorScheme';
 import { queryClient } from '@/src/api/queryClient';
+import { ensureTokenSync } from '@/src/auth/firebase';
 
 export {
   // Catch any errors thrown by the Layout component.
@@ -39,6 +40,10 @@ export default function RootLayout() {
       SplashScreen.hideAsync();
     }
   }, [loaded]);
+
+  useEffect(() => {
+    ensureTokenSync();
+  }, []);
 
   if (!loaded) {
     return null;
