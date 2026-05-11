@@ -3,11 +3,19 @@
 Expo (React Native) app for Dragonfly. iOS, Android, and a thin web build for the
 parent-consent / teacher dashboard surface (per `docs/mobile.md`).
 
-Phase 6 surface: Home tab lists the signed-in user's observations
+Phase 6+ surface: Home tab lists the signed-in user's observations
 (`GET /v1/observations/me`), Observe tab is the camera capture + submit flow,
-Dex / Expeditions remain placeholders. Settings holds the dev "paste a Firebase
-ID token" auth shortcut + build info. Real auth (Firebase Web SDK) replaces
-the paste field in a later slice.
+Dex / Expeditions placeholder + real Expeditions tab. Settings holds the dev
+"paste a Firebase ID token" auth shortcut + build info + the Adult tools
+section (review queue link).
+
+**Web build is the adult-console surface only** (per `docs/mobile.md`):
+`npm run web` shows Home + Settings only -- Observe / Dex / Expeditions are
+hidden from the nav since those are kid-phone surfaces. The review queue is
+reachable from Settings the same way on both platforms. The kid capture flow
+isn't there because: (a) docs/mobile.md is explicit that web isn't the kid
+experience, and (b) outdoor-with-a-laptop isn't the kid use case. Classroom
+Chromebooks are a real future case but they're not Phase 1.
 
 ## Quick start
 
