@@ -526,6 +526,203 @@ resource "google_monitoring_alert_policy" "api_5xx" {
   notification_channels = var.notification_channel_ids
 }
 
+# Phase 11 alarms. Same notification-channels gate as api_5xx so the
+# resources only materialize once a channel is wired up.
+
+# p95 request latency above 1500ms for 10 minutes. Dispatcher budget is
+# 300ms (per docs/dispatcher.md), with the rest spent on the SQL writes
+# + signed-URL gen. 1500ms is the "something's wrong, not just iNat
+# being slow" threshold.
+resource "google_monitoring_alert_policy" "api_latency_p95" {
+  count = length(var.notification_channel_ids) > 0 ? 1 : 0
+
+  display_name = "Dragonfly ${var.environment} API p95 latency"
+  combiner     = "OR"
+
+  conditions {
+    display_name = "Cloud Run p95 request latency"
+
+    condition_threshold {
+      filter          = "resource.type=\"cloud_run_revision\" AND metric.type=\"run.googleapis.com/request_latencies\" AND resource.label.service_name=\"${local.service_name}\""
+      duration        = "600s"
+      comparison      = "COMPARISON_GT"
+      threshold_value = 1500
+
+      aggregations {
+        alignment_period     = "60s"
+        per_series_aligner   = "ALIGN_DELTA"
+        cross_series_reducer = "REDUCE_PERCENTILE_95"
+      }
+    }
+  }
+
+  notification_channels = var.notification_channel_ids
+}
+
+# Cloud SQL CPU above 80% for 5 minutes. Cloud SQL g1-small has 1 shared
+# vCPU; sustained 80%+ means the kid request path is queueing on it and
+# we need to either tune queries or move to a perf-optimized tier.
+resource "google_monitoring_alert_policy" "cloud_sql_cpu" {
+  count = length(var.notification_channel_ids) > 0 ? 1 : 0
+
+  display_name = "Dragonfly ${var.environment} Cloud SQL CPU"
+  combiner     = "OR"
+
+  conditions {
+    display_name = "Cloud SQL CPU utilization"
+
+    condition_threshold {
+      filter          = "resource.type=\"cloudsql_database\" AND resource.label.database_id=\"${var.project_id}:${local.database_instance}\" AND metric.type=\"cloudsql.googleapis.com/database/cpu/utilization\""
+      duration        = "300s"
+      comparison      = "COMPARISON_GT"
+      threshold_value = 0.80
+
+      aggregations {
+        alignment_period   = "60s"
+        per_series_aligner = "ALIGN_MEAN"
+      }
+    }
+  }
+
+  notification_channels = var.notification_channel_ids
+}
+
+# Cloud Run instance count above 8 for 10 minutes. Service is configured
+# with max 5 in dev (per dev.tfvars) so >8 should be impossible -- this
+# alerts if someone tweaks max_instance_count without thinking through
+# the database connection pool implications.
+resource "google_monitoring_alert_policy" "cloud_run_instances" {
+  count = length(var.notification_channel_ids) > 0 ? 1 : 0
+
+  display_name = "Dragonfly ${var.environment} Cloud Run instance count"
+  combiner     = "OR"
+
+  conditions {
+    display_name = "Cloud Run instance count"
+
+    condition_threshold {
+      filter          = "resource.type=\"cloud_run_revision\" AND metric.type=\"run.googleapis.com/container/instance_count\" AND resource.label.service_name=\"${local.service_name}\""
+      duration        = "600s"
+      comparison      = "COMPARISON_GT"
+      threshold_value = 8
+
+      aggregations {
+        alignment_period   = "60s"
+        per_series_aligner = "ALIGN_MAX"
+      }
+    }
+  }
+
+  notification_channels = var.notification_channel_ids
+}
+
+# Dogfood dashboard. One-pane view for the closed-beta period: request
+# rate, latency p50/p95, instance count, Cloud SQL CPU. Not gated on
+# notification channels since dashboards have no per-channel cost.
+resource "google_monitoring_dashboard" "dogfood" {
+  dashboard_json = jsonencode({
+    displayName = "Dragonfly ${var.environment} dogfood"
+    gridLayout = {
+      columns = 2
+      widgets = [
+        {
+          title = "Request rate (req/s)"
+          xyChart = {
+            dataSets = [{
+              timeSeriesQuery = {
+                timeSeriesFilter = {
+                  filter = "resource.type=\"cloud_run_revision\" AND metric.type=\"run.googleapis.com/request_count\" AND resource.label.service_name=\"${local.service_name}\""
+                  aggregation = {
+                    alignmentPeriod    = "60s"
+                    perSeriesAligner   = "ALIGN_RATE"
+                    crossSeriesReducer = "REDUCE_SUM"
+                  }
+                }
+              }
+            }]
+          }
+        },
+        {
+          title = "Request latency (p50, p95, p99 ms)"
+          xyChart = {
+            dataSets = [
+              {
+                timeSeriesQuery = {
+                  timeSeriesFilter = {
+                    filter = "resource.type=\"cloud_run_revision\" AND metric.type=\"run.googleapis.com/request_latencies\" AND resource.label.service_name=\"${local.service_name}\""
+                    aggregation = {
+                      alignmentPeriod    = "60s"
+                      perSeriesAligner   = "ALIGN_DELTA"
+                      crossSeriesReducer = "REDUCE_PERCENTILE_50"
+                    }
+                  }
+                }
+              },
+              {
+                timeSeriesQuery = {
+                  timeSeriesFilter = {
+                    filter = "resource.type=\"cloud_run_revision\" AND metric.type=\"run.googleapis.com/request_latencies\" AND resource.label.service_name=\"${local.service_name}\""
+                    aggregation = {
+                      alignmentPeriod    = "60s"
+                      perSeriesAligner   = "ALIGN_DELTA"
+                      crossSeriesReducer = "REDUCE_PERCENTILE_95"
+                    }
+                  }
+                }
+              },
+              {
+                timeSeriesQuery = {
+                  timeSeriesFilter = {
+                    filter = "resource.type=\"cloud_run_revision\" AND metric.type=\"run.googleapis.com/request_latencies\" AND resource.label.service_name=\"${local.service_name}\""
+                    aggregation = {
+                      alignmentPeriod    = "60s"
+                      perSeriesAligner   = "ALIGN_DELTA"
+                      crossSeriesReducer = "REDUCE_PERCENTILE_99"
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        },
+        {
+          title = "Cloud Run instance count"
+          xyChart = {
+            dataSets = [{
+              timeSeriesQuery = {
+                timeSeriesFilter = {
+                  filter = "resource.type=\"cloud_run_revision\" AND metric.type=\"run.googleapis.com/container/instance_count\" AND resource.label.service_name=\"${local.service_name}\""
+                  aggregation = {
+                    alignmentPeriod    = "60s"
+                    perSeriesAligner   = "ALIGN_MAX"
+                    crossSeriesReducer = "REDUCE_SUM"
+                  }
+                }
+              }
+            }]
+          }
+        },
+        {
+          title = "Cloud SQL CPU"
+          xyChart = {
+            dataSets = [{
+              timeSeriesQuery = {
+                timeSeriesFilter = {
+                  filter = "resource.type=\"cloudsql_database\" AND resource.label.database_id=\"${var.project_id}:${local.database_instance}\" AND metric.type=\"cloudsql.googleapis.com/database/cpu/utilization\""
+                  aggregation = {
+                    alignmentPeriod  = "60s"
+                    perSeriesAligner = "ALIGN_MEAN"
+                  }
+                }
+              }
+            }]
+          }
+        }
+      ]
+    }
+  })
+}
+
 # Nightly drain of the smoke+*@dragonfly-test.invalid users that
 # scripts/smoke_phase4.py creates after every deploy. The Cloud Run Job
 # itself (dragonfly-cleanup-smoke) is currently created out-of-band via
