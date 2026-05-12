@@ -1,9 +1,25 @@
 # Risk 0006: Web deploy DNS + hosting site (human action)
 
-- **Status:** Open
+- **Status:** Resolved 2026-05-12
 - **Date filed:** 2026-05-10
 - **Source:** Web adult dashboard follow-up 4 ("separate deploy at parents.dragonfly-app.net")
 - **Owner:** Brian (Firebase Console + DNS provider clicks; no autonomous unblock path)
+
+## Resolution (2026-05-12)
+
+Closed end-to-end without the Console clicks. Because `dragonfly-app.net`
+is already in Cloud DNS in the same GCP project, the entire flow ran
+through gcloud + the Firebase Hosting REST API:
+
+1. Created site `dragonfly-parents-dev` via `firebasehosting.googleapis.com/v1beta1/projects/.../sites?siteId=...`.
+2. First deploy via `gh workflow run deploy-web-dev.yml` (after granting `roles/firebasehosting.admin` to the github-deploy-dev SA out-of-band; the Terraform in PR #68 declares the same binding so the next apply is a no-op).
+3. Fixed `firebase.json` to use `target: "parents"` instead of inline `site:` (PR #70) so the workflow's `--only hosting:parents` flag resolved through `.firebaserc` targets.
+4. Claimed `parents.dragonfly-app.net` via `POST .../sites/dragonfly-parents-dev/domains`; Firebase returned the required A record (`199.36.158.100`) and the ACME-challenge TXT token.
+5. Wrote both to Cloud DNS zone `dragonfly-app-zone` via `gcloud dns record-sets transaction`.
+6. Firebase verified `dnsStatus: DNS_MATCH`; Let's Encrypt cert issued (`CERT_PROPAGATING`), and `https://parents.dragonfly-app.net/` now returns 200 with a valid cert.
+
+The "human action items" section below is retained for historical
+reference / the Console-only path; in practice none of it was needed.
 
 ## What we have
 
