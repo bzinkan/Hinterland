@@ -1,0 +1,60 @@
+name: Deploy landing site (dev)
+
+# Ships the static landing/legal pages to Firebase Hosting site
+# `dragonfly-www-dev`, which serves dragonfly-app.net + www. The pages
+# are plain HTML/CSS so there's no build step -- this workflow just
+# uploads what's in web/public/.
+#
+# Custom-domain wiring (dragonfly-app.net + www.dragonfly-app.net) was
+# done out-of-band; see docs/risks/0006-web-deploy-dns.md for the
+# pattern.
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "web/**"
+      - ".github/workflows/deploy-landing-dev.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-landing-dev
+  cancel-in-progress: false
+
+env:
+  PROJECT_ID: dragonflyapp-495423
+  HOSTING_TARGET: www
+
+jobs:
+  deploy:
+    name: Deploy to Firebase Hosting
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - name: Install Firebase CLI
+        run: npm install --no-save firebase-tools@^14
+
+      - name: Deploy hosting
+        run: |
+          npx firebase-tools deploy \
+            --only "hosting:${HOSTING_TARGET}" \
+            --project "${PROJECT_ID}" \
+            --non-interactive \
+            --force

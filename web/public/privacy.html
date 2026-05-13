@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Privacy &mdash; Dragonfly (DRAFT)</title>
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+  <style>
+    :root { --ink:#1a1a1a; --muted:#555; --accent:#2f6feb; --bg:#fdfcf6; --rule:#e6e2d3; }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+      background: var(--bg);
+      color: var(--ink);
+      line-height: 1.6;
+    }
+    main { max-width: 720px; margin: 0 auto; padding: 64px 24px 120px; }
+    h1 { font-size: 32px; margin: 0 0 8px; letter-spacing: -0.02em; }
+    h2 { font-size: 18px; margin: 36px 0 8px; }
+    h3 { font-size: 15px; margin: 20px 0 4px; }
+    p, li { margin: 0 0 12px; }
+    ul { padding-left: 24px; }
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    .meta { color: var(--muted); font-size: 14px; margin-bottom: 24px; }
+    .draft-banner {
+      background: #fff7ed;
+      border: 1px solid #fdba74;
+      border-radius: 6px;
+      padding: 16px 20px;
+      font-size: 14px;
+      color: #7c2d12;
+      margin-bottom: 32px;
+    }
+    nav { font-size: 14px; margin-bottom: 32px; }
+    nav a { color: var(--muted); }
+    footer { border-top: 1px solid var(--rule); margin-top: 64px; padding-top: 20px; font-size: 13px; color: var(--muted); }
+  </style>
+</head>
+<body>
+  <main>
+    <nav><a href="/">&larr; Dragonfly</a></nav>
+
+    <div class="draft-banner">
+      <strong>DRAFT &mdash; not legal copy.</strong>
+      This page captures what Dragonfly actually does with data, in plain
+      English, ahead of legal review. The final version will be reviewed
+      by a lawyer with COPPA / kids-app experience before public launch.
+    </div>
+
+    <h1>Privacy Policy</h1>
+    <p class="meta">Last updated: 2026-05-12 (draft)</p>
+
+    <h2>What Dragonfly is</h2>
+    <p>
+      Dragonfly is a citizen-science field app for kids ages 9&ndash;12.
+      Kids photograph plants and animals they find outdoors. Each photo
+      plus the location it was taken becomes a scientific observation
+      that contributes to iNaturalist, a global species database used
+      by researchers.
+    </p>
+    <p>
+      A parent or teacher creates the kid&rsquo;s account. The kid never
+      types an email address, never sees ads, and never communicates
+      with anyone outside their family or classroom group.
+    </p>
+
+    <h2>What we collect from a kid account</h2>
+    <ul>
+      <li>
+        <strong>A photo of an organism</strong> (plant, animal, fungus,
+        etc.). Stored encrypted at rest in Google Cloud Storage. Photos
+        that pass automated moderation are retained as part of the
+        observation record. Photos that fail moderation (Cloud Vision
+        SafeSearch flags for adult, violence, racy, or medical content)
+        are quarantined and reviewed by an adult before being approved
+        or deleted.
+      </li>
+      <li>
+        <strong>The location the photo was taken</strong>, captured
+        from the device at the moment of capture. The full coordinates
+        are stored privately; only a coarse 4-character geohash
+        (roughly a 30&times;30 km cell) is shared outside the
+        kid&rsquo;s group.
+      </li>
+      <li>
+        <strong>A display name</strong> chosen by the adult who created
+        the account. We recommend a first name or a nickname; we never
+        ask for a last name.
+      </li>
+      <li>
+        <strong>An age band</strong> (9&ndash;10, 11&ndash;12, or 13+).
+        We do not collect the exact birth date.
+      </li>
+      <li>
+        <strong>A species identification</strong> for each photo,
+        derived from the iNaturalist computer-vision API.
+      </li>
+    </ul>
+
+    <h2>What we do not collect from a kid account</h2>
+    <ul>
+      <li>Email address</li>
+      <li>Phone number</li>
+      <li>Last name</li>
+      <li>Exact date of birth</li>
+      <li>Anything the kid types beyond an optional caption on a photo</li>
+      <li>Advertising identifiers</li>
+      <li>Contacts, microphone, or behavioral analytics</li>
+    </ul>
+
+    <h2>What we collect from a parent or teacher account</h2>
+    <ul>
+      <li>Email address (used for sign-in via Firebase Authentication)</li>
+      <li>Display name</li>
+      <li>The groups they own and the kid accounts they have provisioned</li>
+    </ul>
+
+    <h2>Where data is stored</h2>
+    <p>
+      All Dragonfly data lives in Google Cloud (Cloud SQL Postgres for
+      structured data, Cloud Storage for photos). Authentication is
+      managed by Firebase. Data is encrypted at rest. The Google Cloud
+      project is in the United States (us-central1).
+    </p>
+
+    <h2>Sharing with iNaturalist</h2>
+    <p>
+      When an adult in the kid&rsquo;s group approves an observation,
+      the photo, the coarse location, and the species identification
+      are uploaded to iNaturalist via their public API. No personally
+      identifying information about the child is included. The
+      observation appears in iNaturalist under a Dragonfly-owned
+      service account, not under the kid&rsquo;s name.
+    </p>
+
+    <h2>Parental rights (COPPA)</h2>
+    <p>
+      A parent or teacher who created a kid account can, at any time,
+      request:
+    </p>
+    <ul>
+      <li>A copy of the data associated with the kid account</li>
+      <li>Deletion of the kid account and all associated data</li>
+      <li>Recall of any observation already shared with iNaturalist</li>
+    </ul>
+    <p>
+      Email <a href="mailto:privacy@dragonfly-app.net">privacy@dragonfly-app.net</a>
+      with the request and the kid&rsquo;s display name. We will respond
+      within 14 days.
+    </p>
+
+    <h2>Contact</h2>
+    <p>
+      Questions about this policy:
+      <a href="mailto:privacy@dragonfly-app.net">privacy@dragonfly-app.net</a><br>
+      General support: <a href="mailto:support@dragonfly-app.net">support@dragonfly-app.net</a>
+    </p>
+
+    <footer>
+      <a href="/">Dragonfly</a> &nbsp;&middot;&nbsp;
+      <a href="/terms">Terms</a> &nbsp;&middot;&nbsp;
+      &copy; 2026 Dragonfly
+    </footer>
+  </main>
+</body>
+</html>
