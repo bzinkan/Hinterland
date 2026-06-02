@@ -1,7 +1,7 @@
 {
   "$schema": "./manifest.schema.json",
   "comment": "Source of truth for Phase 1 Entra + Key Vault identifiers. Downstream phases (6 backend verifier, 7 mobile MSAL) read from here. Hand-edited only when the underlying Azure resource changes.",
-  "phase": 1,
+  "phase": 2,
   "capturedAt": "2026-06-02",
   "tenants": {
     "management": {
@@ -104,8 +104,50 @@
       },
       "entra-api-scope-user-access-guid": {
         "id": "https://dragonfly-kv-dev.vault.azure.net/secrets/entra-api-scope-user-access-guid/ea4821ddcb434ba9a85d9c60e43e9d73"
+      },
+      "postgres-admin-password": {
+        "id": "https://dragonfly-kv-dev.vault.azure.net/secrets/postgres-admin-password/381af71e637f483780d99f341f4326de",
+        "format": "string (24+suffix 'Aa1!')",
+        "purpose": "postgres-admin"
+      },
+      "postgres-host": {
+        "id": "https://dragonfly-kv-dev.vault.azure.net/secrets/postgres-host/b5d8aa17e4c14fdea942e1c6305ab8d9"
+      },
+      "postgres-port": {
+        "id": "https://dragonfly-kv-dev.vault.azure.net/secrets/postgres-port/24609360ee4c4938920a1b079573b95d"
+      },
+      "postgres-database": {
+        "id": "https://dragonfly-kv-dev.vault.azure.net/secrets/postgres-database/ec0c33b7c526431a9969da67c9eef060"
+      },
+      "postgres-admin-user": {
+        "id": "https://dragonfly-kv-dev.vault.azure.net/secrets/postgres-admin-user/78604cb08b6b422a805d2499cc2d9beb"
       }
     }
+  },
+  "postgres": {
+    "serverName": "dragonfly-postgres-dev",
+    "fqdn": "dragonfly-postgres-dev.postgres.database.azure.com",
+    "port": 5432,
+    "database": "dragonfly",
+    "adminUser": "dfadmin",
+    "version": "16",
+    "sku": "Standard_B1ms",
+    "tier": "Burstable",
+    "storageGiB": 32,
+    "backupRetentionDays": 7,
+    "highAvailability": "Disabled",
+    "location": "centralus",
+    "locationNote": "Postgres is in centralus, not eastus2 (where RG + KV live). This Sponsored subscription (quotaId Sponsored_2016-01-01) blocks Burstable Postgres in eastus/eastus2. centralus succeeded on first try. Container Apps in Phase 5 will land in eastus2; ~25ms cross-region latency to Postgres is acceptable for the beta.",
+    "publicAccess": {
+      "operatorIp": "74.215.28.159",
+      "allowAllAzureServicesRule": "AllowAllAzureServices (0.0.0.0/0.0.0.0)"
+    },
+    "connectionString": {
+      "asyncpgUrl": "postgresql+asyncpg://{user}:{password}@{host}:{port}/{database}?ssl=require",
+      "alembicUrl": "postgresql+psycopg://{user}:{password}@{host}:{port}/{database}?sslmode=require",
+      "sslRequired": true
+    },
+    "resourceId": "/subscriptions/5a04114f-9102-4e0b-828b-b385096edfbc/resourceGroups/dragonfly-dev-rg/providers/Microsoft.DBforPostgreSQL/flexibleServers/dragonfly-postgres-dev"
   },
   "kidJwt": {
     "kid": "k1-2026-06",
