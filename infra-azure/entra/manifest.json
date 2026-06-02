@@ -1,7 +1,7 @@
 {
   "$schema": "./manifest.schema.json",
   "comment": "Source of truth for Phase 1 Entra + Key Vault identifiers. Downstream phases (6 backend verifier, 7 mobile MSAL) read from here. Hand-edited only when the underlying Azure resource changes.",
-  "phase": 3,
+  "phase": 4,
   "capturedAt": "2026-06-02",
   "tenants": {
     "management": {
@@ -130,6 +130,9 @@
       },
       "blob-account-endpoint": {
         "id": "https://dragonfly-kv-dev.vault.azure.net/secrets/blob-account-endpoint/54d63266a50a4f0eb6daba0f4599eac4"
+      },
+      "acr-login-server": {
+        "id": "https://dragonfly-kv-dev.vault.azure.net/secrets/acr-login-server/eb91436309ae462bb936b035c5d4633c"
       }
     }
   },
@@ -183,6 +186,19 @@
       "fromGcsBucket": "dragonfly-photos-dev-dragonflyapp-495423",
       "status": "deferred",
       "note": "Dev bucket holds smoke-test photos only; deemed not worth preserving. If needed, run azcopy with a GCS service-account key as documented in phase-3-blob-storage.sh."
+    }
+  },
+  "containerRegistry": {
+    "name": "dragonflyacrdev",
+    "loginServer": "dragonflyacrdev.azurecr.io",
+    "sku": "Basic",
+    "location": "eastus2",
+    "resourceId": "/subscriptions/5a04114f-9102-4e0b-828b-b385096edfbc/resourceGroups/dragonfly-dev-rg/providers/Microsoft.ContainerRegistry/registries/dragonflyacrdev",
+    "images": {
+      "dragonfly-api:phase4-bootstrap": {
+        "digest": "sha256:d25f87ee9c78b922426eaaade30e642b357da3bb7e73e1b67567f3f72ab86c79",
+        "note": "Built from main 2026-06-02 prior to Phase 6 code changes. Still points at GCP services (firebase-admin, GCS, Cloud Vision). Phase 5 will deploy this image to validate the deploy pipeline; runtime correctness lands in Phase 6."
+      }
     }
   },
   "kidJwt": {
