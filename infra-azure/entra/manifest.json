@@ -1,7 +1,7 @@
 {
   "$schema": "./manifest.schema.json",
   "comment": "Source of truth for Phase 1 Entra + Key Vault identifiers. Downstream phases (6 backend verifier, 7 mobile MSAL) read from here. Hand-edited only when the underlying Azure resource changes.",
-  "phase": 2,
+  "phase": 3,
   "capturedAt": "2026-06-02",
   "tenants": {
     "management": {
@@ -121,6 +121,15 @@
       },
       "postgres-admin-user": {
         "id": "https://dragonfly-kv-dev.vault.azure.net/secrets/postgres-admin-user/78604cb08b6b422a805d2499cc2d9beb"
+      },
+      "blob-account-name": {
+        "id": "https://dragonfly-kv-dev.vault.azure.net/secrets/blob-account-name/7c6073a154564dcf9f0ab988ef3920fa"
+      },
+      "blob-photos-container": {
+        "id": "https://dragonfly-kv-dev.vault.azure.net/secrets/blob-photos-container/bb4eff95c1b74ddbbfef855c6ee13ae0"
+      },
+      "blob-account-endpoint": {
+        "id": "https://dragonfly-kv-dev.vault.azure.net/secrets/blob-account-endpoint/54d63266a50a4f0eb6daba0f4599eac4"
       }
     }
   },
@@ -148,6 +157,33 @@
       "sslRequired": true
     },
     "resourceId": "/subscriptions/5a04114f-9102-4e0b-828b-b385096edfbc/resourceGroups/dragonfly-dev-rg/providers/Microsoft.DBforPostgreSQL/flexibleServers/dragonfly-postgres-dev"
+  },
+  "blobStorage": {
+    "accountName": "dragonflyphotosdev",
+    "endpoint": "https://dragonflyphotosdev.blob.core.windows.net",
+    "container": "photos",
+    "sku": "Standard_LRS",
+    "kind": "StorageV2",
+    "accessTier": "Hot",
+    "minTlsVersion": "TLS1_2",
+    "allowBlobPublicAccess": false,
+    "publicNetworkAccess": "Enabled",
+    "blobSoftDeleteDays": 7,
+    "location": "eastus2",
+    "resourceId": "/subscriptions/5a04114f-9102-4e0b-828b-b385096edfbc/resourceGroups/dragonfly-dev-rg/providers/Microsoft.Storage/storageAccounts/dragonflyphotosdev",
+    "rbac": {
+      "operator": {
+        "principalId": "1aa8b605-ea68-4547-9517-7745c7d33838",
+        "principalDisplayName": "Brian Zinkan",
+        "role": "Storage Blob Data Owner",
+        "roleDefinitionId": "b7e6dc6d-f1e8-4753-8033-0f276bb0955b"
+      }
+    },
+    "dataMigration": {
+      "fromGcsBucket": "dragonfly-photos-dev-dragonflyapp-495423",
+      "status": "deferred",
+      "note": "Dev bucket holds smoke-test photos only; deemed not worth preserving. If needed, run azcopy with a GCS service-account key as documented in phase-3-blob-storage.sh."
+    }
   },
   "kidJwt": {
     "kid": "k1-2026-06",
