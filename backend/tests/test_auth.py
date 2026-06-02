@@ -283,7 +283,13 @@ def test_kid_exchange_rejects_replayed_jti(
     fake_session: AsyncMock,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A handoff JWT already consumed (jti collision) -> 401."""
+    """A handoff JWT already consumed (jti collision) -> 409 Conflict.
+
+    Single-use is enforced server-side by the PK constraint on
+    ``kid_handoff_jti.jti``; the second INSERT raises IntegrityError and
+    the route maps it to 409. 401 would be wrong -- the token itself is
+    not invalid; it's just already been spent.
+    """
     if not hasattr(auth_routes_module, "verify_dragonfly_jwt"):
         pytest.skip("kid-exchange route not present yet")
 
@@ -315,8 +321,7 @@ def test_kid_exchange_rejects_replayed_jti(
         json={"handoff_token": "handoff-jwt"},
     )
 
-    assert response.status_code == 401
-    assert response.headers["www-authenticate"] == "Bearer"
+    assert response.status_code == 409
 
 
 def test_kid_exchange_rejects_invalid_token(
