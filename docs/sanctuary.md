@@ -574,6 +574,60 @@ surface.
 - **Does not own `memberships` columns.** The Sanctuary is per-user;
   leaderboard rows are untouched.
 
+### service layer
+
+The `WorldHandler` is intentionally thin. It calls a pure-function
+planner — `app.sanctuary.service.compute_sanctuary_plan(inputs,
+content)` — and passes the returned `SanctuaryPlan` to a writer that
+issues the actual `INSERT ... ON CONFLICT DO NOTHING` on
+`sanctuary_elements`, the `UPDATE` on `sanctuary_zone_state`, the
+`INSERT` rows into `sanctuary_events`, and appends the rewards to
+the dispatcher's reward list. Keeping the planner pure means: no DB
+session, no HTTP, no LLM, no `datetime.now()` / `random` /
+`uuid.uuid4()` reads — the same `(inputs, content)` produces a
+byte-identical plan, which is the property dispatcher replay relies
+on.
+
+Content is loaded once per process via
+`app.sanctuary.content.get_sanctuary_content()` — a threading-locked
+process-level cache that walks `content/sanctuary/*.json`, validates
+each file through the Pydantic schema from PR #96, assembles a
+`SanctuaryConfig` for whole-tree cross-reference validation, and
+builds the lookup indexes (`coarse_by_iconic_taxon`,
+`charismatic_by_taxon_id`, `zone_by_id`, etc.) the planner reads in
+constant time at request time.
+
+The planner is wired into the dispatcher in a follow-up PR; this
+service layer ships first so it can be tested in isolation against
+the real content files (`backend/tests/test_sanctuary_service.py`).
+
+Sketch of the planner contract:
+
+```python
+from app.sanctuary.service import compute_sanctuary_plan
+from app.sanctuary.content import get_sanctuary_content
+from app.sanctuary.types import ServiceInputs, ObservationInput
+
+plan = compute_sanctuary_plan(
+    inputs=ServiceInputs(
+        observation=ObservationInput(
+            user_id=...,
+            observation_id=...,
+            taxon_id=...,
+            species_name=...,
+            iconic_taxon=...,       # from species_cache, may be None
+            is_first_find=...,      # from DexHandler result
+            current_date=...,       # reserved for future SeasonHandler
+        ),
+        zone_states=[...],          # read from sanctuary_zone_state
+        elements=[...],             # read from sanctuary_elements
+    ),
+    content=get_sanctuary_content(),
+)
+# plan.elements_to_unlock, plan.zone_transitions, plan.events,
+# plan.rewards -- all plain data, ready for the writer.
+```
+
 ### persistence
 
 Per `docs/data-model.md`, the data layer is **Postgres only** (Cloud
