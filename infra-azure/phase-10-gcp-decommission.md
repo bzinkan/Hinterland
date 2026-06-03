@@ -83,13 +83,54 @@ covers ~25-40 months at this profile. Well within bounds.
 
 The migration is rollback-friendly through Phase 11 (Firebase Auth removal).
 
-## Phase 11 candidates
+## Phase 11 outcomes
 
-Phase 11 is "everything that can wait":
+| Item | Disposition |
+|---|---|
+| Real MSAL hookup on the parents web bundle | **DONE** in PR #88 (Phase 11a). Metro `resolveRequest` shim fixes the `@azure/msal-common/browser` package layout; `PublicClientApplication.initialize()` runs on every web load; `acquireTokenSilent` writes the access token to bearer storage. |
+| Sign-in.tsx UI rewrite | **DONE** in PR #88. Web shows a single "Continue with Microsoft" button (`Platform.OS === "web"` branch). Native iOS/Android keep the email/password Firebase form. |
+| Drop `firebase-admin` + `google-cloud-storage` from backend deps | **DONE** in PR #89 (Phase 11b). 10 transitive deps also removed; backend image is ~50 MB smaller. `python-jose` removed too -- pyjwt covers everything. |
+| Drop `GcsSignedUrlGenerator` + `CloudVisionSafeSearchModerator` | **DONE** in PR #89. ~700 net lines removed. `storage_provider` Literal trimmed to `["noop", "blob"]`; `moderation_provider` trimmed to `["noop", "azure_content_safety"]`. |
+| Delete `backend/admin/cleanup_smoke_users.py` | **DONE** in PR #89. Was the only remaining `firebase_admin` import outside tests. |
+| **Migrate Cloud DNS -> Azure DNS + cut apex/www over to Static Web Apps** | **DEFERRED INDEFINITELY** (see below). |
+| Delete Cloud SQL instance + GCS bucket after 60-day soak | Pending (60-day soak window). |
+| Delete the Firebase project entirely | Pending (blocked on apex/www staying on Firebase Hosting). |
 
-- Real MSAL hookup on the parents web bundle (parents currently sign in via Firebase Auth even on web).
-- Sign-in.tsx UI rewrite (Microsoft-hosted redirect button on web; email/password form stays on native).
-- Drop `firebase-admin` + `google-cloud-storage` + `firebase` from dependencies once MSAL is real.
-- Delete Cloud SQL instance + GCS bucket after a 60-day soak.
-- Migrate Cloud DNS -> Azure DNS + cut apex/www over to Static Web Apps.
-- Delete the Firebase project entirely.
+## Why apex/www stays on Firebase Hosting (decision: indefinite)
+
+Azure Static Web Apps' Free tier does not officially support apex domains
+when authoritative DNS is anywhere other than Azure DNS -- the documented
+path is "ALIAS record in Azure DNS." A workaround using plain A records
+on a third-party DNS is possible but unsupported and brittle (the SWA
+underlying IP isn't pinned across rebuilds). Empirically, the Phase 9
+attempt at the apex SWA claim through Cloud DNS hung indefinitely; the
+Phase 11c re-attempt at `www` via cname-delegation returned `BadRequest:
+CNAME record is invalid` without ever exposing a usable validation
+token.
+
+The realistic path to "everything on Azure" requires:
+
+1. Recreate the zone in Azure DNS, importing all records (MX / SPF / DKIM
+   for email, NS, SOA, plus the 4 record sets we manage).
+2. Update the registrar's NS records to point at Azure DNS nameservers.
+3. Wait 1-48h for global NS propagation. **Risk: any record-set drift
+   between Cloud DNS and Azure DNS during this window takes the domain
+   dark.**
+4. Claim `dragonfly-app.net` (apex) + `www.dragonfly-app.net` on
+   `dragonfly-landing-swa` once the new NS records are authoritative.
+5. Add the SWA-provided TXT / ALIAS records in Azure DNS.
+6. Wait for managed-cert issuance + propagation.
+7. Delete the Firebase Hosting site `dragonfly-landing-dev`.
+
+That's roughly an afternoon of work with a real downtime risk and no
+functional payoff -- everything that needs to be on Azure already is.
+The residual GCP footprint is **~$1.20/mo** (Cloud DNS zone + ~10 GB
+Cloud Storage). Burning a developer afternoon and the downtime risk to
+save that is not a positive trade-off.
+
+If a future change forces it -- e.g. Microsoft moves apex SWA support
+behind paid tiers, or we decide to delete the entire Firebase project
+for COPPA/audit reasons -- the steps above are the recipe.
+
+Until then: api + parents on Azure, apex + www on Firebase Hosting via
+Cloud DNS is the stable end state.
