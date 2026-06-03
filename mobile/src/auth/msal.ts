@@ -23,11 +23,9 @@ import { Platform } from "react-native";
 import { clearBearerToken, setBearerToken } from "@/src/auth/token";
 import { env } from "@/src/config/env";
 
-// Type-only imports keep msal-browser out of the runtime bundle. Phase
-// 9 hit a Metro/msal-common exports-map collision that we don't want
-// to resolve in the same PR as the DNS cutover -- the runtime hookup
-// is intentionally a no-op until a follow-up swaps the resolver
-// strategy or pins a Metro-compatible msal version.
+// metro.config.js's resolveRequest shim fixes the @azure/msal-common/
+// browser exports-map path, so we can now import msal-browser lazily
+// inside getMsal() without bundle-time failures.
 type MsalModule = typeof import("@azure/msal-browser");
 type PublicClientApplicationType = InstanceType<MsalModule["PublicClientApplication"]>;
 type AccountInfo = import("@azure/msal-browser").AccountInfo;
@@ -43,10 +41,29 @@ function isWeb(): boolean {
 }
 
 export async function getMsal(): Promise<PublicClientApplicationType | null> {
-  // Runtime hookup is paused until the Metro/msal-common resolver
-  // collision is sorted out in a follow-up PR. The function shape and
-  // export list stay so call sites elsewhere compile.
-  return null;
+  if (!isWeb()) return null;
+  if (msalApp) return msalApp;
+  if (initPromise) return initPromise;
+
+  initPromise = (async () => {
+    const { PublicClientApplication } = await import("@azure/msal-browser");
+    const ms = new PublicClientApplication({
+      auth: {
+        clientId: env.entra.clientId,
+        authority: env.entra.authority,
+        knownAuthorities: [new URL(env.entra.authority).host],
+        redirectUri: env.entra.redirectUri,
+      },
+      cache: {
+        cacheLocation: "localStorage",
+      },
+    });
+    await ms.initialize();
+    msalApp = ms;
+    return ms;
+  })();
+
+  return initPromise;
 }
 
 async function syncToken(account: AccountInfo | null): Promise<void> {

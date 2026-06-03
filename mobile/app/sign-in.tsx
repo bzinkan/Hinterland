@@ -5,14 +5,16 @@ import {
   signInWithEmailAndPassword,
 } from "firebase/auth";
 import { useState } from "react";
-import { ActivityIndicator, Pressable, StyleSheet, TextInput } from "react-native";
+import { ActivityIndicator, Platform, Pressable, StyleSheet, TextInput } from "react-native";
 
 import DesktopContainer from "@/components/DesktopContainer";
 import { Text, View } from "@/components/Themed";
 import { parentSignup } from "@/src/api/auth";
 import { getFirebaseAuth } from "@/src/auth/firebase";
+import { signIn as msalSignIn } from "@/src/auth/msal";
 
 type Mode = "sign-in" | "sign-up";
+const IS_WEB = Platform.OS === "web";
 
 export default function SignInScreen() {
   const [mode, setMode] = useState<Mode>("sign-in");
@@ -47,6 +49,52 @@ export default function SignInScreen() {
     } finally {
       setBusy(false);
     }
+  }
+
+  async function handleMsalSignIn() {
+    setBusy(true);
+    setError(null);
+    try {
+      await msalSignIn();
+      // loginRedirect navigates away; the rest of the flow is handled
+      // by ensureTokenSync()'s handleRedirectPromise on return.
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : String(err));
+      setBusy(false);
+    }
+  }
+
+  if (IS_WEB) {
+    return (
+      <DesktopContainer>
+        <Stack.Screen options={{ title: "Sign in" }} />
+        <View style={styles.container}>
+          <Text style={styles.title}>Welcome to Dragonfly</Text>
+          <Text style={styles.subtitle}>
+            Dragonfly parent and teacher accounts sign in with Microsoft
+            Entra. Kids get a join code from you and never enter an email.
+          </Text>
+
+          {error && <Text style={styles.error}>{error}</Text>}
+
+          <Pressable
+            style={[styles.button, styles.buttonPrimary, busy && styles.buttonDisabled]}
+            disabled={busy}
+            onPress={handleMsalSignIn}
+          >
+            {busy ? (
+              <ActivityIndicator color="#fff" />
+            ) : (
+              <Text style={styles.buttonText}>Continue with Microsoft</Text>
+            )}
+          </Pressable>
+
+          <Text style={styles.subtitle}>
+            New here? Pick "Sign up now" on the Microsoft sign-in page.
+          </Text>
+        </View>
+      </DesktopContainer>
+    );
   }
 
   return (
