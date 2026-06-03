@@ -20,6 +20,16 @@
         "APP_ENV": "preview"
       }
     },
+    "play-internal": {
+      "channel": "play-internal",
+      "autoIncrement": true,
+      "android": {
+        "buildType": "app-bundle"
+      },
+      "env": {
+        "APP_ENV": "play-internal"
+      }
+    },
     "production": {
       "channel": "production",
       "autoIncrement": true,

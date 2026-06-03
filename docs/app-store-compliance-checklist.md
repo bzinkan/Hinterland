@@ -6,6 +6,49 @@ plus current store policy as of 2026-05-10. Re-verify the most recent policy
 docs before each release submission since both stores tighten kids-app rules
 roughly twice a year.
 
+## Google Play first / Internal testing
+
+The first store surface Dragonfly hits is the Google Play **Internal
+testing** track for a 1-week controlled adult-supervised kid pilot.
+See [`google-play-internal-testing.md`](google-play-internal-testing.md)
+for the Play Console process and
+[`one-week-kid-pilot-checklist.md`](one-week-kid-pilot-checklist.md)
+for the operator's day-by-day checklist.
+
+What Internal testing actually requires (much narrower than the rest
+of this doc):
+
+- [x] AAB built from a stable package name (`com.dragonfly.app`). The
+  `play-internal` EAS profile produces this.
+- [ ] Play Console app entry created. First uploaded artifact LOCKS
+  the package name -- see the warnings in
+  [`google-play-internal-testing.md`](google-play-internal-testing.md).
+- [ ] Internal testing tester email list created with up to 100
+  testers (kept in a private spreadsheet, NOT in the repo).
+- [ ] Risk 0007 (precise-location vs Play Families policy) has a
+  documented decision before the AAB is built. See
+  [`risks/0007-google-play-families-location-policy.md`](risks/0007-google-play-families-location-policy.md).
+- [ ] Parental consent captured via the `/consent` endpoint for every
+  pilot family BEFORE the kid account is provisioned.
+
+What can wait while Dragonfly is **exclusively on Internal testing**:
+
+- Data Safety form (Play Console accepts Internal testing builds
+  without it; required before Closed / Open / Production).
+- Designed-for-Families program opt-in.
+- Content rating questionnaire.
+- Target audience confirmation.
+- Permissions justification copy in the listing.
+
+These ALL become production blockers the moment Dragonfly tries to
+move to Closed testing or beyond. The full list of production
+blockers is the rest of this document.
+
+**Hard rule:** while this section is open (i.e. while we're still
+running Internal testing only), do not promote a build past Internal
+testing without first re-reading every item below and the active risk
+docs.
+
 ## Pre-submission, shared
 
 - [ ] Privacy policy published at `https://dragonfly-app.net/privacy`. The

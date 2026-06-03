@@ -1,6 +1,15 @@
 import type { ExpoConfig } from "expo/config";
 
-type AppEnv = "development" | "preview" | "production";
+// `play-internal` is the Google Play Internal Testing track build path.
+// Uses the FINAL package name `com.dragonfly.app` (no `.dev` suffix) and
+// surfaces as "Dragonfly Internal" so testers can tell pilot installs
+// apart from a future production install. See
+// docs/google-play-internal-testing.md for the full process.
+type AppEnv =
+  | "development"
+  | "preview"
+  | "production"
+  | "play-internal";
 
 const APP_ENV: AppEnv =
   (process.env.APP_ENV as AppEnv | undefined) ?? "development";
@@ -66,12 +75,35 @@ const ENV: Record<AppEnv, EnvConfig> = {
     firebase: FIREBASE_DEV,
     entra: ENTRA_DEV,
   },
+  // play-internal uses the FINAL package name `com.dragonfly.app`
+  // (bundleIdSuffix=""). First upload of this artifact LOCKS the
+  // package name on the Play Console app -- see docs/google-play-
+  // internal-testing.md for the warning + recovery path. Points at
+  // the dev API since no staging API exists yet.
+  "play-internal": {
+    apiBaseUrl: "https://api.dragonfly-app.net",
+    bundleIdSuffix: "",
+    updatesChannel: "play-internal",
+    firebase: FIREBASE_DEV,
+    entra: ENTRA_DEV,
+  },
 };
 
 const env = ENV[APP_ENV];
 
+function displayName(appEnv: AppEnv): string {
+  switch (appEnv) {
+    case "production":
+      return "Dragonfly";
+    case "play-internal":
+      return "Dragonfly Internal";
+    default:
+      return `Dragonfly (${appEnv})`;
+  }
+}
+
 const config: ExpoConfig = {
-  name: APP_ENV === "production" ? "Dragonfly" : `Dragonfly (${APP_ENV})`,
+  name: displayName(APP_ENV),
   slug: "dragonfly",
   version: "0.1.0",
   orientation: "portrait",
