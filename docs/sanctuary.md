@@ -87,12 +87,12 @@ job. Same shape as expedition content. Same rules. See section 12.
 
 ### a Postgres-persisted surface
 
-Sanctuary state lives in new tables — indicative names
-`sanctuary_zone_state`, `sanctuary_unlocks`, `sanctuary_content` —
-added via Alembic migrations. The `WORLD#` phrase in `AGENTS.md`'s
-Phase 2 candidate list is **conceptual only** under the
-post-ADR-0005 Postgres model; there is no `WORLD#` partition key in
-this codebase.
+Sanctuary state lives in four new tables — `sanctuary_zone_state`,
+`sanctuary_elements`, `sanctuary_observation_contributions`, and
+`sanctuary_events` — added via Alembic migrations. The `WORLD#`
+phrase in `AGENTS.md`'s Phase 2 candidate list is **conceptual only**
+under the post-ADR-0005 Postgres model; there is no `WORLD#`
+partition key in this codebase.
 
 ---
 
@@ -543,17 +543,23 @@ surface.
   provider, no LLM. The handler reads Postgres and writes Postgres.
   That's it. Matches the Phase 1 handler invariant
   ("self-contained").
-- **Idempotent under replay.** First-unlock is enforced by an atomic
-  conditional write — Postgres `INSERT … ON CONFLICT DO NOTHING`
-  against `sanctuary_unlocks` on the unique key `(user_id,
-  unlock_id)` — exactly mirroring the Dex first-find pattern
-  (`docs/data-model.md`: *"The first-find check must not become
-  read-then-write. The database unique constraint is the source of
-  truth under concurrency."*). Threshold crossings are computed from
-  authoritative counts in `sanctuary_zone_state`, not from "was this
-  the Nth submission this session?" Running the dispatcher twice for
-  the same `observation_id` produces the same rewards and the same
-  row count.
+- **Idempotent under replay.** First-element is enforced by an
+  atomic conditional write — Postgres `INSERT … ON CONFLICT DO
+  NOTHING` against `sanctuary_elements` on the unique key
+  `(user_id, zone_id, element_id)` — exactly mirroring the Dex
+  first-find pattern (`docs/data-model.md`: *"The first-find check
+  must not become read-then-write. The database unique constraint
+  is the source of truth under concurrency."*). A second structural
+  gate sits at `sanctuary_observation_contributions`, whose primary
+  key **is** the `observation_id` itself: the dispatcher's
+  per-observation contribution row can be inserted at most once, so
+  replaying the same `observation_id` is a structural no-op (the
+  WorldHandler catches the PK collision and skips every counter
+  bump and element fire from that observation). Threshold crossings
+  are computed from authoritative counts in `sanctuary_zone_state`,
+  not from "was this the Nth submission this session?" Running the
+  dispatcher twice for the same `observation_id` produces the same
+  rewards and the same row count.
 - **Exception-safe.** Any failure inside `WorldHandler` is caught by
   the dispatcher loop, logged as `dispatcher.handler_failed`, and
   the empty `HandlerResult` is recorded under `ctx.results["world"]`
@@ -576,21 +582,31 @@ design anymore. The legacy phrasing in `AGENTS.md` of *"`WORLD#`
 rows and `WorldHandler`"* is **conceptual only** — `WORLD#` is not a
 partition key in this codebase.
 
-The Sanctuary lands as new SQLAlchemy models and Alembic migrations
-alongside the existing tables. Indicative names (final shape
-decided in the schema PR, not here):
+The Sanctuary lands as four SQLAlchemy models + an Alembic migration
+alongside the existing tables (final shape is
+[`docs/data-model.md`](data-model.md) "Sanctuary State"):
 
 - `sanctuary_zone_state` — per-user, per-zone observation counts and
-  current threshold tier. Unique constraint on `(user_id, zone)`.
-- `sanctuary_unlocks` — per-user record of which named unlocks (zone
-  wake-ups, charismatic species, relationship moments, evolutions)
-  have fired. Unique constraint on `(user_id, unlock_id)` so
-  first-fire is atomic.
-- `sanctuary_content` — materialized view of `content/sanctuary/`
-  JSON, synced by an idempotent ingest job that writes through
-  `ingest_runs` exactly like expedition content does (ADR 0006).
+  current depth tier. Unique constraint on `(user_id, zone_id)`.
+- `sanctuary_elements` — per-user record of which kid-visible
+  elements (zone wake-ups, charismatic species, relationship
+  moments, tiny surprises, signature unlocks) have fired. Unique
+  constraint on `(user_id, zone_id, element_id)` so first-fire is
+  atomic via `INSERT … ON CONFLICT DO NOTHING`.
+- `sanctuary_observation_contributions` — per-observation row whose
+  primary key **is** the `observation_id` (FK to `observations.id`,
+  ondelete=CASCADE). Records which `element_ids` an observation
+  contributed to. Acts as the dispatcher's structural replay gate:
+  the same `observation_id` cannot insert twice.
+- `sanctuary_events` — append-only audit log of celebration-worthy
+  rows (world unlocks, world evolutions, relationship moments, tiny
+  surprises). Backs the per-zone journal/timeline in §10.
 
-Columns, indexes, and foreign keys are defined in the schema PR.
+Content (`content/sanctuary/` JSON, validated by the Pydantic
+schema in PR #96) is **not** mirrored into a Postgres table in this
+PR; the API reads zone/element metadata from the in-process content
+map. A `sanctuary_content` cache table can be added later if a
+product need emerges.
 
 ---
 
@@ -652,7 +668,8 @@ Never reveals a precise location.
 ### journal / timeline
 
 A scrollable per-zone timeline of the kid's own unlocks and
-threshold crossings, sourced from `sanctuary_unlocks` joined to the
+threshold crossings, sourced from `sanctuary_elements` and
+`sanctuary_events` joined to the
 kid's own `observations`. Uses `FlashList` per the existing
 `docs/mobile.md` performance rule.
 
@@ -810,14 +827,18 @@ leaves the app shippable. Nothing rewrites the submission spine.
    Author the seven zone files and the iconic_taxon → zone routing
    map.
 2. **DB model.** Add Alembic migration introducing
-   `sanctuary_zone_state`, `sanctuary_unlocks`, and `sanctuary_content`
-   tables. SQLAlchemy models in `backend/app/models/`. Unique
-   constraint on `(user_id, unlock_id)` for `sanctuary_unlocks` so
-   first-unlock is atomic via `INSERT … ON CONFLICT DO NOTHING`.
-   Includes an idempotent content ingest job that writes
-   `content/sanctuary/` JSON into `sanctuary_content`, recording
-   state in `ingest_runs` per ADR 0006. No DynamoDB-style `WORLD#` /
-   `ZONE#` keys.
+   `sanctuary_zone_state`, `sanctuary_elements`,
+   `sanctuary_observation_contributions`, and `sanctuary_events`
+   tables. SQLAlchemy models in `backend/app/db/models.py`. Unique
+   constraint on `(user_id, zone_id, element_id)` for
+   `sanctuary_elements` so first-element is atomic via
+   `INSERT … ON CONFLICT DO NOTHING`.
+   `sanctuary_observation_contributions` uses `observation_id` (FK
+   to `observations.id`) as its primary key, giving the dispatcher
+   structural per-observation replay safety. Content stays as JSON
+   under `content/sanctuary/` validated by the Pydantic schema from
+   PR #96 — no Postgres-side content cache is added in this PR. No
+   DynamoDB-style `WORLD#` / `ZONE#` keys.
 3. **WorldHandler.** Implement `WorldHandler` at
    `app/dispatcher/handlers/world.py` conforming to the existing
    `Handler` Protocol. Add `world_unlock` and `world_evolution` to

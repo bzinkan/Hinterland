@@ -340,3 +340,185 @@ class ParentConsentRecord(TimestampMixin, Base):
     linked_kid_user_id: Mapped[str | None] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"),
     )
+
+
+# ---------------------------------------------------------------------------
+# Sanctuary (Phase 2 -- see docs/sanctuary.md, PR #95/#96)
+# ---------------------------------------------------------------------------
+#
+# Four per-user tables back the WorldHandler. None of these rows carry
+# precise location, none participate in the leaderboard path (which stays on
+# `memberships`), and the contribution table's PK on `observation_id` is the
+# structural replay gate: a second dispatch of the same observation hits a
+# PK collision, and the WorldHandler treats that as "skip every counter
+# bump and element fire from this observation."
+
+
+class SanctuaryZoneState(TimestampMixin, Base):
+    """Per-user, per-zone Sanctuary observation count and depth tier."""
+
+    __tablename__ = "sanctuary_zone_state"
+    __table_args__ = (
+        UniqueConstraint(
+            "user_id",
+            "zone_id",
+            name="uq_sanctuary_zone_state_user_zone",
+        ),
+        Index(
+            "ix_sanctuary_zone_state_user_depth",
+            "user_id",
+            "depth_tier",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(26), primary_key=True)
+    user_id: Mapped[str] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    zone_id: Mapped[str] = mapped_column(String(40), nullable=False)
+    observation_count: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        server_default="0",
+    )
+    depth_tier: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        server_default="0",
+    )
+    # Bookkeeping pointers to the observations that crossed the wake-up and
+    # most-recent-evolution thresholds. SET NULL on observation delete so
+    # the zone state survives audit-driven observation deletion.
+    first_unlocked_observation_id: Mapped[str | None] = mapped_column(
+        ForeignKey("observations.id", ondelete="SET NULL"),
+    )
+    last_evolved_observation_id: Mapped[str | None] = mapped_column(
+        ForeignKey("observations.id", ondelete="SET NULL"),
+    )
+    last_observed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+    )
+
+
+class SanctuaryElement(TimestampMixin, Base):
+    """Per-user record of a named Sanctuary element unlock.
+
+    `element_type` is one of coarse / charismatic / relationship / surprise
+    / signature. First-fire atomicity comes from the
+    `(user_id, zone_id, element_id)` unique key plus `INSERT ... ON CONFLICT
+    DO NOTHING` -- the Dex first-find idiom.
+    """
+
+    __tablename__ = "sanctuary_elements"
+    __table_args__ = (
+        UniqueConstraint(
+            "user_id",
+            "zone_id",
+            "element_id",
+            name="uq_sanctuary_elements_user_zone_element",
+        ),
+        Index(
+            "ix_sanctuary_elements_user_zone",
+            "user_id",
+            "zone_id",
+        ),
+        CheckConstraint(
+            "element_type IN ('coarse','charismatic','relationship','surprise','signature')",
+            name="ck_sanctuary_elements_element_type",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(26), primary_key=True)
+    user_id: Mapped[str] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    zone_id: Mapped[str] = mapped_column(String(40), nullable=False)
+    element_id: Mapped[str] = mapped_column(String(80), nullable=False)
+    element_type: Mapped[str] = mapped_column(String(40), nullable=False)
+    source_observation_id: Mapped[str | None] = mapped_column(
+        ForeignKey("observations.id", ondelete="SET NULL"),
+    )
+    taxon_id: Mapped[int | None] = mapped_column(Integer)
+    payload: Mapped[JsonDict] = mapped_column(JSONB, nullable=False, default=dict)
+    unlocked_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+    )
+
+
+class SanctuaryObservationContribution(Base):
+    """Idempotency gate for `WorldHandler` replay.
+
+    PK is `observation_id` itself, so a second dispatch of the same
+    observation raises a primary-key collision and the WorldHandler skips
+    every counter bump + element fire from that observation. Write-once;
+    no `updated_at` column.
+    """
+
+    __tablename__ = "sanctuary_observation_contributions"
+
+    observation_id: Mapped[str] = mapped_column(
+        ForeignKey("observations.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    user_id: Mapped[str] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    zone_id: Mapped[str] = mapped_column(String(40), nullable=False)
+    taxon_id: Mapped[int | None] = mapped_column(Integer)
+    iconic_taxon: Mapped[str | None] = mapped_column(String(80))
+    element_ids: Mapped[list[JsonDict]] = mapped_column(
+        JSONB,
+        nullable=False,
+        default=list,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+    )
+
+
+class SanctuaryEvent(Base):
+    """Append-only Sanctuary event log row.
+
+    `event_type` is one of world_unlock / world_evolution / relationship /
+    surprise. Backs the per-zone journal / timeline and the on-submit
+    celebration sequence. Immutable once written; no `updated_at` column.
+    """
+
+    __tablename__ = "sanctuary_events"
+    __table_args__ = (
+        Index(
+            "ix_sanctuary_events_user_created_at",
+            "user_id",
+            "created_at",
+        ),
+        CheckConstraint(
+            "event_type IN ('world_unlock','world_evolution','relationship','surprise')",
+            name="ck_sanctuary_events_event_type",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(26), primary_key=True)
+    user_id: Mapped[str] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    observation_id: Mapped[str | None] = mapped_column(
+        ForeignKey("observations.id", ondelete="SET NULL"),
+    )
+    event_type: Mapped[str] = mapped_column(String(40), nullable=False)
+    zone_id: Mapped[str | None] = mapped_column(String(40))
+    element_id: Mapped[str | None] = mapped_column(String(80))
+    title: Mapped[str] = mapped_column(String(100), nullable=False)
+    detail: Mapped[str | None] = mapped_column(String(240))
+    payload: Mapped[JsonDict] = mapped_column(JSONB, nullable=False, default=dict)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+    )
