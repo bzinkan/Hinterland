@@ -341,7 +341,7 @@ Goal: deepen engagement without disrupting Phase 1 loops.
 Candidates:
 
 - Territory map using MapLibre/OSM rendering.
-- Sanctuary/world layer with `WORLD#` rows and `WorldHandler`.
+- Sanctuary / open-world layer with `WorldHandler` — full Phase 2 product + architecture contract in [`docs/sanctuary.md`](docs/sanctuary.md). The `WORLD#` phrasing kept here is conceptual only; the real persistence is Postgres tables (indicative: `sanctuary_zone_state`, `sanctuary_unlocks`, `sanctuary_content`) per ADR 0005.
 - Offline tile bundles.
 - Push notifications, transactional only.
 - Teacher dashboard beyond review queue.

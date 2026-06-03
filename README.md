@@ -83,6 +83,7 @@ uv run cdk deploy --all
 - **Ingest/replay rules:** `docs/ingest.md`
 - **Rewards and dispatcher:** `docs/dispatcher.md`
 - **Mobile constraints:** `docs/mobile.md`
+- **Sanctuary (Phase 2 design):** `docs/sanctuary.md`
 - **Decisions:** `docs/adr/`
 
 ## Current Phase

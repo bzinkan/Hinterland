@@ -170,6 +170,7 @@ Last week before closed beta. Everything flagged "Phase 1 Week 12" in follow-ups
 Tracking here so they don't creep in.
 
 - **Territory map** — Phase 2.
+- **Sanctuary (open-world layer)** — Phase 2. Product + architecture contract in [`docs/sanctuary.md`](sanctuary.md); the legacy `docs/world.md` is now a one-line redirect to it.
 - **Seasons and phenology (USA-NPN sync)** — Phase 3.
 - **Missions** — Phase 4.
 - **Kid iNat account claim flow (13+)** — Phase 3.
