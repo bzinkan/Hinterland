@@ -42,7 +42,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         log.info(
             "api.startup",
             env=active_settings.env,
-            gcp_project_id=active_settings.gcp_project_id,
+            storage_provider=active_settings.storage_provider,
+            moderation_provider=active_settings.moderation_provider,
         )
         yield
         await database.close()

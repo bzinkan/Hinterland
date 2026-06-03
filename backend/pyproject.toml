@@ -22,12 +22,7 @@ dependencies = [
     "boto3>=1.35.0",
     "botocore>=1.35.0",
 
-    # GCP
-    "google-cloud-storage>=2.18.0",  # photos bucket signed URLs (V4 + IAM signBlob)
-
     # Auth
-    "firebase-admin>=6.5.0",             # Firebase ID token verification (retained through Phase 9)
-    "python-jose[cryptography]>=3.3.0",  # JWT verification helpers (retained through Phase 9)
     "pyjwt[crypto]>=2.9.0",              # Phase 6: RS256 verification for Entra + Dragonfly JWTs
     "azure-identity>=1.19.0",            # Phase 6: DefaultAzureCredential picks up UAMI in Container Apps
     "azure-keyvault-secrets>=4.8.0",     # Phase 6: read kid-jwt signing/public PEMs + Entra settings

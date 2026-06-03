@@ -37,21 +37,15 @@ class Settings(BaseSettings):
     log_level: LogLevel = "INFO"
     cors_origins: list[str] = Field(default_factory=_default_cors_origins)
 
-    gcp_project_id: str = "dragonflyapp-495423"
-    photos_bucket: str = "dragonfly-photos-local"
-    storage_emulator_host: str = ""
+    photos_bucket: str = "photos"
 
-    # Object-storage backend. `noop` falls through to a fake impl in tests
-    # (set explicitly via app.state.signed_url_generator). `gcs` uses the
-    # original Cloud Storage impl with IAM signBlob -- still wired through
-    # Phase 9 so emergency rollback works. `blob` uses Azure Blob Storage
-    # with user-delegation SAS URLs minted via the Container Apps managed
-    # identity (Storage Blob Data Contributor on the account).
-    storage_provider: Literal["noop", "gcs", "blob"] = "gcs"
+    # Object-storage backend. "noop" falls through to a fake impl in
+    # tests (set explicitly via app.state.signed_url_generator).
+    # "blob" uses Azure Blob Storage with user-delegation SAS URLs
+    # minted via the Container Apps managed identity (Storage Blob
+    # Data Contributor on the account).
+    storage_provider: Literal["noop", "blob"] = "blob"
     blob_account_endpoint: str = ""
-
-    firebase_project_id: str = ""
-    firebase_check_revoked: bool = True
 
     # Microsoft Entra External ID (formerly Azure AD B2C) -- Phase 6 adult
     # auth. The tenant lives at dfd7ebb4-0b29-42cb-aa05-e5e0124bab8f and the
@@ -109,17 +103,9 @@ class Settings(BaseSettings):
     geocoding_user_agent: str = "Dragonfly/0.1 (+https://dragonfly-app.net)"
     geocoding_request_timeout_seconds: float = 5.0
 
-    # Photo moderation. Per ADR 0009, the runtime gate is Cloud Vision
-    # SafeSearch in production. Dev / CI default to "noop" -- every
-    # photo is treated as clean. Per-label thresholds are baked into the
-    # CloudVisionSafeSearchModerator class; the env vars below tune them.
-    moderation_provider: Literal[
-        "noop",
-        "cloud_vision_safesearch",
-        "azure_content_safety",
-    ] = "noop"
-    vision_api_endpoint: str = "https://vision.googleapis.com/v1"
-    vision_request_timeout_seconds: float = 8.0
+    # Photo moderation. Production gate is Azure AI Content Safety.
+    # Dev / CI default to "noop" -- every photo is treated as clean.
+    moderation_provider: Literal["noop", "azure_content_safety"] = "noop"
 
     # Azure AI Content Safety wiring (Phase 6c). Severity 0-6: 4 / Medium
     # is the quarantine threshold per ADR 0010. Endpoint + key are pulled
