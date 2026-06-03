@@ -117,6 +117,28 @@ class Settings(BaseSettings):
     content_safety_severity_threshold: int = 4
     content_safety_request_timeout_seconds: float = 8.0
 
+    # Internal-route OIDC auth. The `/internal/*` routes are called by
+    # platform infrastructure (Eventarc / Cloud Tasks / Cloud Scheduler)
+    # via Google-signed OIDC ID tokens. Production-safe default is
+    # fail-closed: if `internal_oidc_required` is left None, the
+    # `require_internal_oidc` property requires OIDC on any env that
+    # isn't `local`. Local dev opts out so smoke scripts + the moderation
+    # processor unit tests don't need a Google identity.
+    internal_oidc_required: bool | None = None
+    internal_oidc_audience: str = ""
+    internal_oidc_allowed_service_accounts: list[str] = Field(default_factory=list)
+
+    @property
+    def require_internal_oidc(self) -> bool:
+        """True when internal routes must enforce Google OIDC.
+
+        Explicit override (`DRAGONFLY_INTERNAL_OIDC_REQUIRED=true|false`)
+        wins. Otherwise, anything past `local` fails closed.
+        """
+        if self.internal_oidc_required is not None:
+            return self.internal_oidc_required
+        return self.env != "local"
+
     cloud_sql_instance: str = ""
     database_host: str = "localhost"
     database_port: int = 5432

@@ -8,10 +8,11 @@ Production path (when wired):
 Pre-Eventarc dev path: trigger manually via the same endpoint with a
 JSON body, e.g. for the smoke test or admin recovery.
 
-There is NO public auth on this route -- production deployment must
-bind it to an Eventarc-only OIDC identity (path-restricted IAM, or
-Eventarc OIDC verification middleware). Captured as a Phase 8
-follow-up in the runbook.
+Auth: the router carries a `require_internal_oidc` dependency that
+verifies a Google-signed OIDC ID token, pins the audience, and gates
+by an allowlist of service-account emails. Local dev opts out via
+`Settings.require_internal_oidc` returning False; deployed envs fail
+closed by default. See `app/core/internal_auth.py`.
 """
 
 from __future__ import annotations
@@ -23,6 +24,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 
 from app.core.config import Settings, get_request_settings
+from app.core.internal_auth import require_internal_oidc
 from app.core.storage import SignedUrlGeneratorDep
 from app.db.session import DbSessionDep
 from app.moderation.processor import (
@@ -31,7 +33,11 @@ from app.moderation.processor import (
 )
 from app.moderation.provider import ModerationUnavailable, ModeratorDep
 
-router = APIRouter(prefix="/internal/moderation", tags=["internal"])
+router = APIRouter(
+    prefix="/internal/moderation",
+    tags=["internal"],
+    dependencies=[Depends(require_internal_oidc)],
+)
 
 log = structlog.get_logger()
 

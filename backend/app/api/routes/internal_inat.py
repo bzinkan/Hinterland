@@ -9,9 +9,11 @@ Production path (when wired):
 
 Pre-Cloud-Tasks dev path: trigger manually via this endpoint.
 
-Same auth caveat as `/internal/moderation/process`: production needs
-to bind the route to the Cloud Tasks invoker SA via OIDC. Captured as
-a Phase 8 follow-up.
+Auth: the router carries a `require_internal_oidc` dependency that
+verifies a Google-signed OIDC ID token, pins the audience, and gates
+by an allowlist of service-account emails. Local dev opts out via
+`Settings.require_internal_oidc` returning False; deployed envs fail
+closed by default. See `app/core/internal_auth.py`.
 """
 
 from __future__ import annotations
@@ -19,17 +21,22 @@ from __future__ import annotations
 from datetime import UTC, datetime
 
 import structlog
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 
+from app.core.internal_auth import require_internal_oidc
 from app.core.storage import SignedUrlGeneratorDep
 from app.db import models
 from app.db.session import DbSessionDep
 from app.inat.client import InatClientDep, InatUnavailable
 from app.inat.submit import submit_observation_to_inat
 
-router = APIRouter(prefix="/internal/inat", tags=["internal"])
+router = APIRouter(
+    prefix="/internal/inat",
+    tags=["internal"],
+    dependencies=[Depends(require_internal_oidc)],
+)
 
 log = structlog.get_logger()
 

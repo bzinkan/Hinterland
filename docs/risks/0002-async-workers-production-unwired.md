@@ -64,10 +64,63 @@ These pieces are missing and require human-driven GCP setup:
 - **What's needed**: A nightly `0 3 * * *` Cloud Scheduler job that triggers `dragonfly-rarity-refresh` (a Cloud Run Job using the same image as `dragonfly-api`, command `python -m admin.rarity_refresh`). Same shape as the `dragonfly-cleanup-smoke-nightly` cron we already have in Terraform (PR #26).
 - **Why deferred**: Same iNat-token blocker as above. A token-less run would skip every region.
 
-### 5. OIDC verification on `/internal/*` routes
+### 5. OIDC verification on `/internal/*` routes -- **IMPLEMENTED**
 
-- **What's needed**: Middleware or per-route dependency that verifies an `Authorization: Bearer <oidc>` header, signed by the Eventarc / Cloud Tasks / Cloud Scheduler invoker service account, with audience = the Cloud Run service URL.
-- **Why deferred**: With the current ADR 0008 dev posture (`allUsers` Cloud Run invoker), `/internal/*` is publicly callable. Acceptable while no real photos move through the worker; **not acceptable for any traffic with real kid PII**.
+- **Code**: `app/core/internal_auth.py` (PR `feat/internal-oidc-auth`).
+  Router-level dependency `require_internal_oidc` is applied to both
+  `app/api/routes/internal_moderation.py` and
+  `app/api/routes/internal_inat.py`. The verifier delegates to
+  `google.oauth2.id_token.verify_oauth2_token` (lazy-imported so the
+  local-dev path doesn't need google-auth on hand), pins audience to
+  `settings.internal_oidc_audience`, and gates by allowlist
+  `settings.internal_oidc_allowed_service_accounts`.
+- **Env-driven config** (`DRAGONFLY_` prefix):
+  - `DRAGONFLY_INTERNAL_OIDC_REQUIRED` (`bool | None`, default `None`).
+    `None` resolves to "required whenever env != local"; explicit
+    `true` / `false` overrides in either direction.
+  - `DRAGONFLY_INTERNAL_OIDC_AUDIENCE` -- the Cloud Run service URI or
+    operator-chosen audience string. Required when OIDC is on.
+  - `DRAGONFLY_INTERNAL_OIDC_ALLOWED_SERVICE_ACCOUNTS` -- JSON array of
+    invoker emails (pydantic parses comma- or JSON-list forms). Required
+    when OIDC is on.
+- **Fail-closed**: when OIDC is required but audience or allowlist is
+  empty, every `/internal/*` request returns **503 internal_oidc_misconfigured**
+  rather than silently letting traffic through.
+- **Error contract**: 401 for missing / malformed / invalid token,
+  401 for token-missing-email, 403 for non-allowlisted email, 503 for
+  config drift.
+- **Tests**: `backend/tests/test_internal_auth.py` covers all eight
+  cases above plus integration checks that the real
+  `/internal/moderation/process` and `/internal/inat/submit` routes
+  reject missing auth BEFORE any DB session work happens.
+- **What still needs operator action**:
+  - Cloud Run env vars set in Terraform (sketch below) once the
+    invoker SA exists.
+  - Eventarc / Cloud Tasks / Cloud Scheduler each configured to attach
+    the Google-signed OIDC token with the matching audience. See the
+    runbook for the per-service config patterns.
+
+  Sketch (Terraform; lands in a follow-up PR if the operator wants
+  Terraform-side rather than env-var-side):
+  ```hcl
+  env {
+    name  = "DRAGONFLY_INTERNAL_OIDC_REQUIRED"
+    value = "true"
+  }
+  env {
+    name  = "DRAGONFLY_INTERNAL_OIDC_AUDIENCE"
+    value = google_cloud_run_v2_service.api.uri
+  }
+  env {
+    name  = "DRAGONFLY_INTERNAL_OIDC_ALLOWED_SERVICE_ACCOUNTS"
+    # JSON list; pydantic-settings parses it back into list[str].
+    value = jsonencode([
+      google_service_account.api.email,
+      # Add separate SAs here when Eventarc / Cloud Tasks / Scheduler
+      # use distinct invoker identities.
+    ])
+  }
+  ```
 
 ### 6. Schema gap: `observations.moderation_status` / `moderation_labels`
 

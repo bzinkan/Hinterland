@@ -293,3 +293,147 @@ Immediate response:
 2. Roll back the revision.
 3. Add or fix a test that prevents the import/call path.
 4. File an ADR variance only if the product direction is intentionally changing.
+
+## Internal OIDC auth on `/internal/*` routes
+
+The `/internal/*` endpoints (currently `/internal/moderation/process`
+and `/internal/inat/submit`) are called only by Google platform
+infrastructure -- Eventarc, Cloud Tasks, Cloud Scheduler. Each is
+configured to attach a Google-signed OIDC ID token; the backend
+verifies it via `app/core/internal_auth.py` and rejects anything
+unauthenticated.
+
+### Env vars
+
+| Variable | Type | Default | Meaning |
+|---|---|---|---|
+| `DRAGONFLY_INTERNAL_OIDC_REQUIRED` | `bool` (or unset) | unset | Unset = "required iff env != local". Explicit `true` / `false` overrides in either direction. |
+| `DRAGONFLY_INTERNAL_OIDC_AUDIENCE` | `str` | `""` | Audience the verifier pins. Use the Cloud Run service URI (e.g. `https://api.dragonfly-app.net` or the run.app URL). |
+| `DRAGONFLY_INTERNAL_OIDC_ALLOWED_SERVICE_ACCOUNTS` | JSON array of strings | `[]` | Service-account emails allowed to call `/internal/*`. |
+
+When OIDC is required but `INTERNAL_OIDC_AUDIENCE` or
+`INTERNAL_OIDC_ALLOWED_SERVICE_ACCOUNTS` is empty, every
+`/internal/*` request returns **503 internal_oidc_misconfigured**.
+That is on purpose -- the system fails closed rather than letting
+unauthenticated traffic through during operator config drift.
+
+### Configuring the callers
+
+Each Google service that fires `/internal/*` needs to attach a token
+with `audience = DRAGONFLY_INTERNAL_OIDC_AUDIENCE` and a service-account
+identity that appears in the allowlist.
+
+**Eventarc** (GCS `pending/` finalize -> moderation):
+
+```hcl
+resource "google_eventarc_trigger" "moderation_pending" {
+  # ... matching_criteria as in risk 0002 ...
+  destination {
+    cloud_run_service {
+      service = google_cloud_run_v2_service.api.name
+      path    = "/internal/moderation/process"
+      region  = var.region
+    }
+  }
+  service_account = google_service_account.eventarc_invoker.email
+  # Eventarc automatically signs the request with this SA's OIDC
+  # identity; the audience is the Cloud Run service URL. Add
+  # eventarc_invoker.email to the allowlist env var.
+}
+```
+
+**Cloud Tasks** (moderation clean -> iNat submit):
+
+```python
+# Inside the producer (currently the moderation worker on success)
+from google.cloud import tasks_v2
+
+queue.create_task(
+    parent=queue_path,
+    task={
+        "http_request": {
+            "http_method": tasks_v2.HttpMethod.POST,
+            "url": f"{settings.api_base_url}/internal/inat/submit",
+            "body": json.dumps({"observation_id": obs_id}).encode(),
+            "headers": {"Content-Type": "application/json"},
+            "oidc_token": {
+                "service_account_email": settings.cloud_tasks_invoker_sa,
+                "audience": settings.internal_oidc_audience,
+            },
+        }
+    },
+)
+```
+
+**Cloud Scheduler** (cron -> admin jobs / endpoints; for the rarity
+refresh Cloud Run Job path the OIDC happens on the Run Job invocation,
+not on the API endpoint -- but if a Scheduler ever hits `/internal/*`
+directly, the same OIDC token shape applies):
+
+```hcl
+resource "google_cloud_scheduler_job" "example_internal_call" {
+  name     = "dragonfly-example-internal-call"
+  schedule = "0 3 * * *"
+  http_target {
+    http_method = "POST"
+    uri         = "${google_cloud_run_v2_service.api.uri}/internal/whatever"
+    oidc_token {
+      service_account_email = google_service_account.scheduler_invoker.email
+      audience              = google_cloud_run_v2_service.api.uri
+    }
+  }
+}
+```
+
+### Manual dev testing
+
+To call an internal route from a developer machine using your own
+Google identity (instead of a service account):
+
+```sh
+# Token mints under YOUR human Google identity. The token's `email`
+# claim is your user email; add that email to the allowlist env var
+# for the deployed Cloud Run revision before testing.
+ID_TOKEN="$(gcloud auth print-identity-token \
+  --audiences=https://api.dragonfly-app.net)"
+
+curl -X POST \
+  -H "Authorization: Bearer ${ID_TOKEN}" \
+  -H "Content-Type: application/json" \
+  -d '{"bucket":"dragonfly-photos-dev","object_name":"pending/abc.jpg"}' \
+  https://api.dragonfly-app.net/internal/moderation/process
+```
+
+Cleanup: when manual testing is done, remove your user email from the
+allowlist env var so the next legitimate deploy doesn't keep it
+around.
+
+### Local development
+
+`DRAGONFLY_INTERNAL_OIDC_REQUIRED=false` (the local default) skips
+OIDC entirely, so smoke scripts (`scripts/smoke_phase4.py`,
+`scripts/smoke_phase8.py` if it ever lands, etc.) and the moderation
+processor unit tests don't need a Google token. Deployed envs MUST
+NOT set this to `false` -- if `env != local` the require flag should
+either be unset (defaults to required) or explicitly `true`.
+
+### Verification on a deployed revision
+
+After rolling a new revision with the OIDC env vars set:
+
+1. Call `/internal/moderation/process` without an Authorization header.
+   Expect **401 missing_bearer_token**.
+2. Call it with an obviously-wrong token. Expect **401
+   invalid_internal_oidc_token**.
+3. Mint a token for an email NOT on the allowlist (any non-allowlisted
+   gcloud-authed user works). Expect **403
+   internal_oidc_principal_forbidden**.
+4. Mint a token for an allowlisted email and call it. Expect the
+   normal route response (404 for a missing photo row is the
+   "happy" path here -- it proves the auth dependency let the call
+   reach the route).
+
+If you see **503 internal_oidc_misconfigured** on any of those calls,
+`DRAGONFLY_INTERNAL_OIDC_AUDIENCE` or
+`DRAGONFLY_INTERNAL_OIDC_ALLOWED_SERVICE_ACCOUNTS` is empty on the
+revision -- fix the env var, redeploy.
