@@ -174,6 +174,13 @@ proven on a real account.
   smoke script.
 - [ ] Review queue (parent account, on Brian's phone) renders
   without 500s. Empty state is fine.
+- [ ] Brian confirms the Sanctuary reveal modal appears after a
+  first-find observation (the dispatcher emits `world_unlock` for
+  the zone wake-up + the charismatic species cameo if authored) AND
+  dismisses cleanly via both **See Sanctuary** (navigates to the
+  Sanctuary tab and shows the new state) and **Done** (closes the
+  modal without auto-navigating). On a repeat-find that crosses no
+  threshold, the modal must NOT appear.
 - [ ] At least one pilot family is scheduled with a confirmed 30-min
   onboarding slot in the W1 window, and their tester email is on the
   Play Console allowlist.

@@ -114,6 +114,18 @@ the tapping.
   on iNat, Google/Maps, moderation, or rarity refresh — the kid
   should see success regardless of whether those subsystems are
   reachable. This is a hard AGENTS.md invariant.
+- [ ] **If the submit triggers a Sanctuary unlock**, the Sanctuary
+  reveal modal appears on top of the success screen with header
+  "Something changed in your Sanctuary" + the reward title and
+  detail from the dispatcher. The kid can dismiss via either
+  **See Sanctuary** (which navigates to the Sanctuary tab) or
+  **Done** (which closes the modal and returns via the existing
+  flow). The modal must NOT auto-dismiss and must NOT auto-navigate.
+  If the submit triggered no Sanctuary reward (e.g. repeat-find of a
+  species the kid already has, in a zone they have already deepened),
+  the reveal modal must NOT appear and the existing success screen
+  stays unchanged. See `docs/sanctuary.md` section 10
+  "new-arrival reveal".
 - [ ] Observation appears in Home / My Observations within ~10
   seconds. (Soft latency target; the success screen itself is the
   hard gate, the list-refresh is best-effort.)

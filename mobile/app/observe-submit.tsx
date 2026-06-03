@@ -14,13 +14,16 @@ import { ApiError } from "@/src/api/client";
 import { reverseGeocode } from "@/src/api/geocode";
 import {
   type CvSuggestion,
+  type ObservationReward,
   createObservation,
   identifyObservation,
   patchObservation,
   presignPhoto,
 } from "@/src/api/observations";
+import { queryClient } from "@/src/api/queryClient";
 import { putPhotoToSignedUrl } from "@/src/api/upload";
 import { useDraftStore } from "@/src/observation/draftStore";
+import { SanctuaryRevealModal } from "@/src/sanctuary/SanctuaryRevealModal";
 
 type Phase =
   | { kind: "idle" }
@@ -50,6 +53,12 @@ export default function ObserveSubmitScreen() {
   // Geocoded place_name resolves in parallel with /identify; gets folded
   // into whatever PATCH the kid eventually sends.
   const [placeName, setPlaceName] = useState<string | null>(null);
+  // Sanctuary rewards captured from the createObservation response. The
+  // dispatcher only runs on POST /v1/observations, so this is the only
+  // place rewards land. The reveal modal renders when we transition to
+  // ``done`` AND ``sanctuaryRewards.length > 0``.
+  const [sanctuaryRewards, setSanctuaryRewards] = useState<ObservationReward[]>([]);
+  const [revealVisible, setRevealVisible] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -76,6 +85,34 @@ export default function ObserveSubmitScreen() {
       cancelled = true;
     };
   }, []);
+
+  // Show the Sanctuary reveal once the submit reaches ``done`` AND the
+  // dispatcher returned at least one world_unlock / world_evolution.
+  // ``revealVisible`` guards re-show on re-render. The kid dismisses
+  // explicitly via "See Sanctuary" or "Done"; never auto-dismissed.
+  useEffect(() => {
+    if (phase.kind === "done" && sanctuaryRewards.length > 0 && !revealVisible) {
+      setRevealVisible(true);
+    }
+  }, [phase.kind, sanctuaryRewards.length, revealVisible]);
+
+  function handleSeeSanctuary() {
+    // Fire-and-forget cache invalidate so the Sanctuary tab fetches fresh
+    // state on first visit. We do NOT await the refetch -- the navigation
+    // is the user's intent; the data lands when it lands.
+    void queryClient.invalidateQueries({ queryKey: ["sanctuary", "me"] });
+    setRevealVisible(false);
+    router.replace("/sanctuary");
+  }
+
+  function handleDone() {
+    void queryClient.invalidateQueries({ queryKey: ["sanctuary", "me"] });
+    setRevealVisible(false);
+    // Same destination the existing post-submit flow would land on if no
+    // reveal fired -- the submit screen stays mounted (kid can read the
+    // success line) and ``router.back()`` is wired to a back button below.
+    router.back();
+  }
 
   if (!photo) {
     return (
@@ -309,6 +346,19 @@ export default function ObserveSubmitScreen() {
                   longitude: coords.lng,
                 });
 
+                // Stash any Sanctuary rewards from the dispatcher response
+                // so the reveal modal can render when we transition to
+                // ``done``. ``rewards`` is optional on the wire (empty list
+                // when the dispatcher emitted nothing); the filter handles
+                // the missing-field case.
+                const sRewards = (obs.rewards ?? []).filter(
+                  (r) =>
+                    r.type === "world_unlock" || r.type === "world_evolution",
+                );
+                if (sRewards.length > 0) {
+                  setSanctuaryRewards(sRewards);
+                }
+
                 // Fire geocode in parallel; result folded into the
                 // eventual PATCH. Failure is non-fatal.
                 void reverseGeocode(coords.lat, coords.lng)
@@ -334,6 +384,13 @@ export default function ObserveSubmitScreen() {
           </Pressable>
         )}
       </View>
+      <SanctuaryRevealModal
+        visible={revealVisible}
+        reward={sanctuaryRewards[0] ?? null}
+        extraRewardCount={Math.max(0, sanctuaryRewards.length - 1)}
+        onSeeSanctuary={handleSeeSanctuary}
+        onDone={handleDone}
+      />
     </View>
   );
 }

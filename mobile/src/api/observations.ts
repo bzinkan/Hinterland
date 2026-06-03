@@ -1,6 +1,38 @@
 import { apiRequest } from "@/src/api/client";
 
 // ---------------------------------------------------------------------------
+// Dispatcher reward shape (mirrors backend ``RewardType`` Literal in
+// ``backend/app/dispatcher/types.py``).
+//
+// Sanctuary reward types (``world_unlock``, ``world_evolution``) were added
+// in PR #99 when ``WorldHandler`` was wired into the dispatcher. The mobile
+// reveal modal filters for these two types after a successful submit.
+// ---------------------------------------------------------------------------
+
+export type RewardType =
+  | "first_find"
+  | "repeat_find"
+  | "expedition_step"
+  | "expedition_complete"
+  | "rarity_tier"
+  | "unrecorded"
+  | "world_unlock"
+  | "world_evolution"
+  | "territory_claimed"
+  | "season_hit"
+  | "mission_progress"
+  | "mission_complete";
+
+export type ObservationReward = {
+  type: RewardType;
+  title: string;
+  detail: string;
+  icon: string;
+  weight: number;
+  payload: Record<string, unknown>;
+};
+
+// ---------------------------------------------------------------------------
 // POST /v1/photos/presign
 // ---------------------------------------------------------------------------
 
@@ -44,6 +76,11 @@ export type Observation = {
   taxon_id: number | null;
   species_name: string | null;
   place_name: string | null;
+  // Dispatcher-returned rewards. Present on the create response (the only
+  // endpoint that runs the dispatcher); absent or [] on PATCH responses
+  // since the PATCH handler does not re-run the dispatcher. Field is
+  // optional so list / list-item types do not break.
+  rewards?: ObservationReward[];
 };
 
 export function createObservation(payload: ObservationCreate): Promise<Observation> {

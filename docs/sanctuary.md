@@ -903,6 +903,34 @@ The kid can then optionally tap through to the Sanctuary screen to
 see the change in context. No auto-navigation, no hijacking the
 post-submit flow.
 
+**MVP shipped.** A minimal reveal modal is wired at
+[`mobile/src/sanctuary/SanctuaryRevealModal.tsx`](../mobile/src/sanctuary/SanctuaryRevealModal.tsx),
+mounted by [`mobile/app/observe-submit.tsx`](../mobile/app/observe-submit.tsx).
+When ``createObservation()`` returns at least one ``world_unlock`` or
+``world_evolution``, the kid sees a card with header *"Something
+changed in your Sanctuary"* + the reward `title` / `detail` from the
+dispatcher payload + two buttons: **See Sanctuary** (navigates to the
+Sanctuary tab) and **Done** (returns via `router.back()`). Both
+buttons fire-and-forget invalidate the `["sanctuary", "me"]` query so
+the tab fetches fresh state on next visit. The modal:
+
+- Uses only ``Modal``/``Pressable``/``Text``/``View`` -- no new heavy
+  dependencies, no animation beyond a fade.
+- Has no auto-dismiss timer; the kid sits on it as long as they want.
+- Dismisses via either button OR a backdrop tap.
+- Renders no precise location, no social buttons, no streak / FOMO
+  copy. Only `title` / `detail` / `icon` (asset key) from the
+  dispatcher reward, plus the modal chrome strings above.
+- Does not fire when the dispatcher returns no Sanctuary rewards --
+  the existing submit-success path runs unchanged.
+
+Higher-weight rewards (e.g. `first_find` at 80) still rank above
+`world_unlock` (60) per `docs/dispatcher.md`'s weight convention.
+This MVP renders only the first Sanctuary reward verbatim and shows
+"+ N more change(s)" if multiple Sanctuary rewards fired on the same
+submission; the full Reanimated 3 + Lottie weighted-sort celebration
+sequence is a later PR.
+
 ### render-time independence
 
 Opening the Sanctuary screen must work with no network connection.
