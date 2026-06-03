@@ -667,6 +667,133 @@ PR; the API reads zone/element metadata from the in-process content
 map. A `sanctuary_content` cache table can be added later if a
 product need emerges.
 
+### API: `GET /v1/sanctuary/me`
+
+Read-only, current-user-scoped. Merges authored content from
+`content/sanctuary/` (PR #96) with durable per-user state from PR
+#97's four `sanctuary_*` tables. The dispatcher's `WorldHandler` (PR
+adding `WorldHandler` rewards) is the only writer; the API never
+mutates state and never accepts a `user_id` query parameter.
+
+#### Response shape
+
+```json
+{
+  "zones": [
+    {
+      "zone_id": "meadow",
+      "title": "Meadow",
+      "mood": "Open grass, wildflowers...",
+      "description": "Open grass, wildflowers...",
+      "observation_count": 5,
+      "depth_tier": 5,
+      "unlocked": true,
+      "next_threshold": 10,
+      "accent": null
+    }
+  ],
+  "elements": [
+    {
+      "element_id": "meadow_coarse_plantae",
+      "zone_id": "meadow",
+      "element_type": "coarse",
+      "title": "Plants in the meadow",
+      "detail": "Grasses, wildflowers...",
+      "icon": "sanctuary.meadow.plantae",
+      "taxon_id": null,
+      "source_observation_id": "01J0...",
+      "unlocked_at": "2026-06-01T12:00:00Z",
+      "payload": {}
+    }
+  ],
+  "recent_events": [ ... ],
+  "guide_message": {"speaker": "dragonfly", "text": "..."},
+  "mystery_cues": [ ... ],
+  "journal": [ ... ]
+}
+```
+
+`zones` always returns all seven authored zones in authored order
+(`meadow, woodland, pond, sky, soil, urban, elsewhere`) — even when
+locked.
+
+#### Empty state (new kid)
+
+- `zones` returns all seven, each `unlocked=false`,
+  `observation_count=0`, `depth_tier=0`, `next_threshold=1`.
+- `elements`, `recent_events`, and `journal` are empty lists.
+- `guide_message` is the first authored general guide line (or the
+  hard-coded fallback `"Your Sanctuary is quiet. One real observation
+  can wake it up."` if no general lines are authored).
+- `mystery_cues` returns up to three cues from authored content, in
+  authored zone order — for a fresh user this is `meadow`,
+  `woodland`, `pond`.
+
+#### `next_threshold` rules
+
+Computed from `THRESHOLDS = (1, 3, 5, 10, 20, 50)` as the smallest
+threshold strictly greater than `observation_count`. Returns `null`
+when `observation_count >= 50`.
+
+| count | next_threshold |
+|------:|---------------:|
+| 0     | 1              |
+| 1     | 3              |
+| 2     | 3              |
+| 3     | 5              |
+| 9     | 10             |
+| 49    | 50             |
+| 50    | null           |
+
+#### Guide selection (deterministic 4-step ladder)
+
+1. **Zero unlocked zones.** Return the first authored general guide
+   line (`zone == null`), or the hard-coded starter line if none
+   authored.
+2. **Most-recent event has a zone.** Return the first authored guide
+   line whose `zone` matches that recent zone, if any.
+3. **Otherwise.** Return the first authored guide line for the kid's
+   deepest unlocked zone (ties broken by authored zone order).
+4. **Fallback.** Any general guide line, else the hard-coded starter.
+
+"First matching" iterates `content.guide_lines` in content order. The
+same `(state, content)` always produces the same line on every
+request.
+
+#### Mystery cue selection
+
+Surfaces 1–3 cues from `content/sanctuary/mystery_cues.json`. Priority
+within authored zone order:
+
+1. **Locked zones** (`observation_count == 0`).
+2. **Quiet unlocked zones** (`observation_count < 3`).
+3. **Already-deep zones** — only included if fewer than 3 cues filled
+   by the first two passes.
+
+Cues are emitted in authored zone order (`meadow, woodland, pond,
+sky, soil, urban, elsewhere`), so the surface stays stable across
+requests. The mystery cue copy itself is authored under the
+no-precise-location / no-streak-pressure rules from PR #96's validator.
+
+#### Privacy guarantees
+
+The endpoint returns NO precise-location fields. `latitude`,
+`longitude`, `geohash`, `geohash4`, and `place_name` do not appear in
+any DTO, payload, or nested dict. `tests/test_sanctuary_route.py::
+test_response_contains_no_location_fields` walks the entire response
+JSON recursively and fails CI if any forbidden key is found.
+
+The endpoint accepts no `user_id` query parameter. Every SQL query
+filters on the verified `current_user.uid` resolved by
+`CurrentUserDep`; a hostile caller passing `?user_id=...` gets the
+same response as if the param were never set.
+
+#### Read-only design
+
+This endpoint never writes. The dispatcher's `WorldHandler` is the
+only writer to the four `sanctuary_*` tables; the read API is a
+materialized view over what the handler already committed.
+
 ---
 
 ## 10. Mobile UX
