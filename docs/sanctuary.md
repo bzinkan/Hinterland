@@ -407,10 +407,15 @@ for the first time.
   monarch now."
 - `icon` — asset key resolved client-side from the Sanctuary asset
   map.
-- `weight` — **40**. Same band as `expedition_step` /
-  `mission_progress`: meaningful, but ranked below `first_find` (80)
-  and `unrecorded` (100).
-- `payload` — `{"zone": str, "unlock_id": str, "taxon_id": int | null}`.
+- `weight` — **60**. Same band as `rarity_tier` legendary/epic:
+  meaningful and rare, but still ranked below `first_find` (80) and
+  `unrecorded` (100). Raised from the earlier draft of 40 when the
+  `WorldHandler` landed in the dispatcher (PR adding `WorldHandler`
+  rewards) so a zone wake-up celebrates above an expedition step.
+- `payload` — `{"zone": str, "element_id": str, "unlock_kind":
+  "coarse"|"charismatic", "taxon_id": int | null}`. `WorldHandler`
+  also stamps `tier_hint` when `RarityHandler` published a tier for
+  the same observation; the field is decorative only.
 
 ### `world_evolution`
 
@@ -433,16 +438,16 @@ intentional: the headline is what the kid did in the real world; the
 Sanctuary update is the echo.
 
 Explicit weight comparison: a same-observation `first_find`
-(weight 80) outranks a same-observation `world_unlock` (40); both
+(weight 80) outranks a same-observation `world_unlock` (60); both
 fire and animate in sequence per the existing celebration model.
 
 On ties, the dispatcher resolves by **handler registration order**
-(stable). Because `WorldHandler` is registered after `DexHandler`,
-`ExpeditionHandler`, and `RarityHandler`, a same-weight
-`expedition_step` (40) from `ExpeditionHandler` appears *before* a
-same-weight `world_unlock` (40) in the celebration sequence —
-preserving the principle that real-world progression headlines
-over Sanctuary echoes.
+(stable). Because `WorldHandler` is registered after `DexHandler` and
+`RarityHandler` (and before `ExpeditionHandler`), a same-weight
+`rarity_tier` legendary (60) from `RarityHandler` appears *before*
+a same-weight `world_unlock` (60) in the celebration sequence —
+preserving the principle that real-world progression headlines over
+Sanctuary echoes.
 
 ### sketch
 
@@ -452,8 +457,8 @@ over Sanctuary echoes.
   "title": "A new corner of your Sanctuary.",
   "detail": "Your meadow has a monarch now.",
   "icon": "sanctuary.meadow.monarch.unlock",
-  "weight": 40,
-  "payload": {"zone": "meadow", "unlock_id": "meadow.monarch", "taxon_id": 48662}
+  "weight": 60,
+  "payload": {"zone": "meadow", "element_id": "meadow_charismatic_monarch", "unlock_kind": "charismatic", "taxon_id": 48662}
 }
 ```
 
@@ -478,15 +483,15 @@ Both reward `title` and `detail` strings are read verbatim from
 ### handler position
 
 `WorldHandler` is added to `HANDLERS` in `app/dispatcher/registry.py`
-**after** `DexHandler`, `ExpeditionHandler`, and `RarityHandler`. The
-Phase 2 order becomes:
+**after** `DexHandler` and `RarityHandler`, and **before**
+`ExpeditionHandler`. The Phase 2 order becomes:
 
 ```python
 HANDLERS: list[Handler] = [
-    DexHandler(),
-    ExpeditionHandler(),
-    RarityHandler(),
-    WorldHandler(),        # Phase 2: reads dex first-find state; never blocks
+    DexHandler(),          # Phase 1: owns is_first_find
+    RarityHandler(),       # Phase 1: owns rarity tier
+    WorldHandler(),        # Phase 2: Sanctuary writes; never blocks
+    ExpeditionHandler(),   # Phase 1: may read dex state
     # TerritoryHandler(),  # Phase 2
     # SeasonHandler(),     # Phase 3
     # MissionHandler(),    # Phase 4

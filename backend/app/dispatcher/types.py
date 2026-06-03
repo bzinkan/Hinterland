@@ -22,6 +22,9 @@ RewardType = Literal[
     "expedition_complete",
     "rarity_tier",
     "unrecorded",
+    # Phase 2 -- Sanctuary (WorldHandler, docs/sanctuary.md sections 8-9)
+    "world_unlock",
+    "world_evolution",
     # Phase 2+ (defined now so the type union is forward-compatible)
     "territory_claimed",
     "season_hit",

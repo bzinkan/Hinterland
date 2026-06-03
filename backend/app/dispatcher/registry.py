@@ -11,11 +11,19 @@ from __future__ import annotations
 from app.dispatcher.handlers.dex import DexHandler
 from app.dispatcher.handlers.expedition import ExpeditionHandler
 from app.dispatcher.handlers.rarity import RarityHandler
+from app.dispatcher.handlers.world import WorldHandler
 from app.dispatcher.types import Handler
 
 HANDLERS: list[Handler] = [
     DexHandler(),
     RarityHandler(),
+    # WorldHandler runs after Dex (reads `is_first_find` to gate coarse
+    # zone wake-ups) and Rarity (reads `tier` for payload enrichment
+    # only -- the planner does NOT branch on rarity). Runs BEFORE
+    # Expedition so the existing expedition rewards still appear in
+    # the celebration sequence at their documented weights. See
+    # `docs/sanctuary.md` section 9 for the contract.
+    WorldHandler(),
     ExpeditionHandler(),  # Phase 9 stub; full impl lands in Phase 10
     # TerritoryHandler()  -- Phase 2
     # SeasonHandler()     -- Phase 3

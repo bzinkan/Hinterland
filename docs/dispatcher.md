@@ -52,9 +52,9 @@ class Reward:
 |--------|---------------------------------------------------|---------------------------------------|
 | 100    | "This has never happened before in the world"     | `unrecorded` in region                |
 | 80     | "This has never happened before for you"          | `first_find`                          |
-| 60     | Rare or high-tier contextual                      | `rarity_tier` (legendary/epic)        |
+| 60     | Rare or high-tier contextual                      | `rarity_tier` (legendary/epic), `world_unlock` |
 | 40     | Progress on a goal                                | `expedition_step`, `mission_progress` |
-| 30     | Goal completion                                   | `expedition_complete`, `territory_claimed` |
+| 30     | Goal completion                                   | `expedition_complete`, `territory_claimed`, `world_evolution` |
 | 10     | Ambient acknowledgment                            | `repeat_find`                         |
 
 The client sorts by `weight` desc and shows rewards one at a time as a sequence. Equal weights resolve by handler registration order (stable).
@@ -128,8 +128,9 @@ from app.dispatcher.handlers.rarity import RarityHandler
 
 HANDLERS: list[Handler] = [
     DexHandler(),          # Phase 1: must run first — owns DEX# write, dex_count bump, sets is_first_find
+    RarityHandler(),       # Phase 1: owns rarest_tier update on MEMBER#; publishes `tier`
+    WorldHandler(),        # Phase 2: Sanctuary writes; reads is_first_find + tier; emits world_unlock / world_evolution
     ExpeditionHandler(),   # Phase 1: may read dex state
-    RarityHandler(),       # Phase 1: owns rarest_tier update on MEMBER#
     # TerritoryHandler(),  # Phase 2
     # SeasonHandler(),     # Phase 3
     # MissionHandler(),    # Phase 4: reads almost everything, runs last
