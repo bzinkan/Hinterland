@@ -10,6 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException, Response, status
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.ext.asyncio import AsyncSession
 from ulid import ULID
 
 from app.core.auth import (
@@ -143,12 +144,59 @@ async def parent_signup(
     await session.commit()
     await session.refresh(new_user)
 
+    # Best-effort: thread the audit trail by linking the most recent
+    # unlinked consent record for this verified email back to the new
+    # parent row. Failure here must NOT break signup -- consent rows
+    # remain durable in their own table even if this UPDATE no-ops.
+    # TODO(PR-4): require a consent record at signup time once the
+    # client passes the consent_id back explicitly.
+    linked_consent_id: str | None = None
+    if current_user.email:
+        linked_consent_id = await _link_latest_consent_to_parent(
+            session,
+            parent_email=current_user.email,
+            parent_user_id=new_user.id,
+        )
+
     log.info(
         "auth.parent_signup.created",
         user_id=new_user.id,
         entra_oid=entra_oid,
+        linked_consent_id=linked_consent_id,
     )
     return UserResponse.from_model(new_user)
+
+
+async def _link_latest_consent_to_parent(
+    session: AsyncSession,
+    *,
+    parent_email: str,
+    parent_user_id: str,
+) -> str | None:
+    """Stamp the newest unlinked consent row for ``parent_email`` with
+    ``parent_user_id``. Returns the consent row id, or ``None`` if no
+    matching unlinked row exists.
+
+    The "newest unlinked" rule keeps the join stable when a parent
+    re-consents (e.g. after a policy bump): an already-linked older row
+    stays put; the fresh one threads through. Email matching is
+    case-insensitive because Entra normalises but historical Firebase
+    tokens may not.
+    """
+    stmt = (
+        select(models.ParentConsentRecord)
+        .where(
+            models.ParentConsentRecord.linked_parent_user_id.is_(None),
+        )
+        .order_by(models.ParentConsentRecord.recorded_at.desc())
+    )
+    result = await session.execute(stmt)
+    for row in result.scalars():
+        if row.parent_email.lower() == parent_email.lower():
+            row.linked_parent_user_id = parent_user_id
+            await session.commit()
+            return row.id
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -310,21 +358,27 @@ def kid_jwks(
 class ConsentRequest(BaseModel):
     """Pre-signup consent record. Public endpoint -- no auth header.
 
-    The parent visits the web /consent page, enters their email, and
-    confirms. We record the (email, policy_version, timestamp) in
-    Cloud Logging as `auth.consent.recorded`. When the parent later
-    signs up via parent_signup, we'll join the consent record to the
-    user row via email -- that linkage is a follow-up slice.
+    The parent visits the web /consent page, enters their email,
+    optionally enters the kid's display name, and confirms. We persist
+    a `parent_consent_records` row AND emit the structured log event
+    so existing log-based audits still work. The row is the long-term
+    source of truth; the log is the operational signal.
+
+    When the parent later signs up via `parent_signup`, that flow
+    links back to the newest record matching the verified email so
+    the audit ledger threads parent -> consent -> users.id.
     """
 
     # Lightweight regex check -- avoids pulling in email-validator just
-    # for one endpoint. Real semantic validation happens via Firebase
-    # Auth at signup time.
+    # for one endpoint. Real semantic validation happens via Entra at
+    # signup time (or Firebase during the legacy fallback path).
     email: str = Field(..., pattern=r"^[^@\s]+@[^@\s]+\.[^@\s]+$", max_length=320)
+    kid_display_name: str | None = Field(default=None, max_length=80)
     policy_version: str | None = None
 
 
 class ConsentResponse(BaseModel):
+    id: str
     recorded_at: datetime
     policy_version: str
 
@@ -334,21 +388,49 @@ class ConsentResponse(BaseModel):
     response_model=ConsentResponse,
     status_code=status.HTTP_200_OK,
 )
-async def record_consent(payload: ConsentRequest) -> ConsentResponse:
+async def record_consent(
+    payload: ConsentRequest,
+    session: DbSessionDep,
+) -> ConsentResponse:
     """Record COPPA parental consent. Public, unauthenticated.
 
-    Storage today is structured Cloud Logging (append-only,
-    queryable, retained 30 days by default). For long-term audit a
-    follow-up slice adds a `parent_consent_records` table + Alembic
-    migration; the JSON shape logged here is the same as the future
-    row schema so the migration is mechanical.
+    Storage shape today:
+      1. INSERTs a `parent_consent_records` row -- the durable audit
+         ledger. Indexed by email + policy_version + recorded_at so
+         the parent-signup flow can locate the newest matching record.
+      2. Emits `auth.consent.recorded` to structured logs with the
+         new row id so the existing log-based ops dashboards keep
+         working.
+
+    The response carries the row id so the frontend can pass it back
+    on parent_signup (a future improvement; today the join is via
+    email + recency).
     """
     version = payload.policy_version or _CURRENT_POLICY_VERSION
     now = datetime.now(UTC)
+    record_id = str(ULID())
+    record = models.ParentConsentRecord(
+        id=record_id,
+        parent_email=payload.email,
+        kid_display_name=payload.kid_display_name,
+        policy_version=version,
+        # `consent_text_version` is intentionally not collected from the
+        # client today -- the policy_version + the published copy at
+        # /privacy together pin the text the parent saw. If we ever
+        # split policy meta-version from displayed text version we'll
+        # populate this.
+        source="web_consent",
+        recorded_at=now,
+    )
+    session.add(record)
+    await session.commit()
+
     log.info(
         "auth.consent.recorded",
+        consent_id=record_id,
         email=payload.email,
+        kid_display_name=payload.kid_display_name,
         policy_version=version,
         recorded_at=now.isoformat(),
     )
-    return ConsentResponse(recorded_at=now, policy_version=version)
+    return ConsentResponse(id=record_id, recorded_at=now, policy_version=version)

@@ -90,6 +90,12 @@ Dragonfly is designed for users ages 9-12. We comply with COPPA via:
 - **Verifiable parent consent.** A parent creates the kid account and consents
   to data collection at signup. The consent flow is plain English and lists
   every data category collected.
+- **Durable audit record.** Each consent event is persisted to our own
+  database with a unique receipt id, the parent's email address, the
+  policy version the parent agreed to, and the server-side timestamp.
+  Receipts are retained for the lifetime of the linked accounts and
+  are available on parent request. We do NOT log raw IP addresses or
+  raw User-Agent strings as part of the consent record.
 - **Data minimization.** We collect only what's necessary for the scientific
   observation and the celebration sequence. No analytics, no advertising IDs.
 - **Parent access and deletion.** Parents can view, export, and delete their

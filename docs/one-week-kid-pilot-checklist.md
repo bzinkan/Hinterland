@@ -63,6 +63,16 @@ should NOT happen the same day.
 - [ ] `scripts/smoke_phase4.py` exits 0 ("ALL CHECKS PASSED").
 - [ ] At least one /v1/auth/consent POST shows up in the Container App
   logs from the smoke run.
+- [ ] The `parent_consent_records` table exists on prod (verify with
+  `\dt parent_consent_records` from `psql`). PR
+  `feat(consent): persist parent consent records` added it; if it's
+  missing, the migration didn't run -- stop and run
+  `alembic upgrade head` before continuing.
+- [ ] A consent row from the smoke run is visible in the table
+  (`select id, parent_email, policy_version, recorded_at from
+  parent_consent_records order by recorded_at desc limit 3;`). This
+  is the audit-of-record we'll show a COPPA auditor; if rows aren't
+  landing, the pilot doesn't start.
 
 ### AAB build
 
@@ -124,8 +134,16 @@ Run through the full Phase 1 flow with Brian's own (parent) account:
 - [ ] 30-min onboarding session held with family #1, with Brian
   present.
 - [ ] Parental consent captured via the public `/consent` page BEFORE
-  the kid account is provisioned. Brian confirms the consent row
-  appears in Container App logs.
+  the kid account is provisioned. Brian confirms (a) the
+  `auth.consent.recorded` event lands in Container App logs AND (b)
+  a `parent_consent_records` row exists for that parent's email.
+  Note the row's ULID `id` in the session journal -- this is the
+  per-family receipt.
+- [ ] After the parent signs in via MSAL and hits
+  `POST /v1/auth/parent-signup`, confirm the matching consent row's
+  `linked_parent_user_id` got populated with the new `users.id`
+  (this proves the parent → consent → users threading works
+  end-to-end and we have a durable join key for the audit trail).
 - [ ] Family creates parent account, group, kid account in real time.
 - [ ] At least one real outdoor observation is submitted from the
   kid's device.

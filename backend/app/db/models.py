@@ -286,3 +286,57 @@ class KidHandoffJti(TimestampMixin, Base):
     )
     consumed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class ParentConsentRecord(TimestampMixin, Base):
+    """Durable parent-consent ledger for the COPPA / Designed-for-Families audit trail.
+
+    Captured at the pre-signup `/consent` page. Today the page logs a
+    structured event AND inserts a row here; the row is the audit-of-
+    record (logs roll over at 30d). A parent's signup flow joins back to
+    the newest row that matches the verified-email claim, populating
+    ``linked_parent_user_id``. The kid-create flow joins similarly via
+    ``linked_kid_user_id`` once the kid row is provisioned (post-pilot
+    follow-up).
+
+    Privacy posture: stores only what's needed to prove a parent saw and
+    accepted the named policy version at a moment in time. We do NOT
+    store raw IP or User-Agent strings; if request-IP / UA hashing is
+    enabled at the edge, the hashes land here as opaque opaque
+    identifiers (operator-managed salt). Lawyer-reviewed copy is still
+    a production gate -- see ``docs/risks/0005-beta-launch-human-
+    action-items.md`` and ``docs/privacy-policy-DRAFT.md``.
+    """
+
+    __tablename__ = "parent_consent_records"
+    __table_args__ = (
+        Index("ix_parent_consent_records_email", "parent_email"),
+        Index("ix_parent_consent_records_policy_version", "policy_version"),
+        Index("ix_parent_consent_records_recorded_at", "recorded_at"),
+        Index("ix_parent_consent_records_linked_parent_user_id", "linked_parent_user_id"),
+    )
+
+    id: Mapped[str] = mapped_column(String(26), primary_key=True)
+    parent_email: Mapped[str] = mapped_column(String(320), nullable=False)
+    kid_display_name: Mapped[str | None] = mapped_column(String(80))
+    policy_version: Mapped[str] = mapped_column(String(40), nullable=False)
+    consent_text_version: Mapped[str | None] = mapped_column(String(40))
+    source: Mapped[str] = mapped_column(
+        String(32),
+        nullable=False,
+        server_default="web_consent",
+    )
+    recorded_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+    )
+    # SHA-256 hex (64) or future-proof for SHA3-256; nullable because the
+    # /consent endpoint doesn't yet have a configured hashing salt.
+    ip_hash: Mapped[str | None] = mapped_column(String(64))
+    user_agent_hash: Mapped[str | None] = mapped_column(String(64))
+    linked_parent_user_id: Mapped[str | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"),
+    )
+    linked_kid_user_id: Mapped[str | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"),
+    )

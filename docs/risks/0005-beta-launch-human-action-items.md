@@ -70,6 +70,30 @@ Per [`docs/app-store-compliance-checklist.md`](app-store-compliance-checklist.md
 
 Apple's kids-app review historically takes 5-10 business days and roughly half of first submissions get rejected on minor copy issues. Budget two rejection cycles into the launch timeline.
 
+### 6b. Verify the consent audit ledger before the first kid signs
+
+PR `feat(consent): persist parent consent records` swapped the
+`POST /v1/auth/consent` endpoint from "log only" to "insert a
+`parent_consent_records` row AND log." Before opening the gates:
+
+- [ ] Confirm the Alembic head ran on dev Cloud SQL
+      (`alembic upgrade head` from the api job image, or rolled in via
+      the Cloud Run startup migration step)
+- [ ] Hit `POST /v1/auth/consent` with a throwaway email and confirm
+      the response carries a 26-char ULID `id` plus the current
+      `policy_version`
+- [ ] Confirm a row landed in `parent_consent_records` and the
+      structured log event `auth.consent.recorded` includes the same
+      `consent_id`
+- [ ] Walk a real parent through web consent → parent_signup and
+      confirm the row's `linked_parent_user_id` is back-stamped on
+      signup (the linker matches case-insensitively on
+      Entra-verified email, newest unlinked row only)
+
+This is what we'll point a COPPA auditor at if Apple or Google asks
+"prove the parent saw policy X at time Y." Without it, our audit is
+30-day-retention Cloud Logging only.
+
 ### 7. Pick the first beta group
 
 The Phase 11 exit criterion says "first closed-beta group is invited" + "one real kid submits one real outdoor observation." Concrete steps:
