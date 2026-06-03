@@ -262,4 +262,4 @@ def require_internal_oidc(
     )
 
 
-InternalAuthDep = Annotated["InternalPrincipal | None", Depends(require_internal_oidc)]
+InternalAuthDep = Annotated[InternalPrincipal | None, Depends(require_internal_oidc)]

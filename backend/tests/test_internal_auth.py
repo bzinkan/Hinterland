@@ -517,11 +517,38 @@ def fake_session() -> AsyncMock:
     return AsyncMock(spec=AsyncSession)
 
 
+class _NullStorage:
+    """Stub storage so the moderation route's DI graph resolves without Azure.
+
+    Without it, get_signed_url_generator would try to construct the real
+    BlobSignedUrlGenerator and fail at `blob_account_endpoint` validation
+    -- which would mask the auth-related assertions we actually want.
+    """
+
+    def generate_put_url(self, **_: Any) -> tuple[str, Any]:
+        raise NotImplementedError
+
+    def fetch_object_bytes(self, *, bucket: str, object_name: str) -> bytes:
+        raise NotImplementedError
+
+    def copy_object(self, **_: Any) -> None:
+        raise NotImplementedError
+
+    def delete_object(self, **_: Any) -> None:
+        raise NotImplementedError
+
+    def generate_get_url(self, **_: Any) -> tuple[str, Any]:
+        raise NotImplementedError
+
+
 def _build_real_internal_client(
     settings: Settings,
     session: AsyncMock,
 ) -> Iterator[TestClient]:
     app = create_app(settings)
+    # Pre-seed app.state so get_signed_url_generator returns the stub
+    # before reaching the real Blob constructor.
+    app.state.signed_url_generator = _NullStorage()
 
     async def override_session() -> AsyncIterator[AsyncSession]:
         yield session
@@ -621,7 +648,7 @@ def test_internal_principal_carries_claims(monkeypatch: pytest.MonkeyPatch) -> N
 
     capture_router = APIRouter(prefix="/probe2")
 
-    PrincipalDep = Annotated["InternalPrincipal | None", Depends(require_internal_oidc)]
+    PrincipalDep = Annotated[InternalPrincipal | None, Depends(require_internal_oidc)]
 
     @capture_router.get("/who")
     def who(principal: PrincipalDep) -> dict[str, str]:
