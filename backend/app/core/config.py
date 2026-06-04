@@ -138,7 +138,15 @@ class Settings(BaseSettings):
     # DefaultAzureCredential (no connection string).
     service_bus_namespace: str = ""
     service_bus_inat_queue: str = "inat-submit"
+    service_bus_moderation_queue: str = "moderation-pending"
     service_bus_request_timeout_seconds: float = 8.0
+    # Max messages a Service Bus consumer pulls per receive call. Keep
+    # small so a stuck handler doesn't lock too many messages at once.
+    service_bus_receive_batch_size: int = 8
+    # Per-message lock duration grant; renewed on each receive cycle.
+    # Service Bus default is 60s, but the moderation worker can take a
+    # full Azure Content Safety roundtrip + Blob copy on slow images.
+    service_bus_receive_max_wait_seconds: float = 30.0
 
     @property
     def service_bus_enabled(self) -> bool:
