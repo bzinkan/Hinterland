@@ -25,6 +25,7 @@ dependencies = [
     # Auth
     "pyjwt[crypto]>=2.9.0",              # Phase 6: RS256 verification for Entra + Dragonfly JWTs
     "azure-identity>=1.19.0",            # Phase 6: DefaultAzureCredential picks up UAMI in Container Apps
+    "aiohttp>=3.10.0",                   # Azure async managed-identity transport for Service Bus workers
     "azure-keyvault-secrets>=4.8.0",     # Phase 6: read kid-jwt signing/public PEMs + Entra settings
     "azure-storage-blob>=12.23.0",       # Phase 6b: user-delegation SAS URLs for photo upload + download
     "azure-servicebus>=7.13.0",          # Risk 0002: enqueue inat-submit messages from moderation/review-approve

@@ -129,7 +129,7 @@ if ! az monitor scheduled-query show --name "dragonfly-dispatcher-p95" --resourc
     --evaluation-frequency 5m \
     --window-size 5m \
     --severity 2 \
-    --action "$AG_ID" \
+    --action-groups "$AG_ID" \
     --output none || echo "  (note: scheduled-query create syntax may differ; fall back to az rest or portal)"
 fi
 
@@ -150,7 +150,7 @@ ensure_dlq_alert() {
     --resource-group "$RG" \
     --subscription "$MGMT_SUB" \
     --scopes "$SB_NAMESPACE_ID" \
-    --condition "total DeadletteredMessages > 0 where EntityName includes ${queue_name}" \
+    --condition "avg DeadletteredMessages > 0 where EntityName includes ${queue_name}" \
     --description "Service Bus DLQ depth on $queue_name > 0 sustained 5 min" \
     --evaluation-frequency 5m \
     --window-size 5m \
@@ -207,7 +207,7 @@ if ! az monitor scheduled-query show --name "dragonfly-job-failures" --resource-
     --evaluation-frequency 5m \
     --window-size 5m \
     --severity 2 \
-    --action "$AG_ID" \
+    --action-groups "$AG_ID" \
     --output none || echo "  (note: scheduled-query create syntax may differ; fall back to az rest or portal)"
 fi
 
