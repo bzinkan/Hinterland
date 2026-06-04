@@ -229,9 +229,24 @@ def _wire_resolve(
     membership_present: bool,
     photo: models.Photo | None,
     observation: models.Observation | None = None,
+    approve_outbox: bool = False,
 ) -> None:
-    """Approve flow: user lookup -> review lookup -> membership check -> photo lookup.
-    Reject flow adds an observation lookup at the end + an UPDATE result."""
+    """Sequence the session.execute side_effects for the approve / reject flows.
+
+    Both flows: user lookup -> review lookup -> membership check -> photo
+    lookup.
+
+    Approve flow with outbox writes (Risk 0002 transactional outbox): when
+    ``review.observation_id`` is set, the handler also runs
+    ``select(Observation)`` and (after the post-commit enqueue) an
+    ``update(InatSubmitOutbox)``. Pass ``approve_outbox=True`` to wire
+    those two extra side_effects.
+
+    Reject flow: when ``observation`` is passed (observation_id present),
+    the handler runs ``select(Observation)`` and an ``update(Membership)``
+    to decrement the kid's counter. Pass ``observation=...`` (without
+    ``approve_outbox``) to wire those.
+    """
     user_result = MagicMock()
     user_result.scalar_one_or_none = MagicMock(return_value=user)
 
@@ -250,9 +265,14 @@ def _wire_resolve(
     obs_result.scalar_one_or_none = MagicMock(return_value=observation)
 
     update_result = MagicMock()
+    outbox_update_result = MagicMock()
 
     side_effects: list[Any] = [user_result, review_result, membership_result, photo_result]
-    if observation is not None:
+    if approve_outbox:
+        # Approve flow: select(Observation) + update(InatSubmitOutbox).
+        side_effects.extend([obs_result, outbox_update_result])
+    elif observation is not None:
+        # Reject flow: select(Observation) + update(Membership).
         side_effects.extend([obs_result, update_result])
     fake_session.execute = AsyncMock(side_effect=side_effects)
     fake_session.commit = AsyncMock()
@@ -318,16 +338,34 @@ def test_approve_409_when_already_resolved(
 def test_approve_happy_path_moves_photo_back_and_marks_review(
     monkeypatch: pytest.MonkeyPatch, fake_session: AsyncMock
 ) -> None:
+    """Happy path now also flips observation.moderation_status='clean',
+    inserts an InatSubmitOutbox row, and attempts a Service Bus enqueue.
+    Mock the enqueue helper so the test does not touch Azure."""
+    from app.inat.enqueue import InatEnqueueResult
+
     _stub_token_verifier(monkeypatch)
+
+    enqueue_calls: list[str] = []
+
+    async def fake_enqueue(observation_id: str, *, settings: object) -> InatEnqueueResult:
+        enqueue_calls.append(observation_id)
+        return InatEnqueueResult(success=True)
+
+    monkeypatch.setattr("app.api.routes.review_queue.enqueue_inat_submit", fake_enqueue)
+
     review = _review_row()
     photo = _photo_row()
+    obs = _observation_row()
     _wire_resolve(
         fake_session,
         user=_adult_user(),
         review=review,
         membership_present=True,
         photo=photo,
+        observation=obs,
+        approve_outbox=True,
     )
+    fake_session.add = MagicMock()
     storage = _StubStorage()
 
     for client in _build_client(fake_session, storage=storage):
@@ -354,7 +392,20 @@ def test_approve_happy_path_moves_photo_back_and_marks_review(
     assert photo.object_name == f"observations/{_PHOTO_ID}.jpg"
     assert review.status == "approved"
     assert review.reviewer_user_id == _USER_ID
-    fake_session.commit.assert_awaited_once()
+
+    # Observation flipped + outbox row inserted in the same transaction.
+    assert obs.moderation_status == "clean"
+    added = fake_session.add.call_args.args[0]
+    assert isinstance(added, models.InatSubmitOutbox)
+    assert added.observation_id == _OBS_ID
+    assert added.status == "pending"
+
+    # Enqueue was attempted with the right observation id.
+    assert enqueue_calls == [_OBS_ID]
+
+    # Two commits: the in-transaction outbox commit + the post-enqueue
+    # status update commit.
+    assert fake_session.commit.await_count == 2
 
 
 # ---------------------------------------------------------------------------
