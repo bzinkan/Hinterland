@@ -1,18 +1,24 @@
-"""Internal moderation endpoint, called by the Eventarc GCS trigger.
+"""Internal moderation endpoint -- manual / admin retry path only.
 
-Production path (when wired):
-    GCS object finalized in `pending/<id>.jpg`
-        -> Eventarc CloudEvent
-        -> POST /internal/moderation/process
+The production path under ADR 0010 (Azure) is event-driven and does NOT
+call this HTTP route:
 
-Pre-Eventarc dev path: trigger manually via the same endpoint with a
-JSON body, e.g. for the smoke test or admin recovery.
+    Blob `pending/<id>.jpg` finalize
+        -> Event Grid system topic
+        -> Service Bus queue `moderation-pending`
+        -> `dragonfly-moderation-worker` Container App (KEDA-scaled)
+        -> `app.moderation.processor.process_pending_photo(...)` direct
+           service call under managed identity (no HTTP hop, no /internal
+           round trip).
 
-Auth: the router carries a `require_internal_oidc` dependency that
-verifies a Google-signed OIDC ID token, pins the audience, and gates
-by an allowlist of service-account emails. Local dev opts out via
-`Settings.require_internal_oidc` returning False; deployed envs fail
-closed by default. See `app/core/internal_auth.py`.
+This endpoint is retained for **manual / admin retries and smoke
+testing**. It is not on the production trust boundary.
+
+Transitional auth: the router still carries the GCP-era
+`require_internal_oidc` dependency. That seam is being moved to an
+Azure HMAC signature (Key Vault secret) in a follow-up alongside the
+Service Bus consumer; until then the dependency is a soft no-op on
+local dev and the route's only callers are operator-driven.
 """
 
 from __future__ import annotations

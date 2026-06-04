@@ -1,19 +1,28 @@
-"""Internal iNat-submit endpoint, called by the Cloud Tasks worker.
+"""Internal iNat-submit endpoint -- manual / admin retry path only.
 
-Production path (when wired):
-    moderation worker marks Photo.status='clean' and enqueues a task
-        -> Cloud Tasks delivers POST /internal/inat/submit
-        -> we load the observation + photo bytes, push to iNat,
-           write inat_observation_id + submitted_to_inat_at on the
-           Observation row.
+The production path under ADR 0010 (Azure) does NOT call this HTTP
+route. iNat submission rides on a transactional outbox + Service Bus
+worker:
 
-Pre-Cloud-Tasks dev path: trigger manually via this endpoint.
+    moderation worker sets `observations.moderation_status='clean'` and
+    writes an `inat_submit_outbox` row in the same transaction
+        -> after commit, enqueue `{ observation_id }` to Service Bus
+           queue `inat-submit`
+        -> `dragonfly-inat-submit-worker` Container App (KEDA-scaled)
+           dequeues and calls
+           `app.inat.submit.submit_observation_to_inat(...)` directly
+           under managed identity.
+        -> Failures leave the outbox row `pending`; a 15-min replay
+           cron (`admin.inat_outbox_replay`) re-enqueues it.
 
-Auth: the router carries a `require_internal_oidc` dependency that
-verifies a Google-signed OIDC ID token, pins the audience, and gates
-by an allowlist of service-account emails. Local dev opts out via
-`Settings.require_internal_oidc` returning False; deployed envs fail
-closed by default. See `app/core/internal_auth.py`.
+This endpoint is retained for **manual / admin retries and smoke
+testing**. It is not on the production trust boundary.
+
+Transitional auth: the router still carries the GCP-era
+`require_internal_oidc` dependency. That seam is being moved to an
+Azure HMAC signature (Key Vault secret) in a follow-up alongside the
+Service Bus consumer; until then the dependency is a soft no-op on
+local dev and the route's only callers are operator-driven.
 """
 
 from __future__ import annotations

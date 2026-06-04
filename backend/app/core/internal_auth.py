@@ -1,13 +1,18 @@
-"""Google OIDC auth for the `/internal/*` routes.
+"""Google OIDC auth for the `/internal/*` routes -- TRANSITIONAL.
 
-Production callers of `/internal/...` are platform infrastructure --
-Eventarc triggers for moderation, Cloud Tasks for iNat submit, Cloud
-Scheduler for admin sweeps. Each is configured to attach a Google-
-signed OIDC ID token with an audience that matches the Cloud Run
-service URI (or whatever the operator configures via
-`DRAGONFLY_INTERNAL_OIDC_AUDIENCE`). This module verifies that
-signature, pins the audience, and gates by an allowlist of service
-account emails.
+ADR 0010 moves Dragonfly's runtime to Azure. The production async
+delivery path is now Event Grid -> Service Bus -> Container Apps
+workers calling service functions directly under managed identity;
+the `/internal/*` HTTP routes (see `internal_moderation.py` and
+`internal_inat.py`) are demoted to **manual / admin retries only**
+and are no longer on the production trust boundary.
+
+This module remains the auth dependency on those routes for now.
+A follow-up replaces it with an Azure HMAC signature backed by a
+Key Vault secret -- simpler than JWKS, no Google dependency, and
+appropriately scoped to the small surface area the routes still
+carry. Until that lands, the Google-OIDC verification path stays
+functional so existing operator tooling keeps working.
 
 Local dev opts out so the smoke scripts + moderation processor unit
 tests don't need a Google identity. The opt-out is the `env == "local"`
