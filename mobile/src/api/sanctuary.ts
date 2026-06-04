@@ -35,6 +35,15 @@ export type SanctuaryEventType =
   | "relationship"
   | "surprise";
 
+export type SanctuarySeason = "spring" | "summer" | "autumn" | "winter";
+
+export type SanctuarySoundKind =
+  | "bird_chirp"
+  | "pond_ripple"
+  | "meadow_buzz"
+  | "wind"
+  | "frog_croak";
+
 /** Authored zone order. The backend always returns zones in this order. */
 export const SANCTUARY_ZONE_ORDER: readonly SanctuaryZoneId[] = [
   "meadow",
@@ -129,6 +138,47 @@ export type SanctuaryTinySurpriseDto = {
   unlocked_at: string;
 };
 
+/**
+ * Date-based seasonal info attached to every Sanctuary response.
+ *
+ * `season` and `background_tone` come from a server-side palette keyed on
+ * the current Northern-Hemisphere meteorological calendar (see
+ * `docs/sanctuary.md` "Seasonal variants & sound placeholders" for the
+ * documented limitation). `zone_accents` is a per-zone short label for
+ * the current season -- the mobile screen renders it as a small italic
+ * tag under each band's mood line.
+ *
+ * `variant_copy` is the only kid-facing prose; it comes verbatim from
+ * authored `content/sanctuary/seasonal_variants.json` when an authored
+ * variant matches the current season (preferring one whose `element_ref`
+ * the kid has already unlocked). May be null when no variant is authored
+ * for the current season.
+ */
+export type SanctuarySeasonDto = {
+  season: SanctuarySeason;
+  background_tone: string;
+  zone_accents: Record<SanctuaryZoneId, string>;
+  variant_copy: string | null;
+};
+
+/**
+ * A placeholder describing a future ambient sound for the Sanctuary.
+ *
+ * No audio assets ship with this DTO -- the mobile screen renders
+ * `label` + `description` as a quiet "coming soon" entry. The screen
+ * NEVER autoplays sound, requests microphone permission, or wires this
+ * DTO to an analytics SDK. When `SanctuarySnapshotDto.sound_assets_available`
+ * flips to true in a later PR, the same DTO will gain real asset
+ * resolution at the client; the wire shape stays stable.
+ */
+export type SanctuarySoundscapeDto = {
+  id: string;
+  kind: SanctuarySoundKind;
+  zone_id: SanctuaryZoneId | null;
+  label: string;
+  description: string;
+};
+
 export type SanctuarySnapshotDto = {
   zones: SanctuaryZoneDto[];
   elements: SanctuaryElementDto[];
@@ -139,6 +189,9 @@ export type SanctuarySnapshotDto = {
   identity_reflection: SanctuaryIdentityReflectionDto | null;
   relationship_moments: SanctuaryRelationshipMomentDto[];
   tiny_surprises: SanctuaryTinySurpriseDto[];
+  season: SanctuarySeasonDto;
+  soundscapes: SanctuarySoundscapeDto[];
+  sound_assets_available: boolean;
 };
 
 // ---------------------------------------------------------------------------

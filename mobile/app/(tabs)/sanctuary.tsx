@@ -34,6 +34,9 @@ import {
   type SanctuaryJournalEntryDto,
   type SanctuaryMysteryCueDto,
   type SanctuaryRelationshipMomentDto,
+  type SanctuarySeason,
+  type SanctuarySeasonDto,
+  type SanctuarySoundscapeDto,
   type SanctuaryTinySurpriseDto,
   type SanctuaryZoneDto,
   type SanctuaryZoneId,
@@ -60,6 +63,27 @@ const ZONE_TOKENS: Record<SanctuaryZoneId, ZoneTokens> = {
   soil: { background: "#E1D2BB", accent: "#6E5235", symbol: "·" },
   urban: { background: "#D9D6D2", accent: "#4F4F4F", symbol: "▮" },
   elsewhere: { background: "#E4E1E6", accent: "#6B6573", symbol: "✦" },
+};
+
+// ---------------------------------------------------------------------------
+// Per-season visual tokens. Calm, low-contrast tints applied behind the
+// header and the seasonal banner. The wire shape carries the authored
+// `background_tone` word -- the screen looks up a hex tint from this small
+// table so no asset is required. Mirrors the structural-token pattern of
+// ZONE_TOKENS above; not kid-facing motivational copy.
+// ---------------------------------------------------------------------------
+
+type SeasonTokens = {
+  banner: string;
+  banner_accent: string;
+  label: string;
+};
+
+const SEASON_TOKENS: Record<SanctuarySeason, SeasonTokens> = {
+  spring: { banner: "#EDF6E0", banner_accent: "#7BA45A", label: "Spring" },
+  summer: { banner: "#FCF4D6", banner_accent: "#C9A227", label: "Summer" },
+  autumn: { banner: "#F5E1CC", banner_accent: "#A86B3D", label: "Autumn" },
+  winter: { banner: "#E5EDF2", banner_accent: "#5E7585", label: "Winter" },
 };
 
 // ---------------------------------------------------------------------------
@@ -114,6 +138,7 @@ export default function SanctuaryScreen() {
         }
       >
         <Header />
+        <SeasonBanner season={data.season} />
         <GuideBar text={data.guide_message.text} />
         {data.identity_reflection ? (
           <IdentityReflectionPanel reflection={data.identity_reflection} />
@@ -124,6 +149,7 @@ export default function SanctuaryScreen() {
         <Diorama
           zones={data.zones}
           elements={data.elements}
+          zoneAccents={data.season.zone_accents}
           onInspect={setInspectedElement}
         />
         {data.relationship_moments.length > 0 ? (
@@ -136,6 +162,12 @@ export default function SanctuaryScreen() {
           <TinySurprisesPanel
             surprises={data.tiny_surprises}
             onInspect={(s) => setInspectedElement(_surpriseToElement(s))}
+          />
+        ) : null}
+        {data.soundscapes.length > 0 ? (
+          <SoundscapesPanel
+            soundscapes={data.soundscapes}
+            assetsAvailable={data.sound_assets_available}
           />
         ) : null}
         {data.mystery_cues.length > 0 ? (
@@ -194,10 +226,12 @@ function EmptyStateHint() {
 function Diorama({
   zones,
   elements,
+  zoneAccents,
   onInspect,
 }: {
   zones: SanctuaryZoneDto[];
   elements: SanctuaryElementDto[];
+  zoneAccents: Record<SanctuaryZoneId, string>;
   onInspect: (element: SanctuaryElementDto) => void;
 }) {
   // Render zones in authored order, regardless of how the server returned
@@ -227,6 +261,7 @@ function Diorama({
           key={zone.zone_id}
           zone={zone}
           elements={elementsByZone.get(zone.zone_id) ?? []}
+          seasonalAccent={zoneAccents[zone.zone_id] ?? null}
           onInspect={onInspect}
         />
       ))}
@@ -237,10 +272,12 @@ function Diorama({
 function ZoneBand({
   zone,
   elements,
+  seasonalAccent,
   onInspect,
 }: {
   zone: SanctuaryZoneDto;
   elements: SanctuaryElementDto[];
+  seasonalAccent: string | null;
   onInspect: (element: SanctuaryElementDto) => void;
 }) {
   const tokens = ZONE_TOKENS[zone.zone_id];
@@ -267,6 +304,11 @@ function ZoneBand({
           <Text style={styles.bandMood} numberOfLines={2}>
             {zone.mood}
           </Text>
+          {seasonalAccent ? (
+            <Text style={styles.bandSeasonalAccent} numberOfLines={1}>
+              {seasonalAccent}
+            </Text>
+          ) : null}
         </View>
         <View style={styles.bandMeta}>
           {zone.unlocked ? (
@@ -436,6 +478,64 @@ function _surpriseToElement(
     unlocked_at: surprise.unlocked_at,
     payload: surprise.threshold !== null ? { threshold: surprise.threshold } : {},
   };
+}
+
+function SeasonBanner({ season }: { season: SanctuarySeasonDto }) {
+  const tokens = SEASON_TOKENS[season.season];
+  return (
+    <View
+      style={[
+        styles.seasonBanner,
+        { backgroundColor: tokens.banner, borderLeftColor: tokens.banner_accent },
+      ]}
+      accessibilityLabel={`Season: ${tokens.label}, ${season.background_tone}`}
+    >
+      <Text style={[styles.seasonBannerLabel, { color: tokens.banner_accent }]}>
+        {tokens.label} · {season.background_tone}
+      </Text>
+      {season.variant_copy ? (
+        <Text style={styles.seasonBannerCopy}>{season.variant_copy}</Text>
+      ) : null}
+    </View>
+  );
+}
+
+function SoundscapesPanel({
+  soundscapes,
+  assetsAvailable,
+}: {
+  soundscapes: SanctuarySoundscapeDto[];
+  assetsAvailable: boolean;
+}) {
+  // No autoplay. No play button. No microphone request. No analytics ping
+  // on render. When `assetsAvailable` flips to true in a future PR the
+  // muted hint can be replaced with a real play control; today it is
+  // text-only.
+  return (
+    <View style={styles.panel}>
+      <Text style={styles.panelTitle}>Sounds</Text>
+      <Text style={styles.soundscapesHint}>
+        {assetsAvailable
+          ? "Tap a sound to listen (coming soon)."
+          : "Sounds are off. Audio will arrive in a later update."}
+      </Text>
+      {soundscapes.map((entry) => (
+        <View
+          key={entry.id}
+          style={styles.soundscapeRow}
+          accessibilityLabel={entry.label}
+        >
+          <Text style={styles.soundscapeBadge}>OFF</Text>
+          <View style={styles.soundscapeBody}>
+            <Text style={styles.soundscapeLabel}>{entry.label}</Text>
+            <Text style={styles.soundscapeDescription} numberOfLines={3}>
+              {entry.description}
+            </Text>
+          </View>
+        </View>
+      ))}
+    </View>
+  );
 }
 
 function MysteryCuesPanel({ cues }: { cues: SanctuaryMysteryCueDto[] }) {
@@ -760,4 +860,52 @@ const styles = StyleSheet.create({
   },
   surpriseTitle: { fontSize: 14, color: "#2A2A2A", fontWeight: "500" },
   surpriseDetail: { fontSize: 13, color: "#666", marginTop: 2, lineHeight: 18 },
+  seasonBanner: {
+    borderLeftWidth: 3,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+  },
+  seasonBannerLabel: {
+    fontSize: 11,
+    fontWeight: "600",
+    textTransform: "uppercase",
+    letterSpacing: 1,
+    marginBottom: 2,
+  },
+  seasonBannerCopy: { fontSize: 13, color: "#3A3A3A", lineHeight: 18 },
+  bandSeasonalAccent: {
+    fontSize: 11,
+    color: "#5A5A5A",
+    fontStyle: "italic",
+    marginTop: 2,
+  },
+  soundscapesHint: { fontSize: 12, color: "#666", lineHeight: 18 },
+  soundscapeRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 10,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: "#E5E0D6",
+    paddingTop: 8,
+  },
+  soundscapeBadge: {
+    backgroundColor: "#EEEEEE",
+    color: "#555",
+    fontSize: 10,
+    fontWeight: "700",
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+    overflow: "hidden",
+    marginTop: 2,
+  },
+  soundscapeBody: { flex: 1 },
+  soundscapeLabel: { fontSize: 13, fontWeight: "500", color: "#2A2A2A" },
+  soundscapeDescription: {
+    fontSize: 12,
+    color: "#666",
+    marginTop: 2,
+    lineHeight: 16,
+  },
 });

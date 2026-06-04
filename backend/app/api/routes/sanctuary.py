@@ -21,7 +21,7 @@ Privacy posture:
 from __future__ import annotations
 
 from collections.abc import Sequence
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any, Literal
 
 from fastapi import APIRouter, HTTPException, status
@@ -31,7 +31,9 @@ from sqlalchemy import desc, select
 from app.core.auth import CurrentUserDep
 from app.db import models
 from app.db.session import DbSessionDep
+from app.models.sanctuary import Season, SoundKind
 from app.sanctuary.content import SanctuaryContent, get_sanctuary_content
+from app.sanctuary.season import current_season
 from app.sanctuary.types import THRESHOLDS, ZONE_IDS, ZoneId
 
 router = APIRouter(prefix="/v1/sanctuary", tags=["sanctuary"])
@@ -57,6 +59,60 @@ _FALLBACK_ELEMENT_ICON = "sanctuary.element"
 
 # Starter guide line used when the user has zero unlocked zones.
 _STARTER_GUIDE_TEXT = "Your Sanctuary is quiet. One real observation can wake it up."
+
+# Per-season visual palette. These are structural rendering hints (a calm
+# tone word + one short label per zone), not motivational kid-facing copy
+# from scratch -- they are the seasonal analogue of the per-zone hex tints
+# already baked into the mobile screen (``ZONE_TOKENS``). The mobile client
+# composes them with the authored zone titles already shipped via PR #96.
+#
+# Northern Hemisphere palette only; see ``app.sanctuary.season`` for the
+# documented limitation and the Phase 3 ``SeasonHandler`` follow-up.
+_BACKGROUND_TONE_BY_SEASON: dict[Season, str] = {
+    "spring": "fresh",
+    "summer": "warm",
+    "autumn": "fading",
+    "winter": "still",
+}
+
+_ZONE_ACCENTS_BY_SEASON: dict[Season, dict[ZoneId, str]] = {
+    "spring": {
+        "meadow": "wildflowers waking",
+        "woodland": "buds opening",
+        "pond": "water warming",
+        "sky": "birds returning",
+        "soil": "shoots through leaf litter",
+        "urban": "weeds in cracks",
+        "elsewhere": "first wandering",
+    },
+    "summer": {
+        "meadow": "tall grass and pollen",
+        "woodland": "deep green canopy",
+        "pond": "midday glints",
+        "sky": "high cumulus",
+        "soil": "warm under bark",
+        "urban": "shade in the park",
+        "elsewhere": "long evenings",
+    },
+    "autumn": {
+        "meadow": "seed heads leaning",
+        "woodland": "color in the leaves",
+        "pond": "first frost edge",
+        "sky": "geese moving on",
+        "soil": "mushrooms after rain",
+        "urban": "leaf piles on the curb",
+        "elsewhere": "quiet light",
+    },
+    "winter": {
+        "meadow": "dry stems standing",
+        "woodland": "bare branches",
+        "pond": "still water",
+        "sky": "low grey ceiling",
+        "soil": "frozen under leaf litter",
+        "urban": "salt and breath fog",
+        "elsewhere": "the long pause",
+    },
+}
 
 # ---------------------------------------------------------------------------
 # DTOs
@@ -170,6 +226,41 @@ class SanctuaryTinySurpriseDTO(BaseModel):
     unlocked_at: datetime
 
 
+class SanctuarySeasonDTO(BaseModel):
+    """Date-based seasonal tint for the current response.
+
+    Selected from the server date via ``app.sanctuary.season.current_season``
+    using a Northern Hemisphere meteorological calendar. The mobile screen
+    renders this as a small banner + per-zone accent label; ``variant_copy``
+    is the only kid-facing prose and comes verbatim from authored
+    ``content/sanctuary/seasonal_variants.json`` when an authored variant
+    matches the current season (preferring one whose ``element_ref`` the
+    kid has already unlocked).
+    """
+
+    season: Season
+    background_tone: str
+    zone_accents: dict[ZoneId, str]
+    variant_copy: str | None
+
+
+class SanctuarySoundscapeDTO(BaseModel):
+    """A placeholder describing a future ambient sound for the Sanctuary.
+
+    No audio assets ship with this DTO -- the mobile screen renders
+    ``label`` + ``description`` as a quiet "coming soon" entry. The route
+    sets ``sound_assets_available`` on the snapshot to ``false`` until a
+    later content drop adds real audio files; the schema below is the
+    future-ready shape the client will read once that lands.
+    """
+
+    id: str
+    kind: SoundKind
+    zone_id: ZoneId | None
+    label: str
+    description: str
+
+
 class SanctuarySnapshotResponse(BaseModel):
     zones: list[SanctuaryZoneDTO]
     elements: list[SanctuaryElementDTO]
@@ -180,6 +271,13 @@ class SanctuarySnapshotResponse(BaseModel):
     identity_reflection: SanctuaryIdentityReflectionDTO | None = None
     relationship_moments: list[SanctuaryRelationshipMomentDTO] = Field(default_factory=list)
     tiny_surprises: list[SanctuaryTinySurpriseDTO] = Field(default_factory=list)
+    season: SanctuarySeasonDTO
+    soundscapes: list[SanctuarySoundscapeDTO] = Field(default_factory=list)
+    # ``sound_assets_available`` is the global gate the mobile screen uses
+    # to decide whether to render a future play control vs. a muted
+    # placeholder. False until audio assets ship; flipped on by a later
+    # content/asset PR rather than per-soundscape.
+    sound_assets_available: bool = False
 
 
 # ---------------------------------------------------------------------------
@@ -266,6 +364,13 @@ async def get_my_sanctuary(
     identity_reflection = _select_identity_reflection(content, zones, element_rows)
     relationship_moments = _relationship_moments_from_elements(element_rows, content)
     tiny_surprises_view = _tiny_surprises_from_elements(element_rows, content)
+    today = datetime.now(tz=UTC).date()
+    season_info = _select_season_info(
+        season=current_season(today),
+        content=content,
+        unlocked_element_ids={row.element_id for row in element_rows},
+    )
+    soundscapes_view = _soundscapes_for_response(content)
 
     return SanctuarySnapshotResponse(
         zones=zones,
@@ -277,6 +382,9 @@ async def get_my_sanctuary(
         identity_reflection=identity_reflection,
         relationship_moments=relationship_moments,
         tiny_surprises=tiny_surprises_view,
+        season=season_info,
+        soundscapes=soundscapes_view,
+        sound_assets_available=False,
     )
 
 
@@ -676,3 +784,65 @@ def _tiny_surprises_from_elements(
             )
         )
     return out
+
+
+def _select_season_info(
+    *,
+    season: Season,
+    content: SanctuaryContent,
+    unlocked_element_ids: set[str],
+) -> SanctuarySeasonDTO:
+    """Build the per-response seasonal info block.
+
+    - ``season`` and ``background_tone`` come from the date-keyed palette
+      above (structural, not kid-facing prose).
+    - ``zone_accents`` is the per-zone short label for that season -- still
+      structural rendering data, mirroring how ``ZONE_TOKENS`` lives in
+      the mobile client today.
+    - ``variant_copy`` is the only kid-facing prose and comes verbatim from
+      authored ``content/sanctuary/seasonal_variants.json``. The route
+      first looks for a season-matching variant whose ``element_ref`` is
+      one of the kid's already-unlocked elements; failing that, falls
+      back to the first season-matching variant in content order so a
+      brand-new kid still sees a seasonal line. Returns ``None`` only
+      when no variant is authored for the current season.
+    """
+    background_tone = _BACKGROUND_TONE_BY_SEASON[season]
+    zone_accents = dict(_ZONE_ACCENTS_BY_SEASON[season])
+
+    variant_copy: str | None = None
+    season_matched = [sv for sv in content.seasonal_variants if sv.season == season]
+    if season_matched:
+        for sv in season_matched:
+            if sv.element_ref in unlocked_element_ids:
+                variant_copy = sv.description
+                break
+        if variant_copy is None:
+            variant_copy = season_matched[0].description
+
+    return SanctuarySeasonDTO(
+        season=season,
+        background_tone=background_tone,
+        zone_accents=zone_accents,
+        variant_copy=variant_copy,
+    )
+
+
+def _soundscapes_for_response(content: SanctuaryContent) -> list[SanctuarySoundscapeDTO]:
+    """Project authored ``Soundscape`` entries into the wire DTO.
+
+    No assets ship in this PR; the snapshot's ``sound_assets_available``
+    flag stays ``False`` so the client renders a muted placeholder rather
+    than any playback control. The endpoint never returns asset URLs,
+    bytes, or play tokens.
+    """
+    return [
+        SanctuarySoundscapeDTO(
+            id=s.id,
+            kind=s.kind,
+            zone_id=s.zone,
+            label=s.label,
+            description=s.description,
+        )
+        for s in content.soundscapes
+    ]

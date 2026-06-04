@@ -40,6 +40,7 @@ from app.models.sanctuary import (  # noqa: E402
     SanctuaryConfig,
     SanctuaryZone,
     SeasonalVariant,
+    Soundscape,
     TinySurprise,
 )
 
@@ -57,6 +58,7 @@ _SANCTUARY_ITEM_MODELS: dict[str, type[BaseModel]] = {
     "tiny_surprises": TinySurprise,
     "seasonal_variants": SeasonalVariant,
     "identity_reflections": IdentityReflection,
+    "soundscapes": Soundscape,
 }
 
 

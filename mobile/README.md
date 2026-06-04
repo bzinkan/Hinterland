@@ -7,9 +7,14 @@ Phase 6+ surface: Home tab lists the signed-in user's observations
 (`GET /v1/observations/me`), Observe tab is the camera capture + submit flow,
 Dex / Expeditions placeholder + real Expeditions tab, and Sanctuary tab
 renders the kid's living-diorama from `GET /v1/sanctuary/me` (MVP with
-placeholder art -- see `docs/sanctuary.md` section 10). Settings holds the
-dev "paste a Firebase ID token" auth shortcut + build info + the Adult tools
-section (review queue link).
+placeholder art -- see `docs/sanctuary.md` section 10). The Sanctuary tab
+also carries a small date-driven seasonal banner (server-selected from
+the current UTC date, Northern-Hemisphere calendar -- limitation
+documented in `docs/sanctuary.md`) and a text-only "Sounds" placeholder
+panel that lists future ambient sounds without playing audio,
+requesting microphone permission, or adding analytics. Settings holds
+the dev "paste a Firebase ID token" auth shortcut + build info + the
+Adult tools section (review queue link).
 
 **Web build is the adult-console surface only** (per `docs/mobile.md`):
 `npm run web` shows Home + Settings only -- Observe / Dex / Expeditions /

@@ -449,6 +449,67 @@
       "title": "SeasonalVariant",
       "type": "object"
     },
+    "Soundscape": {
+      "description": "A placeholder describing a future ambient sound for the Sanctuary.\n\nNo audio assets ship in this PR. The mobile screen renders ``label`` +\n``description`` as a quiet \"coming soon\" entry so the kid has a hint\nthat the Sanctuary will gain ambient sound later without ever\nauto-playing audio, requesting microphone permission, or adding new\nanalytics. The ``kind`` is the asset-key root the asset map will\nresolve when audio lands (e.g. ``sanctuary.sound.bird_chirp``).",
+      "properties": {
+        "description": {
+          "maxLength": 180,
+          "minLength": 1,
+          "title": "Description",
+          "type": "string"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "bird_chirp",
+            "pond_ripple",
+            "meadow_buzz",
+            "wind",
+            "frog_croak"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "label": {
+          "maxLength": 80,
+          "minLength": 1,
+          "title": "Label",
+          "type": "string"
+        },
+        "zone": {
+          "anyOf": [
+            {
+              "enum": [
+                "meadow",
+                "woodland",
+                "pond",
+                "sky",
+                "soil",
+                "urban",
+                "elsewhere"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Zone"
+        }
+      },
+      "required": [
+        "id",
+        "kind",
+        "label",
+        "description"
+      ],
+      "title": "Soundscape",
+      "type": "object"
+    },
     "TinySurprise": {
       "description": "Low-weight zone ambient detail at intermediate deepening thresholds (3, 5, 10).",
       "properties": {
@@ -544,6 +605,13 @@
         "$ref": "#/$defs/SeasonalVariant"
       },
       "title": "Seasonal Variants",
+      "type": "array"
+    },
+    "soundscapes": {
+      "items": {
+        "$ref": "#/$defs/Soundscape"
+      },
+      "title": "Soundscapes",
       "type": "array"
     },
     "tiny_surprises": {

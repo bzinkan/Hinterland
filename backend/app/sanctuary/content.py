@@ -31,6 +31,7 @@ from app.models.sanctuary import (
     SanctuaryConfig,
     SanctuaryZone,
     SeasonalVariant,
+    Soundscape,
     TinySurprise,
 )
 from app.sanctuary.types import ZoneId
@@ -57,6 +58,7 @@ _ITEM_MODELS: dict[str, type[BaseModel]] = {
     "tiny_surprises": TinySurprise,
     "seasonal_variants": SeasonalVariant,
     "identity_reflections": IdentityReflection,
+    "soundscapes": Soundscape,
 }
 
 
@@ -83,6 +85,7 @@ class SanctuaryContent:
     coarse_by_id: dict[str, CoarseUnlock]
     charismatic_by_id: dict[str, CharismaticUnlock]
     identity_reflections: tuple[IdentityReflection, ...]
+    soundscapes: tuple[Soundscape, ...]
 
 
 _CACHE_LOCK = threading.Lock()
@@ -178,4 +181,5 @@ def _load() -> SanctuaryContent:
         coarse_by_id=coarse_by_id,
         charismatic_by_id=charismatic_by_id,
         identity_reflections=tuple(config.identity_reflections),
+        soundscapes=tuple(config.soundscapes),
     )

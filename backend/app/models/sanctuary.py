@@ -76,6 +76,19 @@ CoarseIconicTaxon = Literal[
 
 Season = Literal["spring", "summer", "autumn", "winter"]
 
+# Sound-placeholder vocabulary. Authored-only; the mobile screen renders the
+# label/description verbatim as a "coming soon" hint. No audio assets are
+# shipped in this PR (see docs/sanctuary.md "Seasonal variants & sound
+# placeholders"); the kind here is a future-ready key the asset map will
+# resolve when ambient audio lands.
+SoundKind = Literal[
+    "bird_chirp",
+    "pond_ripple",
+    "meadow_buzz",
+    "wind",
+    "frog_croak",
+]
+
 # Per `docs/sanctuary.md` §7, deepening thresholds are {1, 3, 5, 10, 20, 50}.
 # `TinySurprise` (§6) intentionally lives at the intermediate set only --
 # zone wake-up (1) is a `world_unlock`, threshold 20 and 50 are zone-level
@@ -409,6 +422,39 @@ class SeasonalVariant(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# Soundscape (sound placeholder for a future ambient audio bed)
+# ---------------------------------------------------------------------------
+
+
+class Soundscape(BaseModel):
+    """A placeholder describing a future ambient sound for the Sanctuary.
+
+    No audio assets ship in this PR. The mobile screen renders ``label`` +
+    ``description`` as a quiet "coming soon" entry so the kid has a hint
+    that the Sanctuary will gain ambient sound later without ever
+    auto-playing audio, requesting microphone permission, or adding new
+    analytics. The ``kind`` is the asset-key root the asset map will
+    resolve when audio lands (e.g. ``sanctuary.sound.bird_chirp``).
+    """
+
+    id: str
+    kind: SoundKind
+    zone: ZoneId | None = None
+    label: Annotated[str, Field(min_length=1, max_length=80)]
+    description: Annotated[str, Field(min_length=1, max_length=180)]
+
+    @field_validator("id")
+    @classmethod
+    def id_is_snake_case(cls, v: str) -> str:
+        return _enforce_snake_case(v, "soundscape")
+
+    @field_validator("label", "description")
+    @classmethod
+    def copy_policy(cls, v: str) -> str:
+        return _enforce_copy_policy(v, "soundscape copy")
+
+
+# ---------------------------------------------------------------------------
 # Top-level sanctuary config (whole-tree cross-reference validation)
 # ---------------------------------------------------------------------------
 
@@ -482,6 +528,7 @@ class SanctuaryConfig(BaseModel):
     tiny_surprises: list[TinySurprise] = Field(default_factory=list)
     seasonal_variants: list[SeasonalVariant] = Field(default_factory=list)
     identity_reflections: list[IdentityReflection] = Field(default_factory=list)
+    soundscapes: list[Soundscape] = Field(default_factory=list)
 
     @field_validator("zones")
     @classmethod
@@ -584,5 +631,24 @@ class SanctuaryConfig(BaseModel):
                 raise ValueError(
                     f"identity reflection {ir.id!r} references unknown zone {ir.dominant_zone!r}"
                 )
+
+        # Soundscapes: ids unique; zone (when set) must resolve. At most one
+        # entry per (kind, zone) pair -- the mobile screen shows each row
+        # once and an authored duplicate would only confuse readers.
+        sound_seen: set[str] = set()
+        sound_kind_zone_seen: set[tuple[str, str | None]] = set()
+        for s in self.soundscapes:
+            if s.id in sound_seen:
+                raise ValueError(f"duplicate soundscape id: {s.id}")
+            sound_seen.add(s.id)
+            if s.zone is not None and s.zone not in zone_ids:
+                raise ValueError(f"soundscape {s.id!r} references unknown zone {s.zone!r}")
+            key = (s.kind, s.zone)
+            if key in sound_kind_zone_seen:
+                raise ValueError(
+                    f"duplicate soundscape kind/zone combination "
+                    f"{s.kind!r}/{s.zone!r} (collides with {s.id!r})"
+                )
+            sound_kind_zone_seen.add(key)
 
         return self

@@ -701,3 +701,179 @@ def test_non_delight_element_types_excluded_from_views(
     assert body["tiny_surprises"] == []
     # The coarse element is still in the full elements list.
     assert any(e["element_id"] == "meadow_coarse_plantae" for e in body["elements"])
+
+
+# ---------------------------------------------------------------------------
+# Group G: seasonal variants and sound placeholders.
+# ---------------------------------------------------------------------------
+
+
+_VALID_SEASONS = {"spring", "summer", "autumn", "winter"}
+_VALID_BACKGROUND_TONES = {"fresh", "warm", "fading", "still"}
+_EXPECTED_ZONE_ACCENT_KEYS = {
+    "meadow",
+    "woodland",
+    "pond",
+    "sky",
+    "soil",
+    "urban",
+    "elsewhere",
+}
+_VALID_SOUND_KINDS = {
+    "bird_chirp",
+    "pond_ripple",
+    "meadow_buzz",
+    "wind",
+    "frog_croak",
+}
+
+
+def test_season_block_present_on_empty_state(
+    monkeypatch: pytest.MonkeyPatch, fake_session: AsyncMock
+) -> None:
+    """An empty-state response still carries a season block -- it is the
+    visual tone, not gated on having unlocked anything."""
+    _stub_token_verifier(monkeypatch)
+    _wire_session(fake_session, user=_user())
+    for client in _build_client(fake_session):
+        response = client.get("/v1/sanctuary/me", headers={"Authorization": "Bearer fake"})
+    body = response.json()
+    season_info = body["season"]
+    assert season_info["season"] in _VALID_SEASONS
+    assert season_info["background_tone"] in _VALID_BACKGROUND_TONES
+    assert set(season_info["zone_accents"].keys()) == _EXPECTED_ZONE_ACCENT_KEYS
+    for accent in season_info["zone_accents"].values():
+        assert isinstance(accent, str) and accent  # non-empty
+    # variant_copy is whatever the authored seasonal variant for the
+    # current season carries (may be present even pre-unlock as a general
+    # fallback), or null if no variant authored for this season.
+    assert season_info["variant_copy"] is None or isinstance(season_info["variant_copy"], str)
+
+
+def test_season_variant_copy_prefers_unlocked_element(
+    monkeypatch: pytest.MonkeyPatch, fake_session: AsyncMock
+) -> None:
+    """When a kid has unlocked ``meadow_coarse_plantae`` and the current
+    season has an authored variant referencing that element, the route
+    returns the variant for THAT element (not just the first match in
+    content order)."""
+    _stub_token_verifier(monkeypatch)
+    # Force the route's "current season" to autumn by patching the date
+    # source. The route calls datetime.now(tz=timezone.utc).date() which we
+    # cannot patch on a builtin -- instead, the season is computed from a
+    # date the helper accepts, so we patch the route's `current_season`
+    # binding to a fixed-return shim.
+    import app.api.routes.sanctuary as route_module
+
+    monkeypatch.setattr(route_module, "current_season", lambda _today: "autumn")
+
+    _wire_session(
+        fake_session,
+        user=_user(),
+        elements=[
+            _element(
+                element_id="meadow_coarse_plantae",
+                zone_id="meadow",
+                element_type="coarse",
+            )
+        ],
+    )
+    for client in _build_client(fake_session):
+        response = client.get("/v1/sanctuary/me", headers={"Authorization": "Bearer fake"})
+    body = response.json()
+    season_info = body["season"]
+    assert season_info["season"] == "autumn"
+    # PR #96 ships meadow_plantae_autumn referencing meadow_coarse_plantae;
+    # that variant's authored description must come back here.
+    assert season_info["variant_copy"] is not None
+    assert "meadow" in season_info["variant_copy"].lower()
+
+
+def test_season_does_not_expose_precise_location(
+    monkeypatch: pytest.MonkeyPatch, fake_session: AsyncMock
+) -> None:
+    """The season block must not leak lat/lng/place_name even via
+    zone_accents or variant_copy. Recursive scan of just the season
+    subtree."""
+    _stub_token_verifier(monkeypatch)
+    _wire_session(fake_session, user=_user())
+    for client in _build_client(fake_session):
+        response = client.get("/v1/sanctuary/me", headers={"Authorization": "Bearer fake"})
+    forbidden = {"latitude", "longitude", "geohash", "geohash4", "place_name", "lat", "lng"}
+    _assert_no_forbidden_keys(response.json()["season"], forbidden)
+
+
+def test_soundscapes_present_with_no_assets_available(
+    monkeypatch: pytest.MonkeyPatch, fake_session: AsyncMock
+) -> None:
+    _stub_token_verifier(monkeypatch)
+    _wire_session(fake_session, user=_user())
+    for client in _build_client(fake_session):
+        response = client.get("/v1/sanctuary/me", headers={"Authorization": "Bearer fake"})
+    body = response.json()
+    # PR ships 5 authored soundscapes (one per kind from the brief).
+    assert len(body["soundscapes"]) == 5
+    kinds = {s["kind"] for s in body["soundscapes"]}
+    assert kinds == _VALID_SOUND_KINDS
+    # No assets shipped yet -- gate stays off.
+    assert body["sound_assets_available"] is False
+
+
+def test_soundscapes_carry_no_asset_url_or_play_token(
+    monkeypatch: pytest.MonkeyPatch, fake_session: AsyncMock
+) -> None:
+    """The sound placeholder DTO must not expose any field that looks
+    like a playable asset -- this would let a future client autoplay
+    audio against the brief."""
+    _stub_token_verifier(monkeypatch)
+    _wire_session(fake_session, user=_user())
+    for client in _build_client(fake_session):
+        response = client.get("/v1/sanctuary/me", headers={"Authorization": "Bearer fake"})
+    body = response.json()
+    expected_keys = {"id", "kind", "zone_id", "label", "description"}
+    for entry in body["soundscapes"]:
+        assert set(entry.keys()) == expected_keys, (
+            f"soundscape entry has unexpected keys: {set(entry.keys())}"
+        )
+        # Sanity check: no url-shaped value in any string field.
+        for key in ("label", "description"):
+            value = entry[key]
+            assert "http://" not in value and "https://" not in value
+
+
+def test_soundscape_zone_id_can_be_null_for_ambient_entries(
+    monkeypatch: pytest.MonkeyPatch, fake_session: AsyncMock
+) -> None:
+    """The authored ``general_wind`` soundscape has zone=null -- that is
+    valid and should round-trip as zone_id=null on the wire."""
+    _stub_token_verifier(monkeypatch)
+    _wire_session(fake_session, user=_user())
+    for client in _build_client(fake_session):
+        response = client.get("/v1/sanctuary/me", headers={"Authorization": "Bearer fake"})
+    body = response.json()
+    wind = next(s for s in body["soundscapes"] if s["kind"] == "wind")
+    assert wind["zone_id"] is None
+
+
+def test_current_season_helper_table() -> None:
+    """Direct unit coverage of the date-based season selector. Boundaries
+    must round-trip exactly so the visual tint flips on the documented
+    date and never a day off."""
+    from datetime import date as _date
+
+    from app.sanctuary.season import current_season as cs
+
+    cases: list[tuple[_date, str]] = [
+        (_date(2026, 3, 1), "spring"),
+        (_date(2026, 5, 31), "spring"),
+        (_date(2026, 6, 1), "summer"),
+        (_date(2026, 8, 31), "summer"),
+        (_date(2026, 9, 1), "autumn"),
+        (_date(2026, 11, 30), "autumn"),
+        (_date(2026, 12, 1), "winter"),
+        (_date(2026, 2, 28), "winter"),
+        (_date(2027, 1, 15), "winter"),
+        (_date(2027, 2, 29 - 1), "winter"),  # avoid actual leap-day type quirk
+    ]
+    for d, expected in cases:
+        assert cs(d) == expected, f"current_season({d}) -> {cs(d)!r}, expected {expected!r}"

@@ -1,0 +1,39 @@
+{
+  "soundscapes": [
+    {
+      "id": "meadow_meadow_buzz",
+      "kind": "meadow_buzz",
+      "zone": "meadow",
+      "label": "Meadow hum",
+      "description": "A soft hum of bees and small wings the meadow will play one day when the audio bed lands."
+    },
+    {
+      "id": "pond_pond_ripple",
+      "kind": "pond_ripple",
+      "zone": "pond",
+      "label": "Pond ripples",
+      "description": "Quiet water and the small plop of a frog returning to the surface, saved for a future sound layer."
+    },
+    {
+      "id": "pond_frog_croak",
+      "kind": "frog_croak",
+      "zone": "pond",
+      "label": "Frog chorus",
+      "description": "A slow chorus of frogs across the pond edge, sketched here in words until ambient sound is added."
+    },
+    {
+      "id": "sky_bird_chirp",
+      "kind": "bird_chirp",
+      "zone": "sky",
+      "label": "Birds overhead",
+      "description": "Calls from the sky zone, planned for a quiet audio layer that will not play on its own."
+    },
+    {
+      "id": "general_wind",
+      "kind": "wind",
+      "zone": null,
+      "label": "Quiet wind",
+      "description": "A low background wind that will tie the zones together one day; for now it lives only in this note."
+    }
+  ]
+}

@@ -835,9 +835,86 @@ the full `sanctuary_elements` rows are still returned via
 `elements` for callers that want them; the projections are mobile
 ergonomics, not a new data source.
 
+#### Seasonal variants & sound placeholders (PR adding seasonal variants and sound placeholders)
+
+The response also includes a date-driven seasonal info block and a list
+of authored sound-placeholder entries. Neither field depends on precise
+location, an external API, or any new permission.
+
+- `season: SanctuarySeasonDTO` — the visual seasonal tint for this
+  response. Selected on the server from the current UTC date via the
+  helper `app.sanctuary.season.current_season(today)` using a
+  Northern-Hemisphere meteorological calendar (March-May = spring,
+  June-August = summer, September-November = autumn, December-February
+  = winter). The block carries:
+  - `season`: one of `spring` / `summer` / `autumn` / `winter`. The
+    existing `Season` literal in `app/models/sanctuary.py` is the
+    canonical vocabulary; the brief's "fall" is the same season as
+    `autumn` (the meteorological convention this codebase uses).
+  - `background_tone`: a single calm word (`fresh` / `warm` / `fading`
+    / `still`) the client maps to a tint behind the season banner.
+  - `zone_accents`: a `dict[ZoneId, str]` of short per-zone seasonal
+    labels (e.g. `meadow: "wildflowers waking"` in spring). Structural
+    rendering data, the seasonal analogue of the existing per-zone
+    `ZONE_TOKENS` hex tints baked into the mobile client.
+  - `variant_copy`: the only kid-facing prose field. Comes verbatim
+    from `content/sanctuary/seasonal_variants.json` when an authored
+    variant matches the current season (preferring one whose
+    `element_ref` is one of the kid's already-unlocked elements; falls
+    back to the first season-matching variant in content order so a
+    fresh kid still sees a seasonal line). `null` only when no variant
+    is authored for the current season.
+
+  **Known limitation — Northern Hemisphere only.** The selector hardcodes
+  a Northern-Hemisphere calendar. A Southern Hemisphere user will see
+  "autumn" tint in May; this is documented in
+  `backend/app/sanctuary/season.py`. The Phase 3 `SeasonHandler` will
+  swap this helper for one that consults the kid's coarse `geohash4`
+  hemisphere — the same coarse-only region signal the rest of the app
+  already uses, never precise lat/lng.
+
+- `soundscapes: list[SanctuarySoundscapeDTO]` — author-time placeholder
+  entries describing future ambient sounds. Each carries:
+  - `id`, `kind` (one of `bird_chirp`, `pond_ripple`, `meadow_buzz`,
+    `wind`, `frog_croak`), `zone_id` (or `null` for a general ambient
+    bed), `label` (short title), `description` (one calm sentence).
+  - No asset URLs, no play tokens, no signed-GET URLs. The DTO is
+    descriptive only.
+
+- `sound_assets_available: bool` — false in this PR. When real audio
+  assets ship in a later PR this flag flips to true and the mobile
+  client can wire a play control to the existing DTO without a new
+  field. The mobile screen NEVER autoplays sound, requests microphone
+  permission, or adds analytics for sound interactions; this is
+  enforced by the absence of those code paths.
+
 ---
 
 ## 10. Mobile UX
+
+### Seasonal banner & sound placeholder panel (PR adding seasonal variants and sound placeholders)
+
+Two more surfaces ride on top of the delight layer:
+
+- **SeasonBanner** sits between the screen header and the Dragonfly guide
+  bar. It renders the authored season label (`Spring` / `Summer` /
+  `Autumn` / `Winter`), the `background_tone` word, and -- when
+  present -- the authored `variant_copy` line verbatim. The tint comes
+  from a tiny per-season palette in the screen itself (`SEASON_TOKENS`),
+  not from the wire response; the API only ships the structural tone
+  word.
+- **Per-band seasonal accent** under each zone's mood line. The text
+  comes from `data.season.zone_accents[zone_id]` (e.g. "wildflowers
+  waking" on a spring meadow band). Hidden when the accent string is
+  missing.
+- **SoundscapesPanel** sits between Tiny Surprises and Quiet Corners.
+  It is text-only: a "Sounds are off. Audio will arrive in a later
+  update." hint, followed by one row per soundscape. Each row shows an
+  `OFF` badge, the authored `label`, and the authored `description`.
+  No play button, no auto-play, no microphone request, no analytics
+  ping on render. When `sound_assets_available` flips to `true` in a
+  later PR the hint text changes and the same row layout can host a
+  play control without a new wire field.
 
 ### Delight panels (PR adding delight layer)
 
