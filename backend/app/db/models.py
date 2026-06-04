@@ -129,6 +129,60 @@ class Observation(TimestampMixin, Base):
     submitted_to_inat_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     dispatched_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     rewards: Mapped[list[JsonDict]] = mapped_column(JSONB, nullable=False, default=list)
+    # Azure Content Safety lifecycle state for this observation's photo.
+    # CHECK constraint pins the vocabulary to {pending, clean, quarantine,
+    # rejected} (see migration 20260604_0006). Only `clean` rows are
+    # eligible for iNat submission (see `InatSubmitOutbox` + the
+    # Service-Bus-driven submit worker).
+    moderation_status: Mapped[str] = mapped_column(
+        String(24), nullable=False, default="pending", server_default="pending"
+    )
+    # Per-category labels returned by the moderation provider. Empty dict
+    # default; not queried, written by the moderation worker as evidence
+    # for review + Risk 0002 closure.
+    moderation_labels: Mapped[JsonDict] = mapped_column(
+        JSONB, nullable=False, default=dict, server_default="{}"
+    )
+
+
+class InatSubmitOutbox(TimestampMixin, Base):
+    """Transactional outbox row for the Azure Service Bus iNat-submit path.
+
+    Written in the same SQLAlchemy transaction that flips an observation's
+    `moderation_status` to `clean` (either by the moderation worker on the
+    direct clean path or by the review-queue approve handler). After commit
+    the producer enqueues `{ observation_id }` to the `inat-submit` Service
+    Bus queue. If the send fails the row stays in `pending` and the 15-min
+    replay job (`admin.inat_outbox_replay`) re-enqueues anything past a
+    5-min grace window.
+
+    Primary key is `observation_id` itself so the same observation cannot
+    have two outbox rows -- duplicate inserts raise on the FK + PK and the
+    caller treats the collision as "already enqueued, skip."
+
+    State machine:
+        pending  -> enqueued -> submitted
+                              -> dlq        (terminal failure)
+    """
+
+    __tablename__ = "inat_submit_outbox"
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('pending', 'enqueued', 'submitted', 'dlq')",
+            name="ck_inat_submit_outbox_status",
+        ),
+        Index("ix_inat_submit_outbox_status_attempt", "status", "last_attempt_at"),
+    )
+
+    observation_id: Mapped[str] = mapped_column(
+        ForeignKey("observations.id", ondelete="CASCADE"), primary_key=True
+    )
+    status: Mapped[str] = mapped_column(
+        String(24), nullable=False, default="pending", server_default="pending"
+    )
+    retry_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    last_attempt_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_error: Mapped[str | None] = mapped_column(Text)
 
 
 class DexEntry(TimestampMixin, Base):
