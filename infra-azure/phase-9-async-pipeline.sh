@@ -38,8 +38,9 @@
 #   - Container App env-var update: the existing `dragonfly-api` service
 #     gets the async pipeline env vars plus explicit Blob config.
 #
-# Idempotent. Every block checks for existence before creating;
-# `az containerapp update --set-env-vars` is idempotent on its own.
+# Idempotent. Infra blocks check for existence before creating; job
+# templates are applied on every run so rerunning after a new API image
+# or command fix updates existing Container Apps Jobs too.
 #
 # Run with:
 #   MSYS_NO_PATHCONV=1 bash infra-azure/phase-9-async-pipeline.sh
@@ -63,6 +64,7 @@ SA_NAME="dragonflyphotosdev"
 PHOTOS_CONTAINER="photos"
 APP_NAME="dragonfly-api"
 CAE_NAME="dragonfly-cae-dev"
+CAE_ID="/subscriptions/${MGMT_SUB}/resourceGroups/${RG}/providers/Microsoft.App/managedEnvironments/${CAE_NAME}"
 
 # The Container App image to use for the new Jobs. Defaults to the image
 # currently deployed on the API service so the jobs include the admin
@@ -99,6 +101,7 @@ ROLE_SB_DATA_RECEIVER="4f6d3b9b-027b-4f4c-9142-0e5a2a2247e0"
 
 KV_ID="/subscriptions/${MGMT_SUB}/resourceGroups/${RG}/providers/Microsoft.KeyVault/vaults/${KV_NAME}"
 SA_ID="/subscriptions/${MGMT_SUB}/resourceGroups/${RG}/providers/Microsoft.Storage/storageAccounts/${SA_NAME}"
+EG_TOPIC_ID="/subscriptions/${MGMT_SUB}/resourceGroups/${RG}/providers/Microsoft.EventGrid/systemTopics/${EG_TOPIC_NAME}"
 SB_NAMESPACE_ID="/subscriptions/${MGMT_SUB}/resourceGroups/${RG}/providers/Microsoft.ServiceBus/namespaces/${SB_NAMESPACE}"
 SB_QUEUE_MODERATION_ID="${SB_NAMESPACE_ID}/queues/${SB_QUEUE_MODERATION}"
 SB_QUEUE_INAT_ID="${SB_NAMESPACE_ID}/queues/${SB_QUEUE_INAT}"
@@ -206,7 +209,7 @@ ensure_sb_queue() {
       --resource-group "$RG" \
       --subscription "$MGMT_SUB" \
       --max-delivery-count 5 \
-      --dead-lettering-on-message-expiration true \
+      --enable-dead-lettering-on-message-expiration true \
       --lock-duration PT5M \
       --output none
   fi
@@ -215,9 +218,9 @@ ensure_sb_queue() {
 ensure_sb_queue "$SB_QUEUE_MODERATION"
 ensure_sb_queue "$SB_QUEUE_INAT"
 
-ensure_queue_listen_rule() {
+ensure_queue_scaler_rule() {
   local queue_name="$1"
-  echo "==> ensure Service Bus scaler listen rule on $queue_name"
+  echo "==> ensure Service Bus scaler auth rule on $queue_name"
   if ! az servicebus queue authorization-rule show \
     --namespace-name "$SB_NAMESPACE" \
     --queue-name "$queue_name" \
@@ -230,13 +233,22 @@ ensure_queue_listen_rule() {
       --name "$SCALER_AUTH_RULE_NAME" \
       --resource-group "$RG" \
       --subscription "$MGMT_SUB" \
-      --rights Listen \
+      --rights Manage Listen Send \
+      --output none
+  else
+    az servicebus queue authorization-rule update \
+      --namespace-name "$SB_NAMESPACE" \
+      --queue-name "$queue_name" \
+      --name "$SCALER_AUTH_RULE_NAME" \
+      --resource-group "$RG" \
+      --subscription "$MGMT_SUB" \
+      --rights Manage Listen Send \
       --output none
   fi
 }
 
-ensure_queue_listen_rule "$SB_QUEUE_MODERATION"
-ensure_queue_listen_rule "$SB_QUEUE_INAT"
+ensure_queue_scaler_rule "$SB_QUEUE_MODERATION"
+ensure_queue_scaler_rule "$SB_QUEUE_INAT"
 
 MODERATION_SCALER_CONNECTION=$(az servicebus queue authorization-rule keys list \
   --namespace-name "$SB_NAMESPACE" \
@@ -331,17 +343,37 @@ ensure_role "$SB_QUEUE_MODERATION_ID" "$ROLE_SB_DATA_SENDER" "$EG_TOPIC_PRINCIPA
 
 echo "==> ensure Event Grid subscription $EG_SUB_NAME -> $SB_QUEUE_MODERATION"
 if ! az eventgrid system-topic event-subscription show --system-topic-name "$EG_TOPIC_NAME" --resource-group "$RG" --name "$EG_SUB_NAME" --subscription "$MGMT_SUB" >/dev/null 2>&1; then
-  az eventgrid system-topic event-subscription create \
-    --system-topic-name "$EG_TOPIC_NAME" \
-    --resource-group "$RG" \
+  EVENT_SUB_BODY=$(cat <<EOF
+{
+  "properties": {
+    "deliveryWithResourceIdentity": {
+      "identity": {
+        "type": "SystemAssigned"
+      },
+      "destination": {
+        "endpointType": "ServiceBusQueue",
+        "properties": {
+          "resourceId": "${SB_QUEUE_MODERATION_ID}"
+        }
+      }
+    },
+    "eventDeliverySchema": "CloudEventSchemaV1_0",
+    "filter": {
+      "includedEventTypes": [
+        "Microsoft.Storage.BlobCreated"
+      ],
+      "subjectBeginsWith": "/blobServices/default/containers/photos/blobs/pending/",
+      "isSubjectCaseSensitive": false
+    }
+  }
+}
+EOF
+)
+  az rest \
+    --method PUT \
+    --url "https://management.azure.com${EG_TOPIC_ID}/eventSubscriptions/${EG_SUB_NAME}?api-version=2021-12-01" \
     --subscription "$MGMT_SUB" \
-    --name "$EG_SUB_NAME" \
-    --endpoint-type servicebusqueue \
-    --endpoint "$SB_QUEUE_MODERATION_ID" \
-    --delivery-identity systemassigned \
-    --included-event-types Microsoft.Storage.BlobCreated \
-    --subject-begins-with "/blobServices/default/containers/photos/blobs/pending/" \
-    --event-delivery-schema cloudeventschemav1_0 \
+    --body "$EVENT_SUB_BODY" \
     --output none
 fi
 
@@ -370,6 +402,7 @@ az containerapp update \
   --resource-group "$RG" \
   --subscription "$MGMT_SUB" \
   --set-env-vars \
+    "AZURE_CLIENT_ID=${UAMI_CLIENT_ID}" \
     "DRAGONFLY_DATABASE_HOST=${PG_HOST}" \
     "DRAGONFLY_DATABASE_PORT=5432" \
     "DRAGONFLY_DATABASE_USER=${PG_USER}" \
@@ -395,6 +428,7 @@ az containerapp update \
 # and Key Vault-backed secrets just like the main API.
 JOB_ENV_VARS=(
   "DRAGONFLY_ENV=prod"
+  "AZURE_CLIENT_ID=${UAMI_CLIENT_ID}"
   "DRAGONFLY_DATABASE_HOST=${PG_HOST}"
   "DRAGONFLY_DATABASE_PORT=5432"
   "DRAGONFLY_DATABASE_USER=${PG_USER}"
@@ -413,92 +447,211 @@ JOB_ENV_VARS=(
   "DRAGONFLY_CONTENT_SAFETY_KEY=secretref:${SECRET_CS_KEY}"
 )
 
+yaml_quote() {
+  printf "'%s'" "$(printf "%s" "$1" | sed "s/'/''/g")"
+}
+
+write_job_env_yaml() {
+  cat <<EOF
+      env:
+      - name: DRAGONFLY_ENV
+        value: $(yaml_quote "prod")
+      - name: AZURE_CLIENT_ID
+        value: $(yaml_quote "$UAMI_CLIENT_ID")
+      - name: DRAGONFLY_DATABASE_HOST
+        value: $(yaml_quote "$PG_HOST")
+      - name: DRAGONFLY_DATABASE_PORT
+        value: $(yaml_quote "5432")
+      - name: DRAGONFLY_DATABASE_USER
+        value: $(yaml_quote "$PG_USER")
+      - name: DRAGONFLY_DATABASE_PASSWORD
+        secretRef: $(yaml_quote "$SECRET_PG_PASSWORD")
+      - name: DRAGONFLY_DATABASE_NAME
+        value: $(yaml_quote "$PG_DB")
+      - name: DRAGONFLY_READINESS_DATABASE_REQUIRED
+        value: $(yaml_quote "true")
+      - name: DRAGONFLY_STORAGE_PROVIDER
+        value: $(yaml_quote "blob")
+      - name: DRAGONFLY_BLOB_ACCOUNT_ENDPOINT
+        value: $(yaml_quote "$BLOB_ENDPOINT")
+      - name: DRAGONFLY_PHOTOS_BUCKET
+        value: $(yaml_quote "$BLOB_CONTAINER")
+      - name: DRAGONFLY_MODERATION_PROVIDER
+        value: $(yaml_quote "azure_content_safety")
+      - name: DRAGONFLY_SERVICE_BUS_NAMESPACE
+        value: $(yaml_quote "$SB_FQDN")
+      - name: DRAGONFLY_SERVICE_BUS_MODERATION_QUEUE
+        value: $(yaml_quote "$SB_QUEUE_MODERATION")
+      - name: DRAGONFLY_SERVICE_BUS_INAT_QUEUE
+        value: $(yaml_quote "$SB_QUEUE_INAT")
+      - name: DRAGONFLY_INAT_OAUTH_TOKEN
+        secretRef: $(yaml_quote "$SECRET_INAT_TOKEN")
+      - name: DRAGONFLY_CONTENT_SAFETY_ENDPOINT
+        secretRef: $(yaml_quote "$SECRET_CS_ENDPOINT")
+      - name: DRAGONFLY_CONTENT_SAFETY_KEY
+        secretRef: $(yaml_quote "$SECRET_CS_KEY")
+EOF
+}
+
+write_job_secrets_yaml() {
+  local scaler_secret="${1:-}"
+  local scaler_connection="${2:-}"
+
+  cat <<EOF
+    secrets:
+    - name: $(yaml_quote "$SECRET_PG_PASSWORD")
+      value: $(yaml_quote "$PG_PASSWORD")
+    - name: $(yaml_quote "$SECRET_INAT_TOKEN")
+      keyVaultUrl: $(yaml_quote "https://${KV_NAME}.vault.azure.net/secrets/inat-oauth-token")
+      identity: $(yaml_quote "$UAMI_ID")
+    - name: $(yaml_quote "$SECRET_CS_ENDPOINT")
+      keyVaultUrl: $(yaml_quote "https://${KV_NAME}.vault.azure.net/secrets/content-safety-endpoint")
+      identity: $(yaml_quote "$UAMI_ID")
+    - name: $(yaml_quote "$SECRET_CS_KEY")
+      keyVaultUrl: $(yaml_quote "https://${KV_NAME}.vault.azure.net/secrets/content-safety-key")
+      identity: $(yaml_quote "$UAMI_ID")
+EOF
+  if [[ -n "$scaler_secret" ]]; then
+    cat <<EOF
+    - name: $(yaml_quote "$scaler_secret")
+      value: $(yaml_quote "$scaler_connection")
+EOF
+  fi
+}
+
 ensure_event_job() {
   local job_name="$1"
   local command="$2"
   local queue_name="$3"
   local scaler_secret="$4"
   local scaler_connection="$5"
+  local yaml_path
+  yaml_path="$(mktemp)"
 
   echo "==> ensure event-driven Container Apps Job $job_name (SB queue $queue_name)"
+  cat > "$yaml_path" <<EOF
+name: $(yaml_quote "$job_name")
+location: $(yaml_quote "$LOCATION")
+identity:
+  type: UserAssigned
+  userAssignedIdentities:
+    $(yaml_quote "$UAMI_ID"): {}
+properties:
+  environmentId: $(yaml_quote "$CAE_ID")
+  configuration:
+    triggerType: Event
+    replicaTimeout: 1800
+    replicaRetryLimit: 0
+    registries:
+    - server: $(yaml_quote "${ACR_NAME}.azurecr.io")
+      identity: $(yaml_quote "$UAMI_ID")
+$(write_job_secrets_yaml "$scaler_secret" "$scaler_connection")
+    eventTriggerConfig:
+      parallelism: 1
+      replicaCompletionCount: 1
+      scale:
+        pollingInterval: 30
+        minExecutions: 0
+        maxExecutions: 3
+        rules:
+        - name: $(yaml_quote "${queue_name}-scaler")
+          type: $(yaml_quote "azure-servicebus")
+          metadata:
+            namespace: $(yaml_quote "$SB_NAMESPACE")
+            queueName: $(yaml_quote "$queue_name")
+            messageCount: $(yaml_quote "1")
+          auth:
+          - triggerParameter: $(yaml_quote "connection")
+            secretRef: $(yaml_quote "$scaler_secret")
+  template:
+    containers:
+    - name: $(yaml_quote "$job_name")
+      image: $(yaml_quote "$IMAGE")
+      command:
+      - /bin/sh
+      - -c
+      args:
+      - $(yaml_quote "$command")
+      resources:
+        cpu: 0.5
+        memory: 1Gi
+$(write_job_env_yaml)
+EOF
   if az containerapp job show --name "$job_name" --resource-group "$RG" --subscription "$MGMT_SUB" >/dev/null 2>&1; then
-    return
+    az containerapp job update \
+      --name "$job_name" \
+      --resource-group "$RG" \
+      --subscription "$MGMT_SUB" \
+      --yaml "$yaml_path" \
+      --output none
+  else
+    az containerapp job create \
+      --name "$job_name" \
+      --resource-group "$RG" \
+      --subscription "$MGMT_SUB" \
+      --yaml "$yaml_path" \
+      --output none
   fi
-  az containerapp job create \
-    --name "$job_name" \
-    --resource-group "$RG" \
-    --subscription "$MGMT_SUB" \
-    --environment "$CAE_NAME" \
-    --trigger-type Event \
-    --replica-completion-count 1 \
-    --parallelism 1 \
-    --replica-retry-limit 0 \
-    --replica-timeout 1800 \
-    --polling-interval 30 \
-    --min-executions 0 \
-    --max-executions 3 \
-    --scale-rule-name "${queue_name}-scaler" \
-    --scale-rule-type azure-servicebus \
-    --scale-rule-metadata \
-      "namespace=${SB_NAMESPACE}" \
-      "queueName=${queue_name}" \
-      "messageCount=1" \
-    --scale-rule-auth "connection=${scaler_secret}" \
-    --mi-user-assigned "$UAMI_ID" \
-    --registry-server "${ACR_NAME}.azurecr.io" \
-    --registry-identity "$UAMI_ID" \
-    --image "$IMAGE" \
-    --cpu 0.5 \
-    --memory 1.0Gi \
-    --command "/bin/sh" \
-    --args "-c" "$command" \
-    --secrets \
-      "${SECRET_PG_PASSWORD}=${PG_PASSWORD}" \
-      "${SECRET_INAT_TOKEN}=keyvaultref:https://${KV_NAME}.vault.azure.net/secrets/inat-oauth-token,identityref:${UAMI_ID}" \
-      "${SECRET_CS_ENDPOINT}=keyvaultref:https://${KV_NAME}.vault.azure.net/secrets/content-safety-endpoint,identityref:${UAMI_ID}" \
-      "${SECRET_CS_KEY}=keyvaultref:https://${KV_NAME}.vault.azure.net/secrets/content-safety-key,identityref:${UAMI_ID}" \
-      "${scaler_secret}=${scaler_connection}" \
-    --env-vars "${JOB_ENV_VARS[@]}" \
-    --tags project=dragonfly env=dev managed-by=cli \
-    --output none
 }
 
 ensure_cron_job() {
   local job_name="$1"
   local command="$2"
   local cron="$3"
+  local yaml_path
+  yaml_path="$(mktemp)"
 
   echo "==> ensure scheduled Container Apps Job $job_name (cron '$cron')"
+  cat > "$yaml_path" <<EOF
+name: $(yaml_quote "$job_name")
+location: $(yaml_quote "$LOCATION")
+identity:
+  type: UserAssigned
+  userAssignedIdentities:
+    $(yaml_quote "$UAMI_ID"): {}
+properties:
+  environmentId: $(yaml_quote "$CAE_ID")
+  configuration:
+    triggerType: Schedule
+    replicaTimeout: 1800
+    replicaRetryLimit: 0
+    registries:
+    - server: $(yaml_quote "${ACR_NAME}.azurecr.io")
+      identity: $(yaml_quote "$UAMI_ID")
+$(write_job_secrets_yaml)
+    scheduleTriggerConfig:
+      cronExpression: $(yaml_quote "$cron")
+      parallelism: 1
+      replicaCompletionCount: 1
+  template:
+    containers:
+    - name: $(yaml_quote "$job_name")
+      image: $(yaml_quote "$IMAGE")
+      command:
+      - /bin/sh
+      - -c
+      args:
+      - $(yaml_quote "$command")
+      resources:
+        cpu: 0.5
+        memory: 1Gi
+$(write_job_env_yaml)
+EOF
   if az containerapp job show --name "$job_name" --resource-group "$RG" --subscription "$MGMT_SUB" >/dev/null 2>&1; then
-    return
+    az containerapp job update \
+      --name "$job_name" \
+      --resource-group "$RG" \
+      --subscription "$MGMT_SUB" \
+      --yaml "$yaml_path" \
+      --output none
+  else
+    az containerapp job create \
+      --name "$job_name" \
+      --resource-group "$RG" \
+      --subscription "$MGMT_SUB" \
+      --yaml "$yaml_path" \
+      --output none
   fi
-  az containerapp job create \
-    --name "$job_name" \
-    --resource-group "$RG" \
-    --subscription "$MGMT_SUB" \
-    --environment "$CAE_NAME" \
-    --trigger-type Schedule \
-    --cron-expression "$cron" \
-    --replica-completion-count 1 \
-    --parallelism 1 \
-    --replica-retry-limit 0 \
-    --replica-timeout 1800 \
-    --mi-user-assigned "$UAMI_ID" \
-    --registry-server "${ACR_NAME}.azurecr.io" \
-    --registry-identity "$UAMI_ID" \
-    --image "$IMAGE" \
-    --cpu 0.5 \
-    --memory 1.0Gi \
-    --command "/bin/sh" \
-    --args "-c" "$command" \
-    --secrets \
-      "${SECRET_PG_PASSWORD}=${PG_PASSWORD}" \
-      "${SECRET_INAT_TOKEN}=keyvaultref:https://${KV_NAME}.vault.azure.net/secrets/inat-oauth-token,identityref:${UAMI_ID}" \
-      "${SECRET_CS_ENDPOINT}=keyvaultref:https://${KV_NAME}.vault.azure.net/secrets/content-safety-endpoint,identityref:${UAMI_ID}" \
-      "${SECRET_CS_KEY}=keyvaultref:https://${KV_NAME}.vault.azure.net/secrets/content-safety-key,identityref:${UAMI_ID}" \
-    --env-vars "${JOB_ENV_VARS[@]}" \
-    --tags project=dragonfly env=dev managed-by=cli \
-    --output none
 }
 
 ensure_event_job "dragonfly-moderation-worker"  "python -m admin.moderation_consumer --max-messages ${EVENT_JOB_MAX_MESSAGES}"  "$SB_QUEUE_MODERATION" "$SECRET_MOD_SCALER" "$MODERATION_SCALER_CONNECTION"
