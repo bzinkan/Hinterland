@@ -16,6 +16,7 @@ import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from admin.moderation_consumer import (
+    _message_body_to_text,
     _MessageParseError,
     parse_blob_created_payload,
     process_one,
@@ -26,6 +27,11 @@ from app.moderation.provider import ModerationResult, ModerationUnavailable
 
 _BUCKET = "photos"
 _OBJECT_NAME = "pending/01J0OBSID00000000000000ULID.jpg"
+
+
+class _MessageWithBody:
+    def __init__(self, body: object) -> None:
+        self.body = body
 
 
 # ---------------------------------------------------------------------------
@@ -66,6 +72,16 @@ def test_parse_falls_back_to_url_when_subject_missing() -> None:
 def test_parse_raises_on_non_json() -> None:
     with pytest.raises(_MessageParseError):
         parse_blob_created_payload("<not-json>")
+
+
+def test_parse_raises_when_json_is_not_object() -> None:
+    with pytest.raises(_MessageParseError):
+        parse_blob_created_payload(json.dumps([{"subject": "x"}]))
+
+
+def test_message_body_to_text_decodes_byte_iterable_body() -> None:
+    message = _MessageWithBody([b'{"subject": "abc"}'])
+    assert _message_body_to_text(message) == '{"subject": "abc"}'
 
 
 def test_parse_raises_when_neither_subject_nor_url_present() -> None:

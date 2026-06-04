@@ -6,7 +6,7 @@ Closes the **infra-azure** half of Risk 0002 (async safety/science pipeline) and
 
 | Script | Provisions |
 |---|---|
-| [`phase-9-async-pipeline.sh`](phase-9-async-pipeline.sh) | 3 empty KV secrets; Service Bus namespace + 2 queues with DLQ; Event Grid system topic + subscription → `moderation-pending`; UAMI role assignments for SB Data Sender/Receiver + the Event Grid topic's identity SB Data Sender; 5 Container Apps Jobs (2 event-driven workers + 3 cron jobs); Container App env-var update with the 6 new vars |
+| [`phase-9-async-pipeline.sh`](phase-9-async-pipeline.sh) | 3 empty KV secrets; Service Bus namespace + 2 queues with DLQ; Event Grid system topic + subscription → `moderation-pending`; UAMI role assignments for SB Data Sender/Receiver + the Event Grid topic's identity SB Data Sender; 6 Container Apps Jobs (2 event-driven workers + 4 cron jobs); Container App env-var update with async, DB, and Blob vars |
 | [`phase-9-monitoring.sh`](phase-9-monitoring.sh) | 1 action group (email receiver); 4 alerts: dispatcher p95 > 300 ms, DLQ depth on both queues > 0, scheduled-job failure |
 
 ## Run order
@@ -34,12 +34,12 @@ MSYS_NO_PATHCONV=1 DRAGONFLY_ALERT_EMAIL=you@example.com bash infra-azure/phase-
 
 | What | How | Pass criterion |
 |---|---|---|
-| Event Grid → SB → moderation worker | `az storage blob upload --account-name dragonflyphotosdev --container-name photos --name pending/test.jpg --file ./test.jpg` | Within ~30 s: `az containerapp job execution list --name dragonfly-moderation-worker --resource-group dragonfly-dev-rg` shows a successful execution; `observations.moderation_status` flips to `clean` or `quarantine` |
+| Event Grid → SB → moderation worker | Submit/upload one observation through the normal presign path so a DB photo row exists and Blob lands under `photos/pending/` | Within ~30 s: `az containerapp job execution list --name dragonfly-moderation-worker --resource-group dragonfly-dev-rg` shows a successful execution; `observations.moderation_status` flips to `clean` or `quarantine` |
 | Service Bus → iNat submit | Submit one observation via the mobile app (after iNat OAuth token is live) | iNat dashboard shows the observation within ~5 min; `inat_submit_outbox.status='submitted'` |
 | Each cron job | `az containerapp job start --name dragonfly-rarity-refresh --resource-group dragonfly-dev-rg` (repeat for sweep, replay, dispatcher_replay) | Each exits 0 |
 | Cron schedules fire | Wait for next `*/15` or `0 3 * * *` tick | Execution visible in `az containerapp job execution list` |
-| Dispatcher p95 alert | Synthetic 5xx burst via `hey -z 60s -c 50 https://<app-fqdn>/health` | Alert email arrives within 10 min |
-| DLQ depth alert | `az servicebus queue receiver send --namespace-name dragonfly-sb-dev --queue-name inat-submit --message '<malformed>'` then let it dead-letter after 5 redeliveries | Alert email arrives within 10 min after DLQ count goes positive |
+| Dispatcher p95 alert | Temporarily lower the threshold in [`phase-9-monitoring.sh`](phase-9-monitoring.sh), then replay/submit observations until `dispatcher.complete` logs are emitted | Alert email arrives within 10 min |
+| DLQ depth alert | Use Azure Portal Service Bus Explorer, or a one-off SDK sender, to send `<malformed>` to `inat-submit`, then start `dragonfly-inat-submit-worker` | Worker dead-letters the parse failure immediately; alert email arrives within 10 min after DLQ count goes positive |
 
 ## What still needs human action (outside this script)
 

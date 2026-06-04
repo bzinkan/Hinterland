@@ -10,7 +10,7 @@
 #     via env var DRAGONFLY_ALERT_EMAIL or the existing default).
 #   - 4 alert rules:
 #       * Dispatcher p95 latency > 300ms sustained 5 min (Risk 0003).
-#         Reads the `handler_durations_ms` field landed in PR #112.
+#         Reads the `dispatcher.complete` structured log landed in PR #112.
 #       * Service Bus moderation-pending DLQ depth > 0 sustained 5 min.
 #       * Service Bus inat-submit DLQ depth > 0 sustained 5 min.
 #       * Any of the 4 scheduled Container Apps Jobs fails its run.
@@ -59,6 +59,16 @@ assert_tenant() {
 az account set --subscription "$MGMT_SUB"
 assert_tenant "$MGMT_TENANT"
 
+ensure_az_extension() {
+  local name="$1"
+  if ! az extension show --name "$name" >/dev/null 2>&1; then
+    echo "==> install Azure CLI extension $name"
+    az extension add --name "$name" --yes --output none
+  fi
+}
+
+ensure_az_extension "scheduled-query"
+
 # ---------------------------------------------------------------------------
 # 1. Action group
 # ---------------------------------------------------------------------------
@@ -81,14 +91,26 @@ AG_ID=$(az monitor action-group show --name "$AG_NAME" --resource-group "$RG" --
 # 2. Dispatcher p95 latency alert (Risk 0003)
 # ---------------------------------------------------------------------------
 
-# Reads the structured-log `dispatcher.complete` event in App Insights /
-# Log Analytics (column AppTraces). The handler-by-handler breakdown
-# lives in `handler_durations_ms` (PR #112) but the SLO is on the
-# whole-dispatch `duration_ms` field.
+# Reads the structured-log `dispatcher.complete` event from either
+# AppTraces (if App Insights is enabled later) or Container Apps
+# console logs (the current stdout/Log Analytics path). The SLO is on
+# whole-dispatch `duration_ms`; handler_durations_ms stays available
+# in the same log record for follow-up diagnosis.
 DISPATCHER_QUERY=$(cat <<'KQL'
-AppTraces
-| where Message == "dispatcher.complete"
-| extend duration_ms = toreal(Properties.duration_ms)
+let rows = union isfuzzy=true AppTraces, ContainerAppConsoleLogs, ContainerAppConsoleLogs_CL;
+rows
+| extend raw_message = coalesce(
+    tostring(column_ifexists("Message", "")),
+    tostring(column_ifexists("Log", "")),
+    tostring(column_ifexists("Log_s", ""))
+)
+| extend raw_properties = todynamic(column_ifexists("Properties", dynamic({})))
+| where raw_message has "dispatcher.complete"
+| extend duration_ms = coalesce(
+    toreal(raw_properties.duration_ms),
+    todouble(extract(@'"duration_ms"\s*:\s*([0-9.]+)', 1, raw_message))
+)
+| where isnotnull(duration_ms)
 | summarize p95 = percentile(duration_ms, 95) by bin(TimeGenerated, 5m)
 | where p95 > 300
 KQL
@@ -147,10 +169,21 @@ ensure_dlq_alert "dragonfly-dlq-inat-submit" "inat-submit"
 # One alert covering all four scheduled jobs -- fires when any job's
 # execution status flips to Failed. Easier to manage one rule than 4.
 JOB_FAILURE_QUERY=$(cat <<'KQL'
-ContainerAppSystemLogs
-| where Log_s contains "JobExecutionStatus"
-| where Log_s contains "Failed"
-| extend job_name = tostring(ContainerJobName_s)
+let rows = union isfuzzy=true ContainerAppSystemLogs, ContainerAppSystemLogs_CL;
+rows
+| extend raw_log = coalesce(
+    tostring(column_ifexists("Log", "")),
+    tostring(column_ifexists("Log_s", "")),
+    tostring(column_ifexists("Message", ""))
+)
+| extend job_name = coalesce(
+    tostring(column_ifexists("ContainerJobName", "")),
+    tostring(column_ifexists("ContainerJobName_s", "")),
+    tostring(column_ifexists("ContainerAppName", "")),
+    tostring(column_ifexists("ContainerAppName_s", ""))
+)
+| where raw_log has "JobExecutionStatus"
+| where raw_log has "Failed"
 | where job_name in (
     "dragonfly-rarity-refresh",
     "dragonfly-sweep-stale-reviews",
@@ -188,8 +221,7 @@ echo "  Action group:  $AG_NAME ($ALERT_EMAIL)"
 echo "  Alerts:        dragonfly-dispatcher-p95, dragonfly-dlq-moderation,"
 echo "                 dragonfly-dlq-inat-submit, dragonfly-job-failures"
 echo
-echo "Smoke: synthesize a 5xx burst against /health (hey or vegeta) to"
-echo "       confirm the dispatcher-p95 alert fires within 5 min; drop a"
-echo "       deliberately malformed message into inat-submit to confirm"
-echo "       the DLQ depth alert fires."
+echo "Smoke: temporarily lower the dispatcher-p95 threshold or replay known"
+echo "       dispatcher traffic to confirm the alert path; drop a deliberately"
+echo "       malformed message into inat-submit to confirm the DLQ alert fires."
 echo

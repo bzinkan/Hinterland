@@ -66,6 +66,30 @@ class _MessageParseError(Exception):
     """Body could not be parsed into ``{"observation_id": str}``."""
 
 
+def _message_body_to_text(message: object) -> str:
+    """Decode an Azure Service Bus message body into text."""
+    body = getattr(message, "body", None)
+    if body is None:
+        return str(message)
+    if isinstance(body, str):
+        return body
+    if isinstance(body, bytes):
+        return body.decode("utf-8")
+
+    try:
+        parts = list(body)
+    except TypeError:
+        return str(body)
+
+    rendered: list[str] = []
+    for part in parts:
+        if isinstance(part, bytes):
+            rendered.append(part.decode("utf-8"))
+        else:
+            rendered.append(str(part))
+    return "".join(rendered)
+
+
 def parse_inat_submit_payload(body: str) -> str:
     """Extract the observation_id from the Service Bus message body."""
     try:
@@ -144,7 +168,11 @@ async def process_one(
         return "dead_letter"
 
     try:
-        image_bytes = storage.fetch_object_bytes(bucket=photo.bucket, object_name=photo.object_name)
+        image_bytes = await asyncio.to_thread(
+            storage.fetch_object_bytes,
+            bucket=photo.bucket,
+            object_name=photo.object_name,
+        )
     except Exception as exc:
         log.warning(
             "inat.consumer.fetch_bytes_failed",
@@ -266,7 +294,7 @@ async def consume(
                             return processed
                         continue
                     for message in messages:
-                        body = str(message)
+                        body = _message_body_to_text(message)
                         async with sessions() as session:
                             disposition = await process_one(
                                 session, storage, inat_client, body=body

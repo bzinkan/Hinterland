@@ -73,6 +73,35 @@ class _MessageParseError(Exception):
     """
 
 
+def _message_body_to_text(message: object) -> str:
+    """Decode an Azure Service Bus message body into text.
+
+    Unit tests often pass simple strings, but real Service Bus received
+    messages expose body bytes/iterables. Falling back to ``str(message)``
+    would parse the SDK object's representation instead of the payload.
+    """
+    body = getattr(message, "body", None)
+    if body is None:
+        return str(message)
+    if isinstance(body, str):
+        return body
+    if isinstance(body, bytes):
+        return body.decode("utf-8")
+
+    try:
+        parts = list(body)
+    except TypeError:
+        return str(body)
+
+    rendered: list[str] = []
+    for part in parts:
+        if isinstance(part, bytes):
+            rendered.append(part.decode("utf-8"))
+        else:
+            rendered.append(str(part))
+    return "".join(rendered)
+
+
 def parse_blob_created_payload(body: str) -> _ParsedBlobLocation:
     """Extract ``(bucket, object_name)`` from an Event Grid BlobCreated CloudEvent.
 
@@ -85,6 +114,8 @@ def parse_blob_created_payload(body: str) -> _ParsedBlobLocation:
         payload = json.loads(body)
     except json.JSONDecodeError as exc:
         raise _MessageParseError(f"message body is not JSON: {exc}") from exc
+    if not isinstance(payload, dict):
+        raise _MessageParseError(f"message body is not a JSON object: {payload!r}")
 
     subject = payload.get("subject", "")
     if "/blobs/" in subject and "/containers/" in subject:
@@ -217,7 +248,7 @@ async def consume(
                             return processed
                         continue
                     for message in messages:
-                        body = str(message)
+                        body = _message_body_to_text(message)
                         async with sessions() as session:
                             disposition = await process_one(
                                 session, storage, moderator, settings, body=body

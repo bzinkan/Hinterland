@@ -16,6 +16,7 @@ import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from admin.inat_submit_consumer import (
+    _message_body_to_text,
     _MessageParseError,
     parse_inat_submit_payload,
     process_one,
@@ -27,6 +28,11 @@ from app.inat.submit import InatSubmitResult
 
 _OBS_ID = "01J0OBSID00000000000000ULID"
 _PHOTO_ID = "01J0PHOTOID00000000000ULID"
+
+
+class _MessageWithBody:
+    def __init__(self, body: object) -> None:
+        self.body = body
 
 
 # ---------------------------------------------------------------------------
@@ -57,6 +63,11 @@ def test_parse_raises_when_observation_id_empty() -> None:
 def test_parse_raises_when_payload_is_list() -> None:
     with pytest.raises(_MessageParseError):
         parse_inat_submit_payload(json.dumps([{"observation_id": _OBS_ID}]))
+
+
+def test_message_body_to_text_decodes_byte_iterable_body() -> None:
+    message = _MessageWithBody([json.dumps({"observation_id": _OBS_ID}).encode("utf-8")])
+    assert _message_body_to_text(message) == json.dumps({"observation_id": _OBS_ID})
 
 
 # ---------------------------------------------------------------------------
