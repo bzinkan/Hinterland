@@ -18,6 +18,11 @@ Expected:
 - `/ready` returns 200 when required dependencies are configured.
 - JWKS returns at least kid `k1-2026-06` until the first key rotation.
 
+The public landing/support/legal site has its own deploy and smoke checklist in
+[`landing-deploy-runbook.md`](landing-deploy-runbook.md). Use it after landing
+PRs merge and before putting `https://dragonfly-app.net` URLs into Google Play
+Console fields.
+
 ## Authenticated Parent/Kid Smoke
 
 The Azure smoke does not automate Entra interactive sign-in. Supply an Entra

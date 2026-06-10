@@ -1,6 +1,7 @@
 {
   "private": true,
   "scripts": {
-    "check": "node scripts/check-static-site.mjs"
+    "check": "node scripts/check-static-site.mjs",
+    "smoke:live": "node scripts/smoke-live-site.mjs"
   }
 }
