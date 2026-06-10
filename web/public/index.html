@@ -76,6 +76,7 @@
 
     html {
       scroll-behavior: smooth;
+      scroll-padding-top: 96px;
       max-width: 100%;
       overflow-x: hidden;
     }
@@ -91,6 +92,7 @@
       line-height: 1.58;
       max-width: 100%;
       overflow-x: hidden;
+      -webkit-tap-highlight-color: rgba(47, 111, 78, 0.18);
     }
 
     body::before {
@@ -107,6 +109,7 @@
 
     a {
       color: inherit;
+      touch-action: manipulation;
     }
 
     img,
@@ -138,6 +141,10 @@
       background: rgba(251, 247, 236, 0.92);
       backdrop-filter: blur(14px);
       border-bottom: 1px solid rgba(222, 212, 189, 0.8);
+    }
+
+    [id] {
+      scroll-margin-top: 96px;
     }
 
     .header-inner {
@@ -195,6 +202,7 @@
     }
 
     .nav-links a {
+      flex: 0 0 auto;
       text-decoration: none;
     }
 
@@ -217,6 +225,7 @@
       font-weight: 700;
       text-decoration: none;
       line-height: 1.2;
+      touch-action: manipulation;
       transition: transform 160ms ease, box-shadow 160ms ease, background 160ms ease;
     }
 
@@ -264,6 +273,10 @@
       padding: 64px 20px;
     }
 
+    .section + .section {
+      border-top: 1px solid rgba(222, 212, 189, 0.42);
+    }
+
     .section-inner {
       max-width: var(--max);
       margin: 0 auto;
@@ -278,6 +291,13 @@
       display: grid;
       gap: 34px;
       align-items: center;
+      min-width: 0;
+    }
+
+    .hero-grid > *,
+    .sanctuary-grid > *,
+    .pilot-panel > *,
+    .next-steps-panel > * {
       min-width: 0;
     }
 
@@ -298,6 +318,7 @@
       line-height: 1.08;
       font-weight: 700;
       text-wrap: balance;
+      overflow-wrap: anywhere;
     }
 
     h1 {
@@ -318,10 +339,11 @@
     }
 
     .hero-subheadline {
-      max-width: 710px;
+      max-width: min(710px, 100%);
       margin-top: 22px;
       color: var(--soft-ink);
       font-size: clamp(1.04rem, 2vw, 1.28rem);
+      overflow-wrap: break-word;
     }
 
     .trust-line {
@@ -349,7 +371,12 @@
       flex-direction: column;
       gap: 12px;
       margin-top: 28px;
-      max-width: 430px;
+      max-width: min(430px, 100%);
+    }
+
+    .hero-actions .button,
+    .pilot-actions .button {
+      width: 100%;
     }
 
     .cta-note,
@@ -536,6 +563,7 @@
       background: rgba(255, 253, 247, 0.82);
       box-shadow: 0 12px 30px rgba(72, 58, 34, 0.08);
       padding: 22px;
+      min-width: 0;
     }
 
     .card-icon {
@@ -692,6 +720,33 @@
       margin-top: 12px;
     }
 
+    .pilot-trust-list {
+      display: grid;
+      gap: 10px;
+      margin: 16px 0 0;
+      padding: 0;
+      list-style: none;
+      color: var(--soft-ink);
+      font-family: "Trebuchet MS", Verdana, sans-serif;
+      font-size: 0.96rem;
+    }
+
+    .pilot-trust-list li {
+      display: grid;
+      grid-template-columns: 18px 1fr;
+      gap: 9px;
+      align-items: start;
+    }
+
+    .pilot-trust-list li::before {
+      content: "";
+      width: 8px;
+      height: 8px;
+      margin-top: 8px;
+      border-radius: 50%;
+      background: var(--leaf);
+    }
+
     .next-steps {
       background: rgba(255, 253, 247, 0.44);
     }
@@ -785,6 +840,7 @@
       font-family: "Trebuchet MS", Verdana, sans-serif;
       color: var(--soft-ink);
       font-size: 0.94rem;
+      min-width: 0;
     }
 
     .footer-links a,
@@ -808,6 +864,11 @@
 
     .footer-note {
       flex-basis: 100%;
+      overflow-wrap: anywhere;
+    }
+
+    .footer-contact a {
+      overflow-wrap: anywhere;
     }
 
     :focus-visible {
@@ -821,8 +882,15 @@
         flex-direction: row;
       }
 
+      .hero-actions .button,
+      .pilot-actions .button {
+        width: auto;
+      }
+    }
+
+    @media (min-width: 700px) {
       .cards {
-        grid-template-columns: repeat(3, 1fr);
+        grid-template-columns: repeat(3, minmax(0, 1fr));
       }
     }
 
@@ -875,9 +943,10 @@
       }
     }
 
-    @media (max-width: 430px) {
+    @media (max-width: 819px) {
       .header-cta {
         order: 2;
+        flex: 1 0 100%;
         width: 100%;
       }
 
@@ -897,8 +966,21 @@
       *,
       *::before,
       *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
         scroll-behavior: auto !important;
         transition-duration: 0.01ms !important;
+      }
+    }
+
+    @media (forced-colors: active) {
+      .button,
+      .card,
+      .safety-panel,
+      .audience-card,
+      .pilot-panel,
+      .faq-card {
+        border: 1px solid ButtonText;
       }
     }
   </style>
@@ -909,7 +991,7 @@
     <div class="header-inner">
       <a class="wordmark" href="/" aria-label="Dragonfly home">
         <span class="mark" aria-hidden="true">
-          <svg viewBox="0 0 48 48" role="img">
+          <svg viewBox="0 0 48 48" aria-hidden="true" focusable="false">
             <path d="M24 8c2 7 2 25 0 32" fill="none" stroke="#2f6f4e" stroke-width="3" stroke-linecap="round"/>
             <path d="M21 17C9 4 1 10 13 22c-11 2-9 12 6 7m8-12C39 4 47 10 35 22c11 2 9 12-6 7" fill="none" stroke="#5e9fba" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
           </svg>
@@ -923,7 +1005,7 @@
         <a href="#pilot">Pilot</a>
         <a href="#faq">FAQ</a>
       </nav>
-      <a class="button button-primary header-cta" href="mailto:support@dragonfly-app.net?subject=Dragonfly%20pilot%20access%20request&amp;body=Parent%2Fguardian%20name%3A%0D%0AEmail%3A%0D%0ANumber%20of%20kids%3A%0D%0AKids%27%20age%20range%3A%0D%0AAndroid%20phone%20available%3F%3A%0D%0AAre%20you%20willing%20to%20test%20with%20your%20child%20present%3F%3A%0D%0AAnything%20we%20should%20know%3F%3A%0D%0A%0D%0APlease%20do%20not%20include%20your%20child%27s%20full%20name%20in%20this%20request.">Request pilot access</a>
+      <a class="button button-primary header-cta" aria-label="Request Dragonfly pilot access by email" href="mailto:support@dragonfly-app.net?subject=Dragonfly%20pilot%20access%20request&amp;body=Parent%2Fguardian%20name%3A%0D%0AEmail%3A%0D%0ANumber%20of%20kids%3A%0D%0AKids%27%20age%20range%3A%0D%0AAndroid%20phone%20available%3F%3A%0D%0AAre%20you%20willing%20to%20test%20with%20your%20child%20present%3F%3A%0D%0AAnything%20we%20should%20know%3F%3A%0D%0A%0D%0APlease%20do%20not%20include%20your%20child%27s%20full%20name%20in%20this%20request.">Request pilot access</a>
     </div>
   </header>
 
@@ -943,7 +1025,7 @@
             <li>No public chat</li>
           </ul>
           <div class="hero-actions">
-            <a class="button button-primary" href="mailto:support@dragonfly-app.net?subject=Dragonfly%20pilot%20access%20request&amp;body=Parent%2Fguardian%20name%3A%0D%0AEmail%3A%0D%0ANumber%20of%20kids%3A%0D%0AKids%27%20age%20range%3A%0D%0AAndroid%20phone%20available%3F%3A%0D%0AAre%20you%20willing%20to%20test%20with%20your%20child%20present%3F%3A%0D%0AAnything%20we%20should%20know%3F%3A%0D%0A%0D%0APlease%20do%20not%20include%20your%20child%27s%20full%20name%20in%20this%20request.">Request pilot access</a>
+            <a class="button button-primary" aria-label="Request Dragonfly pilot access by email" href="mailto:support@dragonfly-app.net?subject=Dragonfly%20pilot%20access%20request&amp;body=Parent%2Fguardian%20name%3A%0D%0AEmail%3A%0D%0ANumber%20of%20kids%3A%0D%0AKids%27%20age%20range%3A%0D%0AAndroid%20phone%20available%3F%3A%0D%0AAre%20you%20willing%20to%20test%20with%20your%20child%20present%3F%3A%0D%0AAnything%20we%20should%20know%3F%3A%0D%0A%0D%0APlease%20do%20not%20include%20your%20child%27s%20full%20name%20in%20this%20request.">Request pilot access</a>
             <a class="button button-secondary" href="/privacy">Read our privacy promise</a>
           </div>
           <p class="cta-note">Please do not include your child&rsquo;s full name in this request.</p>
@@ -1113,8 +1195,13 @@
             Dragonfly is preparing a small Android pilot through Google Play Internal Testing. We are starting with known families, parent supervision, and careful feedback before any public release.
           </p>
           <p class="pilot-help">Dragonfly is in a small supervised pilot. We&rsquo;ll reply if we can include your family in the next test group.</p>
+          <ul class="pilot-trust-list" aria-label="Pilot guardrails">
+            <li>Known families only during this Internal Testing phase.</li>
+            <li>Adult supervision is expected, especially for the first kid test.</li>
+            <li>The pilot request email asks for adult contact details and kids&rsquo; age range only.</li>
+          </ul>
           <div class="pilot-actions">
-            <a class="button button-primary" href="mailto:support@dragonfly-app.net?subject=Dragonfly%20pilot%20access%20request&amp;body=Parent%2Fguardian%20name%3A%0D%0AEmail%3A%0D%0ANumber%20of%20kids%3A%0D%0AKids%27%20age%20range%3A%0D%0AAndroid%20phone%20available%3F%3A%0D%0AAre%20you%20willing%20to%20test%20with%20your%20child%20present%3F%3A%0D%0AAnything%20we%20should%20know%3F%3A%0D%0A%0D%0APlease%20do%20not%20include%20your%20child%27s%20full%20name%20in%20this%20request.">Request pilot access</a>
+            <a class="button button-primary" aria-label="Request Dragonfly pilot access by email" href="mailto:support@dragonfly-app.net?subject=Dragonfly%20pilot%20access%20request&amp;body=Parent%2Fguardian%20name%3A%0D%0AEmail%3A%0D%0ANumber%20of%20kids%3A%0D%0AKids%27%20age%20range%3A%0D%0AAndroid%20phone%20available%3F%3A%0D%0AAre%20you%20willing%20to%20test%20with%20your%20child%20present%3F%3A%0D%0AAnything%20we%20should%20know%3F%3A%0D%0A%0D%0APlease%20do%20not%20include%20your%20child%27s%20full%20name%20in%20this%20request.">Request pilot access</a>
           </div>
           <p class="pilot-note">The pilot is limited. A parent or guardian should be present during the first kid test.</p>
           <p class="cta-note">Please do not include your child&rsquo;s full name in this request.</p>
@@ -1149,28 +1236,44 @@
             <p>Dragonfly is designed for curious explorers of all ages. Kid accounts are managed by adults.</p>
           </article>
           <article class="faq-card">
+            <h3>Is Dragonfly public?</h3>
+            <p>No. Dragonfly is preparing for a limited Android Internal Testing pilot with invited families and adult supervision.</p>
+          </article>
+          <article class="faq-card">
             <h3>Is Dragonfly a public social network?</h3>
-            <p>No. Dragonfly has no public kid profiles, no public chat, no direct messages, and no follower counts.</p>
+            <p>No. Dragonfly has no public kid profiles, public chat, direct messages, follower counts, or open discovery.</p>
           </article>
           <article class="faq-card">
             <h3>Does Dragonfly have ads?</h3>
             <p>No. Dragonfly does not include ads, tracking pixels, ad SDKs, or marketing chat widgets.</p>
           </article>
           <article class="faq-card">
+            <h3>What data does Dragonfly collect?</h3>
+            <p>During the pilot, Dragonfly may collect organism photos, observation location, timestamp, species or taxon choices, kid nickname or display name, group membership, and adult account contact details. The <a href="/privacy">privacy page</a> explains the pilot draft in more detail.</p>
+          </article>
+          <article class="faq-card">
             <h3>What is The Sanctuary?</h3>
-            <p>The Sanctuary is a private illustrated habitat that grows from a kid's real observations. It is not a public profile or social feed.</p>
+            <p>The Sanctuary is a private illustrated habitat that grows from real observations. It is not a public profile, social feed, or map.</p>
+          </article>
+          <article class="faq-card">
+            <h3>Can teachers use Dragonfly?</h3>
+            <p>Teacher and group-leader use is planned for controlled pilot groups, nature clubs, school gardens, and field walks. Teacher access stays invite-only during testing.</p>
+          </article>
+          <article class="faq-card">
+            <h3>Is Dragonfly available now?</h3>
+            <p>No. Dragonfly is preparing for a closed Android pilot. Broader release depends on privacy, legal, store-review, and field-testing gates.</p>
           </article>
           <article class="faq-card">
             <h3>Is this available on iPhone?</h3>
             <p>Not yet. The first pilot is focused on Android through Google Play Internal Testing.</p>
           </article>
           <article class="faq-card">
-            <h3>Is Dragonfly in production?</h3>
-            <p>No. Dragonfly is preparing for a closed Android pilot. Broader release depends on privacy, legal, store-review, and field-testing gates.</p>
-          </article>
-          <article class="faq-card">
             <h3>How do I request pilot access?</h3>
             <p>Use the pilot request button or email <a href="mailto:support@dragonfly-app.net">support@dragonfly-app.net</a>. Please do not include your child&rsquo;s full name in this request.</p>
+          </article>
+          <article class="faq-card">
+            <h3>How do I get support?</h3>
+            <p>Email <a href="mailto:support@dragonfly-app.net">support@dragonfly-app.net</a> or visit the <a href="/support">support page</a>. For privacy questions, use <a href="mailto:privacy@dragonfly-app.net">privacy@dragonfly-app.net</a>.</p>
           </article>
         </div>
       </div>
@@ -1182,7 +1285,7 @@
       <div class="footer-brand">
         <a class="wordmark" href="/" aria-label="Dragonfly home">
           <span class="mark" aria-hidden="true">
-            <svg viewBox="0 0 48 48" role="img">
+            <svg viewBox="0 0 48 48" aria-hidden="true" focusable="false">
               <path d="M24 8c2 7 2 25 0 32" fill="none" stroke="#2f6f4e" stroke-width="3" stroke-linecap="round"/>
               <path d="M21 17C9 4 1 10 13 22c-11 2-9 12 6 7m8-12C39 4 47 10 35 22c11 2 9 12-6 7" fill="none" stroke="#5e9fba" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
             </svg>
@@ -1198,7 +1301,7 @@
         <a href="/contact">Contact</a>
       </nav>
       <div class="footer-contact">
-        <a class="footer-pilot-link" href="mailto:support@dragonfly-app.net?subject=Dragonfly%20pilot%20access%20request&amp;body=Parent%2Fguardian%20name%3A%0D%0AEmail%3A%0D%0ANumber%20of%20kids%3A%0D%0AKids%27%20age%20range%3A%0D%0AAndroid%20phone%20available%3F%3A%0D%0AAre%20you%20willing%20to%20test%20with%20your%20child%20present%3F%3A%0D%0AAnything%20we%20should%20know%3F%3A%0D%0A%0D%0APlease%20do%20not%20include%20your%20child%27s%20full%20name%20in%20this%20request.">Request pilot access</a>
+        <a class="footer-pilot-link" aria-label="Request Dragonfly pilot access by email" href="mailto:support@dragonfly-app.net?subject=Dragonfly%20pilot%20access%20request&amp;body=Parent%2Fguardian%20name%3A%0D%0AEmail%3A%0D%0ANumber%20of%20kids%3A%0D%0AKids%27%20age%20range%3A%0D%0AAndroid%20phone%20available%3F%3A%0D%0AAre%20you%20willing%20to%20test%20with%20your%20child%20present%3F%3A%0D%0AAnything%20we%20should%20know%3F%3A%0D%0A%0D%0APlease%20do%20not%20include%20your%20child%27s%20full%20name%20in%20this%20request.">Request pilot access</a>
         <a href="mailto:support@dragonfly-app.net">support@dragonfly-app.net</a>
         <a href="mailto:privacy@dragonfly-app.net">privacy@dragonfly-app.net</a>
         <span class="footer-note">Please do not include your child&rsquo;s full name in pilot requests.</span>
