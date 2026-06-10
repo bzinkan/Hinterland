@@ -7,8 +7,8 @@ Last updated: 2026-06-04 (draft)
 
 ## What Dragonfly is
 
-Dragonfly is a citizen-science field app for kids ages 9-12. Kids photograph
-real outdoor organisms, build a personal Dex, complete expeditions, and may
+Dragonfly is a citizen-science field app for curious explorers of all ages.
+People photograph real outdoor organisms, build a personal Dex, complete expeditions, and may
 eventually contribute approved observations to iNaturalist through a
 Dragonfly-owned project account.
 

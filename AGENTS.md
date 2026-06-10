@@ -1,6 +1,6 @@
 # AGENTS.md
 
-Dragonfly is a citizen-science field app for kids ages 9-12. Kids log real observations, fill a personal Dex, complete expeditions, and contribute to iNaturalist through an app-owned project account.
+Dragonfly is a citizen-science field app for curious explorers of all ages. People log real observations, fill a personal Dex, complete expeditions, and may eventually contribute approved observations to iNaturalist through a reviewed contribution flow. Kid accounts remain adult-managed.
 
 This file is for coding agents working in this repository. It is both a project plan and a set of guardrails. Read it before making changes.
 

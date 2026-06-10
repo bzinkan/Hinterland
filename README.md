@@ -1,8 +1,9 @@
 # Dragonfly
 
-Citizen-science field app for kids ages 9-12. Kids log real outdoor
-observations, fill a personal Dex, complete expeditions, and eventually
-contribute to iNaturalist through an app-owned project account.
+Citizen-science field app for curious explorers of all ages. People log real
+outdoor observations, fill a personal Dex, complete expeditions, and may
+eventually contribute approved observations to iNaturalist through a reviewed
+contribution flow. Kid accounts remain adult-managed.
 
 ## Repo Layout
 

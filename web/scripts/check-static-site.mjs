@@ -29,6 +29,7 @@ function expectAbsent(file, pattern, label) {
 }
 
 expectIncludes("public/index.html", "Turn backyard curiosity into real science.");
+expectIncludes("public/index.html", "curious explorers of all ages");
 expectIncludes("public/index.html", "Request pilot access");
 expectIncludes("public/index.html", 'id="how-it-works"');
 expectIncludes("public/index.html", 'id="sanctuary"');
@@ -43,6 +44,7 @@ expectIncludes("public/index.html", 'href="/support"');
 expectIncludes("public/index.html", 'href="/contact"');
 
 expectIncludes("public/privacy.html", "This page is written for the Dragonfly pilot and will be updated before broader release.");
+expectIncludes("public/privacy.html", "curious explorers of all ages");
 expectIncludes("public/privacy.html", "Organism photos");
 expectIncludes("public/privacy.html", "Observation location");
 expectIncludes("public/privacy.html", "Species selection");
@@ -95,6 +97,8 @@ const forbiddenCopy = [
   [/submitted automatically to iNaturalist/i, "submitted automatically to iNaturalist"],
   [/automatic iNaturalist submission/i, "automatic iNaturalist submission"],
   [/no location collected/i, "no location collected"],
+  [/kids ages 9(?:-|&ndash;|–)12/i, "kids ages 9-12"],
+  [/field app for kids ages/i, "field app for kids ages"],
 ];
 
 for (const file of Object.keys(pages)) {

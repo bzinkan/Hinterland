@@ -10,7 +10,7 @@ language must be reviewed before any production/public launch claim is made.
 ## 1. Page purpose
 
 The landing page is a parent-facing trust page. It should quickly explain what
-Dragonfly is, why it exists, and how adults manage the experience for kids.
+Dragonfly is, why it exists, and how adults manage kid accounts.
 
 It is also a Google Play support surface. Reviewers need a live, coherent site
 that matches the app's store declarations, privacy posture, support links, and
@@ -59,7 +59,7 @@ Use this exact first-pass page structure:
 2. Hero
 3. How Dragonfly works
 4. Meet The Sanctuary
-5. Built for kids, managed by adults
+5. Built for families, with kids managed by adults
 6. For families / for teachers
 7. Closed Android pilot
 8. FAQ
@@ -69,10 +69,10 @@ Use this exact first-pass page structure:
 
 Primary positioning:
 
-> Dragonfly is a field app for kids ages 9-12. Kids photograph plants, animals,
-> fungi, and other living things they find outdoors, build a personal Dex,
-> complete nature expeditions, and watch their own Sanctuary grow from real
-> observations.
+> Dragonfly is a field app for curious explorers of all ages. People photograph
+> plants, animals, fungi, and other living things they find outdoors, build a
+> personal Dex, complete nature expeditions, and watch their own Sanctuary grow
+> from real observations.
 
 Use this as the source of truth for page copy, store support copy, and pilot
 emails unless a later PR updates this document.
@@ -81,11 +81,11 @@ emails unless a later PR updates this document.
 
 ### Option A: Trust-first
 
-**Headline:** A nature field app for kids, managed by adults.
+**Headline:** A nature field app for all ages, with kids managed by adults.
 
-**Subheadline:** Dragonfly helps kids ages 9-12 photograph real living things
-outside, build a personal Dex, complete nature expeditions, and grow a private
-Sanctuary from their own observations.
+**Subheadline:** Dragonfly helps curious explorers of all ages photograph real
+living things outside, build a personal Dex, complete nature expeditions, and
+grow a private Sanctuary from their own observations.
 
 **Best for:** parents, guardians, Google Play reviewers, and a first public
 landing page where trust matters more than spectacle.
@@ -106,8 +106,8 @@ the pilot/legal footing is complete.
 **Headline:** Turn outdoor observations into a classroom nature log.
 
 **Subheadline:** Dragonfly gives teachers and group leaders an invite-only way
-for kids to record real organisms, complete expeditions, and build confidence as
-young naturalists.
+for groups to record real organisms, complete expeditions, and build confidence
+as naturalists.
 
 **Best for:** a future teacher-specific page or `/teachers` route.
 
@@ -136,14 +136,14 @@ Join the pilot
 
 ### Hero headline
 
-A nature field app for kids, managed by adults.
+A nature field app for all ages, with kids managed by adults.
 
 ### Hero subheadline
 
-Dragonfly is a field app for kids ages 9-12. Kids photograph plants, animals,
-fungi, and other living things they find outdoors, build a personal Dex,
-complete nature expeditions, and watch their own Sanctuary grow from real
-observations.
+Dragonfly is a field app for curious explorers of all ages. People photograph
+plants, animals, fungi, and other living things they find outdoors, build a
+personal Dex, complete nature expeditions, and watch their own Sanctuary grow
+from real observations.
 
 ### Primary CTA
 
@@ -208,11 +208,11 @@ a living scene.
 
 ### Safety section
 
-**Heading:** Built for kids, managed by adults
+**Heading:** Built for families, with kids managed by adults
 
-**Copy:** Dragonfly is designed for kids ages 9-12, but account setup belongs
-to adults. Parents or teachers create kid accounts, manage group access, and
-supervise pilot participation.
+**Copy:** Dragonfly is designed for curious explorers of all ages, while kid
+account setup belongs to adults. Parents or teachers create kid accounts, manage
+group access, and supervise pilot participation.
 
 **Trust points:**
 
@@ -285,8 +285,8 @@ store, and field-testing gates.
 
 **Who is Dragonfly for?**
 
-Dragonfly is designed for kids ages 9-12 and for the adults who manage their
-accounts: parents, guardians, teachers, and group leaders.
+Dragonfly is designed for curious explorers of all ages. Kid accounts are
+managed by adults: parents, guardians, teachers, and group leaders.
 
 **Can kids create their own accounts?**
 
@@ -495,7 +495,7 @@ Verify the static landing site deploys cleanly to the active hosting path for
 The PR that introduces this document should summarize:
 
 - recommended landing-page structure
-- recommended hero headline: "A nature field app for kids, managed by adults."
+- recommended hero headline: "A nature field app for all ages, with kids managed by adults."
 - key trust messages: no ads, no public chat, no DMs, no public kid profiles,
   adult-managed accounts, invite-only supervised pilot, iNat public submission
   off for W1
