@@ -3,129 +3,1068 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Dragonfly &mdash; a citizen-science field app for kids</title>
-  <meta name="description" content="Dragonfly is a citizen-science field app for kids ages 9-12. Photograph plants and animals you find outdoors and contribute real observations to global science.">
+  <title>Dragonfly - Turn backyard curiosity into real science</title>
+  <meta name="description" content="Dragonfly is a field app for kids ages 9-12. Kids photograph living things outdoors, build a personal Dex, complete expeditions, and grow a private Sanctuary from real observations.">
+  <meta property="og:title" content="Dragonfly - Turn backyard curiosity into real science">
+  <meta property="og:description" content="A field app for kids ages 9-12, with parent-managed accounts, no ads, no public chat, and an invite-only Android pilot.">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://dragonfly-app.net/">
   <link rel="icon" type="image/svg+xml" href="/favicon.svg">
   <style>
     :root {
-      --ink: #1a1a1a;
-      --muted: #555;
-      --accent: #2f6feb;
-      --bg: #fdfcf6;
-      --rule: #e6e2d3;
+      --bg: #fbf7ec;
+      --paper: #fffdf7;
+      --paper-deep: #f4ead6;
+      --ink: #1f2a24;
+      --soft-ink: #526057;
+      --leaf: #2f6f4e;
+      --leaf-dark: #234f3a;
+      --moss: #8e9f5f;
+      --sky: #a9d8e8;
+      --sky-deep: #5e9fba;
+      --pond: #6eb0bc;
+      --clay: #c86f3a;
+      --sun: #efc75e;
+      --line: #ded4bd;
+      --shadow: 0 18px 50px rgba(72, 58, 34, 0.12);
+      --max: 1120px;
     }
-    * { box-sizing: border-box; }
-    html, body { margin: 0; padding: 0; }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html {
+      scroll-behavior: smooth;
+      max-width: 100%;
+      overflow-x: hidden;
+    }
+
     body {
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
-      background: var(--bg);
+      margin: 0;
+      background:
+        radial-gradient(circle at 10% 8%, rgba(169, 216, 232, 0.45), transparent 30rem),
+        radial-gradient(circle at 92% 18%, rgba(239, 199, 94, 0.25), transparent 22rem),
+        linear-gradient(180deg, #fffaf0 0%, var(--bg) 38%, #f6efdf 100%);
       color: var(--ink);
-      line-height: 1.6;
+      font-family: Georgia, "Times New Roman", serif;
+      line-height: 1.58;
+      max-width: 100%;
+      overflow-x: hidden;
     }
-    main {
-      max-width: 680px;
-      margin: 0 auto;
-      padding: 80px 24px 120px;
+
+    body::before {
+      content: "";
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      background-image:
+        linear-gradient(rgba(47, 111, 78, 0.035) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(47, 111, 78, 0.03) 1px, transparent 1px);
+      background-size: 34px 34px;
+      mask-image: linear-gradient(180deg, rgba(0, 0, 0, 0.7), transparent 70%);
     }
-    h1 {
-      font-size: 44px;
-      line-height: 1.15;
-      margin: 0 0 16px;
-      letter-spacing: -0.02em;
+
+    a {
+      color: inherit;
     }
-    .lede {
-      font-size: 19px;
-      color: var(--muted);
-      margin: 0 0 40px;
+
+    img,
+    svg {
+      display: block;
+      max-width: 100%;
     }
-    h2 {
-      font-size: 18px;
-      margin: 48px 0 12px;
-      letter-spacing: -0.01em;
-    }
-    p { margin: 0 0 16px; }
-    a { color: var(--accent); text-decoration: none; }
-    a:hover { text-decoration: underline; }
-    .cta {
-      display: inline-block;
-      background: var(--accent);
+
+    .skip-link {
+      position: absolute;
+      left: 16px;
+      top: -48px;
+      z-index: 20;
+      background: var(--ink);
       color: #fff;
-      padding: 12px 20px;
+      padding: 10px 14px;
       border-radius: 6px;
-      font-weight: 500;
+      transition: top 160ms ease;
+    }
+
+    .skip-link:focus {
+      top: 16px;
+    }
+
+    .site-header {
+      position: sticky;
+      top: 0;
+      z-index: 10;
+      background: rgba(251, 247, 236, 0.92);
+      backdrop-filter: blur(14px);
+      border-bottom: 1px solid rgba(222, 212, 189, 0.8);
+    }
+
+    .header-inner {
+      max-width: var(--max);
+      margin: 0 auto;
+      padding: 14px 20px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 18px;
+      flex-wrap: wrap;
+    }
+
+    .wordmark {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      font-weight: 700;
+      font-size: 1.12rem;
+      text-decoration: none;
+      white-space: nowrap;
+    }
+
+    .mark {
+      width: 30px;
+      height: 30px;
+      border: 2px solid var(--leaf);
+      border-radius: 50%;
+      display: inline-grid;
+      place-items: center;
+      background: #f8f1de;
+    }
+
+    .mark svg {
+      width: 20px;
+      height: 20px;
+    }
+
+    .nav-links {
+      order: 3;
+      width: 100%;
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      overflow-x: auto;
+      padding: 2px 0 4px;
+      color: var(--soft-ink);
+      font-family: "Trebuchet MS", Verdana, sans-serif;
+      font-size: 0.86rem;
+      scrollbar-width: none;
+    }
+
+    .nav-links::-webkit-scrollbar {
+      display: none;
+    }
+
+    .nav-links a {
+      text-decoration: none;
+    }
+
+    .nav-links a:hover,
+    .nav-links a:focus-visible {
+      color: var(--leaf-dark);
+      text-decoration: underline;
+      text-underline-offset: 4px;
+    }
+
+    .button {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 44px;
+      padding: 12px 18px;
+      border: 1px solid transparent;
+      border-radius: 8px;
+      font-family: "Trebuchet MS", Verdana, sans-serif;
+      font-weight: 700;
+      text-decoration: none;
+      line-height: 1.2;
+      transition: transform 160ms ease, box-shadow 160ms ease, background 160ms ease;
+    }
+
+    .button:hover,
+    .button:focus-visible {
+      transform: translateY(-1px);
+      text-decoration: none;
+    }
+
+    .button-primary {
+      background: var(--leaf);
+      color: #fff;
+      box-shadow: 0 12px 26px rgba(47, 111, 78, 0.22);
+    }
+
+    .button-primary:hover,
+    .button-primary:focus-visible {
+      background: var(--leaf-dark);
+    }
+
+    .button-secondary {
+      background: rgba(255, 253, 247, 0.78);
+      color: var(--leaf-dark);
+      border-color: var(--line);
+    }
+
+    .button-secondary:hover,
+    .button-secondary:focus-visible {
+      box-shadow: 0 10px 24px rgba(72, 58, 34, 0.11);
+      border-color: #c9b98e;
+    }
+
+    .header-cta {
+      min-height: 40px;
+      padding: 10px 12px;
+      font-size: 0.88rem;
+      flex-shrink: 0;
+    }
+
+    main {
+      overflow: hidden;
+    }
+
+    .section {
+      padding: 64px 20px;
+    }
+
+    .section-inner {
+      max-width: var(--max);
+      margin: 0 auto;
+      min-width: 0;
+    }
+
+    .hero {
+      padding-top: 56px;
+    }
+
+    .hero-grid {
+      display: grid;
+      gap: 34px;
+      align-items: center;
+      min-width: 0;
+    }
+
+    .eyebrow {
+      margin: 0 0 14px;
+      color: var(--clay);
+      font-family: "Trebuchet MS", Verdana, sans-serif;
+      font-size: 0.78rem;
+      font-weight: 700;
+      letter-spacing: 0;
+      text-transform: uppercase;
+    }
+
+    h1,
+    h2,
+    h3 {
+      margin: 0;
+      line-height: 1.08;
+      font-weight: 700;
+      text-wrap: balance;
+    }
+
+    h1 {
+      max-width: 760px;
+      font-size: clamp(2.2rem, 9vw, 3.4rem);
+    }
+
+    h2 {
+      font-size: clamp(1.9rem, 8vw, 3rem);
+    }
+
+    h3 {
+      font-size: 1.2rem;
+    }
+
+    p {
+      margin: 0;
+    }
+
+    .hero-subheadline {
+      max-width: 710px;
+      margin-top: 22px;
+      color: var(--soft-ink);
+      font-size: clamp(1.04rem, 2vw, 1.28rem);
+    }
+
+    .trust-line {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin: 24px 0 0;
+      padding: 0;
+      list-style: none;
+      font-family: "Trebuchet MS", Verdana, sans-serif;
+      color: var(--leaf-dark);
+      font-weight: 700;
+    }
+
+    .trust-line li {
+      border: 1px solid #ccdec2;
+      background: rgba(255, 253, 247, 0.8);
+      border-radius: 8px;
+      padding: 8px 10px;
+    }
+
+    .hero-actions,
+    .pilot-actions {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      margin-top: 28px;
+      max-width: 430px;
+    }
+
+    .field-card {
+      position: relative;
+      min-height: 430px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background:
+        linear-gradient(180deg, rgba(255, 253, 247, 0.85), rgba(244, 234, 214, 0.72)),
+        repeating-linear-gradient(0deg, transparent 0 31px, rgba(47, 111, 78, 0.08) 32px);
+      box-shadow: var(--shadow);
+      overflow: hidden;
+    }
+
+    .field-card::before {
+      content: "";
+      position: absolute;
+      inset: 16px;
+      border: 1px solid rgba(47, 111, 78, 0.18);
+      border-radius: 6px;
+      pointer-events: none;
+    }
+
+    .field-label {
+      position: absolute;
+      left: 24px;
+      top: 22px;
+      z-index: 2;
+      max-width: 240px;
+      color: var(--leaf-dark);
+      font-family: "Trebuchet MS", Verdana, sans-serif;
+      font-size: 0.82rem;
+      font-weight: 700;
+      text-transform: uppercase;
+    }
+
+    .field-specimen {
+      position: absolute;
+      width: 72px;
+      height: 108px;
+      border: 1px solid #b9aa83;
+      border-radius: 8px;
+      background: rgba(255, 253, 247, 0.88);
+      box-shadow: 0 12px 22px rgba(72, 58, 34, 0.12);
+    }
+
+    .field-specimen::before,
+    .field-specimen::after {
+      content: "";
+      position: absolute;
+      border-radius: 999px 999px 999px 0;
+      transform: rotate(-32deg);
+      background: var(--leaf);
+    }
+
+    .field-specimen::before {
+      width: 28px;
+      height: 48px;
+      left: 22px;
+      top: 25px;
+    }
+
+    .field-specimen::after {
+      width: 18px;
+      height: 34px;
+      left: 38px;
+      top: 42px;
+      background: var(--moss);
+    }
+
+    .specimen-one {
+      right: 42px;
+      top: 58px;
+      transform: rotate(6deg);
+    }
+
+    .specimen-two {
+      left: 38px;
+      bottom: 54px;
+      transform: rotate(-8deg);
+    }
+
+    .phone-card {
+      position: absolute;
+      right: 34px;
+      bottom: 38px;
+      width: min(245px, 58vw);
+      border: 7px solid #28372f;
+      border-radius: 28px;
+      background: #fefbf1;
+      box-shadow: 0 28px 45px rgba(38, 35, 26, 0.22);
+      overflow: hidden;
+    }
+
+    .phone-top {
+      height: 34px;
+      background: #28372f;
+    }
+
+    .phone-screen {
+      padding: 16px;
+    }
+
+    .photo-window {
+      height: 132px;
+      border-radius: 8px;
+      background:
+        radial-gradient(circle at 72% 32%, #f5d87a 0 12px, transparent 13px),
+        linear-gradient(150deg, var(--sky) 0 48%, #d9eddf 49% 100%);
+      position: relative;
+      overflow: hidden;
+    }
+
+    .photo-window::before {
+      content: "";
+      position: absolute;
+      left: -18px;
+      right: -18px;
+      bottom: -18px;
+      height: 66px;
+      background: #75a461;
+      border-radius: 50% 50% 0 0;
+    }
+
+    .photo-window::after {
+      content: "";
+      position: absolute;
+      left: 70px;
+      bottom: 24px;
+      width: 20px;
+      height: 60px;
+      background: #3c7044;
+      border-radius: 16px 16px 4px 4px;
+      box-shadow:
+        -16px -12px 0 -4px #6b9d55,
+        18px -18px 0 -4px #6b9d55;
+    }
+
+    .screen-line {
+      height: 9px;
+      border-radius: 999px;
+      background: #d9d0b9;
+      margin-top: 13px;
+    }
+
+    .screen-line.short {
+      width: 64%;
+    }
+
+    .section-heading {
+      max-width: 760px;
+      margin-bottom: 26px;
+    }
+
+    .section-heading p {
+      margin-top: 12px;
+      color: var(--soft-ink);
+      font-size: 1.08rem;
+    }
+
+    .cards {
+      display: grid;
+      gap: 16px;
+    }
+
+    .card {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: rgba(255, 253, 247, 0.82);
+      box-shadow: 0 12px 30px rgba(72, 58, 34, 0.08);
+      padding: 22px;
+    }
+
+    .card-icon {
+      width: 44px;
+      height: 44px;
+      margin-bottom: 18px;
+      border-radius: 8px;
+      display: grid;
+      place-items: center;
+      background: #d9ead2;
+      color: var(--leaf-dark);
+      font-family: "Trebuchet MS", Verdana, sans-serif;
+      font-weight: 700;
+    }
+
+    .card p,
+    .safety-panel li,
+    .faq-card p,
+    .audience-copy,
+    .pilot-copy {
+      color: var(--soft-ink);
+    }
+
+    .card h3 {
+      margin-bottom: 8px;
+    }
+
+    .sanctuary {
+      background: linear-gradient(180deg, rgba(169, 216, 232, 0.18), rgba(255, 253, 247, 0.16));
+    }
+
+    .sanctuary-grid {
+      display: grid;
+      gap: 26px;
+      align-items: center;
+      min-width: 0;
+    }
+
+    .sanctuary-copy p {
+      margin-top: 16px;
+      color: var(--soft-ink);
+      font-size: 1.08rem;
+    }
+
+    .sanctuary-list {
+      display: grid;
+      gap: 10px;
+      margin: 24px 0 0;
+      padding: 0;
+      list-style: none;
+    }
+
+    .sanctuary-list li {
+      padding: 12px 14px;
+      border: 1px solid #d9dfc7;
+      border-radius: 8px;
+      background: rgba(255, 253, 247, 0.78);
+      color: var(--leaf-dark);
+      font-family: "Trebuchet MS", Verdana, sans-serif;
+      font-weight: 700;
+    }
+
+    .diorama {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--paper);
+      box-shadow: var(--shadow);
+      overflow: hidden;
+    }
+
+    .diorama svg {
+      width: 100%;
+      height: auto;
+    }
+
+    .safety-grid,
+    .audience-grid {
+      display: grid;
+      gap: 16px;
+    }
+
+    .safety-panel {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: rgba(255, 253, 247, 0.84);
+      padding: 22px;
+    }
+
+    .safety-panel h3 {
+      margin-bottom: 14px;
+    }
+
+    .check-list {
+      margin: 0;
+      padding: 0;
+      list-style: none;
+      display: grid;
+      gap: 10px;
+    }
+
+    .check-list li {
+      display: grid;
+      grid-template-columns: 22px 1fr;
+      gap: 10px;
+      align-items: start;
+    }
+
+    .check-list li::before {
+      content: "";
+      width: 10px;
+      height: 10px;
+      margin-top: 8px;
+      border-radius: 50%;
+      background: var(--leaf);
+      box-shadow: 0 0 0 4px rgba(47, 111, 78, 0.12);
+    }
+
+    .audience {
+      background: rgba(255, 253, 247, 0.52);
+    }
+
+    .audience-card {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 24px;
+      background: rgba(255, 253, 247, 0.82);
+    }
+
+    .audience-card h3 {
+      margin-bottom: 10px;
+    }
+
+    .pilot-panel {
+      display: grid;
+      gap: 22px;
+      border: 1px solid #d5c394;
+      border-radius: 8px;
+      padding: 28px;
+      background:
+        linear-gradient(135deg, rgba(255, 253, 247, 0.9), rgba(239, 199, 94, 0.18)),
+        var(--paper);
+      box-shadow: var(--shadow);
+      min-width: 0;
+    }
+
+    .pilot-note {
+      margin-top: 16px;
+      color: var(--leaf-dark);
+      font-family: "Trebuchet MS", Verdana, sans-serif;
+      font-weight: 700;
+    }
+
+    .faq-grid {
+      display: grid;
+      gap: 12px;
+    }
+
+    .faq-card {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: rgba(255, 253, 247, 0.82);
+      padding: 20px;
+    }
+
+    .faq-card h3 {
+      margin-bottom: 8px;
+      font-size: 1.05rem;
+    }
+
+    .site-footer {
+      border-top: 1px solid var(--line);
+      background: #f1e8d6;
+      padding: 36px 20px;
+    }
+
+    .footer-inner {
+      max-width: var(--max);
+      margin: 0 auto;
+      display: grid;
+      gap: 24px;
+    }
+
+    .footer-brand p {
+      color: var(--soft-ink);
       margin-top: 8px;
     }
-    .cta:hover { text-decoration: none; opacity: 0.92; }
-    footer {
-      border-top: 1px solid var(--rule);
-      margin-top: 80px;
-      padding-top: 24px;
-      font-size: 13px;
-      color: var(--muted);
+
+    .footer-links,
+    .footer-contact {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px 18px;
+      font-family: "Trebuchet MS", Verdana, sans-serif;
+      color: var(--soft-ink);
+      font-size: 0.94rem;
     }
-    footer a { color: var(--muted); }
-    footer .row { display: flex; gap: 20px; flex-wrap: wrap; }
-    .draft-banner {
-      background: #fff7ed;
-      border: 1px solid #fdba74;
-      border-radius: 6px;
-      padding: 12px 16px;
-      font-size: 13px;
-      color: #7c2d12;
-      margin-bottom: 32px;
+
+    .footer-links a,
+    .footer-contact a {
+      text-decoration: none;
+    }
+
+    .footer-links a:hover,
+    .footer-contact a:hover,
+    .footer-links a:focus-visible,
+    .footer-contact a:focus-visible {
+      color: var(--leaf-dark);
+      text-decoration: underline;
+      text-underline-offset: 4px;
+    }
+
+    :focus-visible {
+      outline: 3px solid rgba(200, 111, 58, 0.85);
+      outline-offset: 3px;
+    }
+
+    @media (min-width: 560px) {
+      .hero-actions,
+      .pilot-actions {
+        flex-direction: row;
+      }
+
+      .cards {
+        grid-template-columns: repeat(3, 1fr);
+      }
+    }
+
+    @media (min-width: 820px) {
+      .header-inner {
+        flex-wrap: nowrap;
+      }
+
+      .nav-links {
+        order: initial;
+        width: auto;
+        gap: 18px;
+        overflow: visible;
+        padding: 0;
+        font-size: 0.92rem;
+      }
+
+      .hero {
+        padding-top: 78px;
+      }
+
+      h1 {
+        font-size: clamp(4.4rem, 7vw, 5.75rem);
+      }
+
+      h2 {
+        font-size: clamp(2.7rem, 4.8vw, 3.8rem);
+      }
+
+      .hero-grid,
+      .sanctuary-grid,
+      .pilot-panel {
+        grid-template-columns: 1.05fr 0.95fr;
+      }
+
+      .safety-grid,
+      .audience-grid,
+      .footer-inner {
+        grid-template-columns: repeat(2, 1fr);
+      }
+
+      .faq-grid {
+        grid-template-columns: repeat(2, 1fr);
+      }
+
+      .footer-links,
+      .footer-contact {
+        justify-content: flex-end;
+      }
+    }
+
+    @media (max-width: 430px) {
+      .header-cta {
+        order: 2;
+        width: 100%;
+      }
+
+      .nav-links {
+        order: 3;
+      }
+    }
+
+    @media (min-width: 1040px) {
+      .section {
+        padding-top: 86px;
+        padding-bottom: 86px;
+      }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      *,
+      *::before,
+      *::after {
+        scroll-behavior: auto !important;
+        transition-duration: 0.01ms !important;
+      }
     }
   </style>
 </head>
 <body>
-  <main>
-    <div class="draft-banner">
-      <strong>Beta &mdash; private invite only.</strong> Public launch coming later in 2026.
+  <a class="skip-link" href="#main">Skip to content</a>
+  <header class="site-header">
+    <div class="header-inner">
+      <a class="wordmark" href="/" aria-label="Dragonfly home">
+        <span class="mark" aria-hidden="true">
+          <svg viewBox="0 0 48 48" role="img">
+            <path d="M24 8c2 7 2 25 0 32" fill="none" stroke="#2f6f4e" stroke-width="3" stroke-linecap="round"/>
+            <path d="M21 17C9 4 1 10 13 22c-11 2-9 12 6 7m8-12C39 4 47 10 35 22c11 2 9 12-6 7" fill="none" stroke="#5e9fba" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </span>
+        Dragonfly
+      </a>
+      <nav class="nav-links" aria-label="Primary navigation">
+        <a href="#how-it-works">How it works</a>
+        <a href="#sanctuary">Sanctuary</a>
+        <a href="#safety">Safety</a>
+        <a href="#pilot">Pilot</a>
+        <a href="#faq">FAQ</a>
+      </nav>
+      <a class="button button-primary header-cta" href="mailto:support@dragonfly-app.net?subject=Dragonfly%20Android%20pilot%20access%20request">Request pilot access</a>
     </div>
+  </header>
 
-    <h1>Dragonfly is a field app for kids who like to look closely.</h1>
-    <p class="lede">
-      Kids ages 9&ndash;12 photograph plants and animals they find outdoors.
-      Each find becomes a real scientific observation that contributes to
-      iNaturalist &mdash; the global species database that researchers,
-      conservationists, and educators use every day.
-    </p>
+  <main id="main">
+    <section class="section hero" aria-labelledby="hero-title">
+      <div class="section-inner hero-grid">
+        <div>
+          <p class="eyebrow">Invite-only Android pilot</p>
+          <h1 id="hero-title">Turn backyard curiosity into real science.</h1>
+          <p class="hero-subheadline">
+            Dragonfly is a field app for kids ages 9&ndash;12. Kids photograph plants, animals, fungi, and other living things they find outdoors, build a personal Dex, complete nature expeditions, and watch their own Sanctuary grow from real observations.
+          </p>
+          <ul class="trust-line" aria-label="Trust summary">
+            <li>Closed beta</li>
+            <li>Parent-managed accounts</li>
+            <li>No ads</li>
+            <li>No public chat</li>
+          </ul>
+          <div class="hero-actions">
+            <a class="button button-primary" href="mailto:support@dragonfly-app.net?subject=Dragonfly%20Android%20pilot%20access%20request">Request pilot access</a>
+            <a class="button button-secondary" href="/privacy">Read our privacy promise</a>
+          </div>
+        </div>
 
-    <a class="cta" href="https://parents.dragonfly-app.net/">For parents and teachers &rarr;</a>
+        <div class="field-card" aria-label="Illustration of a field notebook and observation app">
+          <p class="field-label">A quiet field notebook for real outdoor finds</p>
+          <div class="field-specimen specimen-one" aria-hidden="true"></div>
+          <div class="field-specimen specimen-two" aria-hidden="true"></div>
+          <div class="phone-card" aria-hidden="true">
+            <div class="phone-top"></div>
+            <div class="phone-screen">
+              <div class="photo-window"></div>
+              <div class="screen-line"></div>
+              <div class="screen-line short"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
 
-    <h2>What it does</h2>
-    <p>
-      A kid opens the app, takes a photo, and Dragonfly identifies what they
-      found, adds it to their personal dex, and (with permission) submits it
-      to iNaturalist as a verified observation. Expeditions give them weekly
-      goals; a sanctuary view rewards repeat trips outside.
-    </p>
+    <section class="section" id="how-it-works" aria-labelledby="how-title">
+      <div class="section-inner">
+        <div class="section-heading">
+          <p class="eyebrow">How Dragonfly works</p>
+          <h2 id="how-title">A simple rhythm for noticing the living world.</h2>
+        </div>
+        <div class="cards">
+          <article class="card">
+            <div class="card-icon" aria-hidden="true">1</div>
+            <h3>Go outside</h3>
+            <p>Kids take a photo of something living: a plant, insect, bird, mushroom, or other organism.</p>
+          </article>
+          <article class="card">
+            <div class="card-icon" aria-hidden="true">2</div>
+            <h3>Log the observation</h3>
+            <p>Dragonfly helps them record what they found. They can choose a suggested species or enter what they know.</p>
+          </article>
+          <article class="card">
+            <div class="card-icon" aria-hidden="true">3</div>
+            <h3>See what changed</h3>
+            <p>Each observation fills their Dex, advances expeditions, and brings new life to their Sanctuary.</p>
+          </article>
+        </div>
+      </div>
+    </section>
 
-    <h2>Who it&rsquo;s for</h2>
-    <p>
-      Built for the 9&ndash;12 age band specifically &mdash; old enough to
-      photograph thoughtfully, young enough to still find a beetle delightful.
-      Kid accounts are created by a parent or teacher and have no email, no
-      ads, no public profile, and no way to message anyone outside their
-      family or classroom group.
-    </p>
+    <section class="section sanctuary" id="sanctuary" aria-labelledby="sanctuary-title">
+      <div class="section-inner sanctuary-grid">
+        <div class="sanctuary-copy">
+          <p class="eyebrow">Meet The Sanctuary</p>
+          <h2 id="sanctuary-title">A world that only grows from real discoveries.</h2>
+          <p>
+            The Sanctuary is a quiet illustrated habitat inside Dragonfly. It starts sparse. As kids log real observations, the meadow grows, the pond ripples, birds visit the sky, and tiny details appear.
+          </p>
+          <ul class="sanctuary-list">
+            <li>Your first plant wakes up the meadow.</li>
+            <li>A butterfly brings movement to the flowers.</li>
+            <li>A frog adds ripples to the pond.</li>
+            <li>More observations make the scene richer over time.</li>
+          </ul>
+        </div>
 
-    <h2>Where the data goes</h2>
-    <p>
-      Photographs and identifications get contributed to
-      <a href="https://www.inaturalist.org" rel="noopener">iNaturalist</a>
-      with the kid&rsquo;s permission. The location, photo, and species are
-      shared; no personal details about the child are ever attached.
-    </p>
+        <div class="diorama" aria-label="Illustrated Sanctuary habitat placeholder">
+          <svg viewBox="0 0 720 520" role="img" aria-labelledby="diorama-title diorama-desc">
+            <title id="diorama-title">Sanctuary habitat placeholder</title>
+            <desc id="diorama-desc">A simple illustrated scene with sky, meadow, pond, woodland edge, soil layer, and a small dragonfly.</desc>
+            <rect width="720" height="180" fill="#a9d8e8"/>
+            <circle cx="598" cy="70" r="34" fill="#efc75e"/>
+            <path d="M0 155 C110 120 190 166 300 136 C430 100 548 152 720 118 L720 260 L0 260 Z" fill="#9fbd71"/>
+            <path d="M0 210 C90 184 160 232 250 202 C352 168 446 224 560 190 C626 170 676 176 720 188 L720 324 L0 324 Z" fill="#6d8f55"/>
+            <rect y="250" width="720" height="150" fill="#8e9f5f"/>
+            <path d="M86 322 C176 270 304 272 394 326 C324 382 174 386 86 322 Z" fill="#6eb0bc"/>
+            <path d="M132 325 C205 298 301 299 360 328" fill="none" stroke="#d8eef0" stroke-width="8" stroke-linecap="round" opacity="0.72"/>
+            <path d="M0 390 C128 372 206 410 340 388 C456 370 584 398 720 376 L720 520 L0 520 Z" fill="#7a5238"/>
+            <path d="M0 425 C150 402 296 442 430 416 C536 396 638 430 720 410 L720 520 L0 520 Z" fill="#5d3c2c" opacity="0.82"/>
+            <g fill="#234f3a">
+              <path d="M83 254 C79 218 96 196 118 178 C126 214 112 238 83 254 Z"/>
+              <path d="M526 250 C520 205 548 180 580 158 C588 204 564 236 526 250 Z"/>
+              <path d="M633 255 C628 218 648 192 676 175 C684 214 662 242 633 255 Z"/>
+            </g>
+            <g fill="#f6d36f">
+              <circle cx="450" cy="286" r="7"/>
+              <circle cx="470" cy="304" r="6"/>
+              <circle cx="502" cy="284" r="7"/>
+              <circle cx="226" cy="276" r="6"/>
+              <circle cx="250" cy="294" r="7"/>
+            </g>
+            <g stroke="#2f6f4e" stroke-width="5" stroke-linecap="round">
+              <path d="M448 312 L448 346"/>
+              <path d="M470 324 L470 350"/>
+              <path d="M502 310 L502 346"/>
+              <path d="M226 300 L226 337"/>
+              <path d="M250 314 L250 344"/>
+            </g>
+            <g transform="translate(410 104)" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M22 2 C25 28 25 58 22 86" fill="none" stroke="#234f3a" stroke-width="5"/>
+              <path d="M18 24 C-18 -10 -58 10 -26 42 C-56 48 -48 82 6 58" fill="rgba(255,253,247,0.66)" stroke="#5e9fba" stroke-width="5"/>
+              <path d="M28 24 C64 -10 104 10 72 42 C102 48 94 82 40 58" fill="rgba(255,253,247,0.66)" stroke="#5e9fba" stroke-width="5"/>
+            </g>
+          </svg>
+        </div>
+      </div>
+    </section>
 
-    <footer>
-      <div class="row">
+    <section class="section" id="safety" aria-labelledby="safety-title">
+      <div class="section-inner">
+        <div class="section-heading">
+          <p class="eyebrow">Safety and trust</p>
+          <h2 id="safety-title">Built for kids, managed by adults.</h2>
+        </div>
+        <div class="safety-grid">
+          <div class="safety-panel">
+            <h3>For kids</h3>
+            <ul class="check-list">
+              <li>No public chat</li>
+              <li>No direct messages</li>
+              <li>No ads</li>
+              <li>No follower counts</li>
+              <li>No public profiles</li>
+              <li>No pressure streaks</li>
+            </ul>
+          </div>
+          <div class="safety-panel">
+            <h3>For adults</h3>
+            <ul class="check-list">
+              <li>Parent or teacher creates the group</li>
+              <li>Kids join only through an invited account</li>
+              <li>Observation sharing stays inside the family or class group</li>
+              <li>Adults can review flagged photos</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section audience" aria-labelledby="audience-title">
+      <div class="section-inner">
+        <div class="section-heading">
+          <p class="eyebrow">Families and teachers</p>
+          <h2 id="audience-title">Made for invited groups, not a public social network.</h2>
+          <p class="audience-copy">
+            Dragonfly is designed for invited families and classrooms. Parents and teachers create kid accounts and groups. Kids explore inside a supervised, closed group.
+          </p>
+        </div>
+        <div class="audience-grid">
+          <article class="audience-card">
+            <h3>For families</h3>
+            <p class="audience-copy">Use Dragonfly as a supervised way to turn walks, yards, gardens, and parks into a growing field record.</p>
+          </article>
+          <article class="audience-card">
+            <h3>For teachers</h3>
+            <p class="audience-copy">Use Dragonfly with controlled pilot groups for nature clubs, school gardens, and field walks.</p>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section class="section" id="pilot" aria-labelledby="pilot-title">
+      <div class="section-inner pilot-panel">
+        <div>
+          <p class="eyebrow">Closed Android pilot</p>
+          <h2 id="pilot-title">A small supervised pilot before any public release.</h2>
+        </div>
+        <div>
+          <p class="pilot-copy">
+            Dragonfly is preparing a small Android pilot through Google Play Internal Testing. We are starting with known families, parent supervision, and careful feedback before any public release.
+          </p>
+          <div class="pilot-actions">
+            <a class="button button-primary" href="mailto:support@dragonfly-app.net?subject=Dragonfly%20Android%20pilot%20access%20request&body=Hello%20Dragonfly%20team%2C%0A%0AI%20am%20interested%20in%20the%20supervised%20Android%20pilot.%0A%0AAdult%20name%3A%0AEmail%3A%0AKid%20age%20range%20%289-10%2C%2011-12%2C%2013%2B%29%3A%0AAndroid%20device%20available%3A%0AParent%2Fguardian%20or%20teacher%2Fgroup%20leader%3A%0A%0AI%20understand%20the%20pilot%20is%20adult-supervised%20and%20limited.%0A">Request pilot access</a>
+          </div>
+          <p class="pilot-note">The pilot is limited. A parent or guardian should be present during the first kid test.</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="section" id="faq" aria-labelledby="faq-title">
+      <div class="section-inner">
+        <div class="section-heading">
+          <p class="eyebrow">FAQ</p>
+          <h2 id="faq-title">Clear answers for the first pilot families.</h2>
+        </div>
+        <div class="faq-grid">
+          <article class="faq-card">
+            <h3>What age is Dragonfly for?</h3>
+            <p>Dragonfly is designed for kids ages 9&ndash;12 and the adults who manage their accounts.</p>
+          </article>
+          <article class="faq-card">
+            <h3>Is Dragonfly a public social network?</h3>
+            <p>No. Dragonfly has no public kid profiles, no public chat, no direct messages, and no follower counts.</p>
+          </article>
+          <article class="faq-card">
+            <h3>Does Dragonfly have ads?</h3>
+            <p>No. Dragonfly does not include ads, tracking pixels, ad SDKs, or marketing chat widgets.</p>
+          </article>
+          <article class="faq-card">
+            <h3>What is The Sanctuary?</h3>
+            <p>The Sanctuary is a private illustrated habitat that grows from a kid's real observations. It is not a public profile or social feed.</p>
+          </article>
+          <article class="faq-card">
+            <h3>Is this available on iPhone?</h3>
+            <p>Not yet. The first pilot is focused on Android through Google Play Internal Testing.</p>
+          </article>
+          <article class="faq-card">
+            <h3>Is Dragonfly in production?</h3>
+            <p>No. Dragonfly is preparing for a closed Android pilot. Broader release depends on privacy, legal, store-review, and field-testing gates.</p>
+          </article>
+          <article class="faq-card">
+            <h3>How do I request pilot access?</h3>
+            <p>Use the pilot request button or email <a href="mailto:support@dragonfly-app.net">support@dragonfly-app.net</a>. Please do not send kid names through the public page.</p>
+          </article>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <div class="footer-inner">
+      <div class="footer-brand">
+        <a class="wordmark" href="/" aria-label="Dragonfly home">
+          <span class="mark" aria-hidden="true">
+            <svg viewBox="0 0 48 48" role="img">
+              <path d="M24 8c2 7 2 25 0 32" fill="none" stroke="#2f6f4e" stroke-width="3" stroke-linecap="round"/>
+              <path d="M21 17C9 4 1 10 13 22c-11 2-9 12 6 7m8-12C39 4 47 10 35 22c11 2 9 12-6 7" fill="none" stroke="#5e9fba" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+          </span>
+          Dragonfly
+        </a>
+        <p>Citizen science for curious kids.</p>
+      </div>
+      <nav class="footer-links" aria-label="Footer navigation">
         <a href="/privacy">Privacy</a>
         <a href="/terms">Terms</a>
         <a href="mailto:support@dragonfly-app.net">Support</a>
-        <a href="mailto:privacy@dragonfly-app.net">Privacy contact</a>
+        <a href="mailto:support@dragonfly-app.net">Contact</a>
+      </nav>
+      <div class="footer-contact">
+        <a href="mailto:support@dragonfly-app.net">support@dragonfly-app.net</a>
+        <a href="mailto:privacy@dragonfly-app.net">privacy@dragonfly-app.net</a>
       </div>
-      <p style="margin-top: 16px;">&copy; 2026 Dragonfly. Built in Cincinnati.</p>
-    </footer>
-  </main>
+    </div>
+  </footer>
 </body>
 </html>

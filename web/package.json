@@ -1,0 +1,6 @@
+{
+  "private": true,
+  "scripts": {
+    "check": "node scripts/check-static-site.mjs"
+  }
+}
