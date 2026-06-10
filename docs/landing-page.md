@@ -7,6 +7,10 @@ It is a planning document only. It does not implement the website, add
 dependencies, or finalize legal copy. Legal, privacy, store, and compliance
 language must be reviewed before any production/public launch claim is made.
 
+Before using the public landing/support URLs in Google Play Console, run the
+final [`landing-pre-play-checklist.md`](landing-pre-play-checklist.md) and the
+deployment smoke in [`landing-deploy-runbook.md`](landing-deploy-runbook.md).
+
 ## 1. Page purpose
 
 The landing page is a parent-facing trust page. It should quickly explain what

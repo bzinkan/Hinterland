@@ -10,6 +10,9 @@ are out of scope for a 7-day pilot.
 Related reading:
 - [`app-store-compliance-checklist.md`](app-store-compliance-checklist.md)
   for the production blockers.
+- [`landing-pre-play-checklist.md`](landing-pre-play-checklist.md)
+  for the final public URL, landing copy, support, and privacy checks before
+  using `dragonfly-app.net` in Play Console fields.
 - [`one-week-kid-pilot-checklist.md`](one-week-kid-pilot-checklist.md)
   for the day-by-day pilot checklist this doc feeds.
 - [`risks/0007-google-play-families-location-policy.md`](risks/0007-google-play-families-location-policy.md)

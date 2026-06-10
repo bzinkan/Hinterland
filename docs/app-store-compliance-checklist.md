@@ -3,6 +3,10 @@
 Re-verify official Apple and Google policy before every submission. This file is
 the Dragonfly-specific checklist, not legal advice.
 
+Before entering public landing/support URLs in Google Play Console, run
+[`landing-pre-play-checklist.md`](landing-pre-play-checklist.md) and the deploy
+smokes in [`landing-deploy-runbook.md`](landing-deploy-runbook.md).
+
 ## Google Play Internal Testing First
 
 The first store surface is Google Play Internal Testing for a tiny,
