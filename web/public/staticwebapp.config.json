@@ -1,0 +1,23 @@
+{
+  "routes": [
+    {
+      "route": "/privacy",
+      "rewrite": "/privacy.html"
+    },
+    {
+      "route": "/terms",
+      "rewrite": "/terms.html"
+    },
+    {
+      "route": "/support",
+      "rewrite": "/support.html"
+    },
+    {
+      "route": "/contact",
+      "rewrite": "/contact.html"
+    }
+  ],
+  "globalHeaders": {
+    "X-Content-Type-Options": "nosniff"
+  }
+}
