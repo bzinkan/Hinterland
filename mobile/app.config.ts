@@ -96,7 +96,13 @@ const isPlayInternal = APP_ENV === "play-internal";
 // runtime overrides (screen reader, Simple view, crash latch) layer on top
 // in src/config/featureFlags.ts. Stays "0" for play-internal/production
 // until the post-pilot flag-flip milestone.
-const SANCTUARY_3D = process.env.SANCTUARY_3D === "1";
+//
+// Local `expo start` has no eas.json env, so the development environment
+// defaults ON unless explicitly disabled with SANCTUARY_3D=0.
+const SANCTUARY_3D =
+  process.env.SANCTUARY_3D !== undefined
+    ? process.env.SANCTUARY_3D === "1"
+    : APP_ENV === "development";
 
 function displayName(appEnv: AppEnv): string {
   switch (appEnv) {

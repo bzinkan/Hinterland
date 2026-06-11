@@ -19,8 +19,9 @@
 import React, { Suspense, useRef, useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { router } from "expo-router";
-import { Canvas, useFrame } from "@react-three/fiber/native";
 import type { Group } from "three";
+
+import { Canvas, useFrame } from "@/src/sanctuary3d/r3f";
 
 import { env } from "@/src/config/env";
 import { useSanctuaryGLTF } from "@/src/sanctuary3d/assets/useSanctuaryGLTF";

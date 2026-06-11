@@ -1,13 +1,18 @@
 /**
- * Sanctuary 3D living diorama -- screen shell (M1, ADR 0011).
+ * Sanctuary 3D living diorama -- screen shell (M1) + data-driven scene (M2).
  *
- * M1 scope: season-driven sky/atmosphere + a placeholder island whose seven
- * zones render as tinted patches at their authored layout positions, with
- * locked zones in the dormant grey. The authored island mesh (asset
- * milestone A3), data-driven elements (M2), ambient animation (M3),
- * gestures/inspection (M4), and the reveal sequence (M5) layer on top.
+ * M2: the island renders from buildScenePlan(snapshot) -- zones color in at
+ * their depth tiers, elements place deterministically from the manifest
+ * (typed fallback shapes until asset milestones land), mystery cues render
+ * as dormant silhouettes, and tapping an element opens the SAME
+ * ElementInspectModal the 2D screen uses. A dev-only overlay (development/
+ * preview envs) can step the island through tiers 0->50 with synthesized
+ * sample data -- it never touches a real account's view.
  *
- * Resilience contract (the part that IS final in M1):
+ * Still ahead: ambient animation (M3), pinch/orbit gestures (M4), the
+ * reveal sequence (M5).
+ *
+ * Resilience contract (final since M1):
  * - Any render error inside the canvas -> GL crash recorded -> this session
  *   falls back to Sanctuary2DScreen in place. Three strikes pin 2D until an
  *   app update (src/sanctuary3d/flagDecision.ts).
@@ -19,44 +24,61 @@
  * precise location, offline render (bundled assets only), no analytics.
  */
 
-import React, { Component, type ReactNode, useEffect, useRef, useState } from "react";
+import React, {
+  Component,
+  type ReactNode,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { Canvas, useFrame } from "@react-three/fiber/native";
 
-import { SANCTUARY_ZONE_ORDER, type SanctuaryZoneDto } from "@/src/api/sanctuary";
+import type { SanctuaryElementDto } from "@/src/api/sanctuary";
+import { env } from "@/src/config/env";
 import Sanctuary2DScreen from "@/src/sanctuary/Sanctuary2DScreen";
+import { ElementInspectModal } from "@/src/sanctuary/panels/ElementInspectModal";
 import { useSanctuary } from "@/src/sanctuary/useSanctuary";
-import { ZONE_LAYOUT } from "@/src/sanctuary3d/placement/zoneAnchors";
+import {
+  DEV_TIER_LADDER,
+  makeSampleSnapshot,
+} from "@/src/sanctuary3d/dev/sampleSnapshot";
 import { useSanctuary3DPrefs } from "@/src/sanctuary3d/prefs";
-import { scenePalette, type ScenePalette } from "@/src/sanctuary3d/season/palette";
+import { Canvas, useFrame } from "@/src/sanctuary3d/r3f";
+import { buildScenePlan, type ScenePlan } from "@/src/sanctuary3d/scenePlan";
+import { IslandScene } from "@/src/sanctuary3d/scene/IslandScene";
 
 const FIRST_FRAME_WATCHDOG_MS = 5_000;
-
-/** Zone ground tints until the authored island + zone palettes land (A3/A8). */
-const ZONE_PLACEHOLDER_COLOR: Record<string, string> = {
-  meadow: "#8FBC6F",
-  woodland: "#528C40",
-  pond: "#7FB8C4",
-  urban: "#C9CDD1",
-  soil: "#6E5235",
-  sky: "#F2F5F7",
-  elsewhere: "#B5A8C9",
-};
-
-/** Dormant grey for zones the kid has not woken yet (asleep, not locked). */
-const DORMANT_COLOR = "#84867F";
+const DEV_CONTROLS_ENABLED =
+  env.appEnv === "development" || env.appEnv === "preview";
 
 export default function Sanctuary3DScreen() {
   const { data, isLoading, isError, error, refetch } = useSanctuary();
   const recordGlCrash = useSanctuary3DPrefs((s) => s.recordGlCrash);
   const [sessionFallback, setSessionFallback] = useState(false);
+  const [inspected, setInspected] = useState<SanctuaryElementDto | null>(null);
+
+  // Dev preview: null = off (real data), number = sample snapshot at tier.
+  const [devTier, setDevTier] = useState<number | null>(null);
+
+  const snapshot = useMemo(() => {
+    if (DEV_CONTROLS_ENABLED && devTier !== null) {
+      return makeSampleSnapshot(devTier);
+    }
+    return data ?? null;
+  }, [data, devTier]);
+
+  const plan: ScenePlan | null = useMemo(
+    () => (snapshot ? buildScenePlan(snapshot) : null),
+    [snapshot],
+  );
 
   if (sessionFallback) {
     return <Sanctuary2DScreen />;
   }
 
-  if (isLoading) {
+  if (!plan && isLoading) {
     return (
       <SafeAreaView style={styles.centered} edges={["top"]}>
         <ActivityIndicator />
@@ -65,12 +87,12 @@ export default function Sanctuary3DScreen() {
     );
   }
 
-  if (isError || !data) {
+  if (!plan) {
     return (
       <SafeAreaView style={styles.centered} edges={["top"]}>
         <Text style={styles.centeredTitle}>Couldn't reach your Sanctuary</Text>
         <Text style={styles.centeredText}>
-          {error?.message ?? "Try again in a moment."}
+          {isError ? (error?.message ?? "Try again in a moment.") : "Try again in a moment."}
         </Text>
         <Pressable
           accessibilityRole="button"
@@ -79,11 +101,18 @@ export default function Sanctuary3DScreen() {
         >
           <Text style={styles.retryButtonText}>Retry</Text>
         </Pressable>
+        {DEV_CONTROLS_ENABLED ? (
+          <Pressable
+            accessibilityRole="button"
+            style={[styles.retryButton, styles.devButton]}
+            onPress={() => setDevTier(3)}
+          >
+            <Text style={styles.retryButtonText}>Dev: preview sample island</Text>
+          </Pressable>
+        ) : null}
       </SafeAreaView>
     );
   }
-
-  const palette = scenePalette(data.season.season, data.season.background_tone);
 
   return (
     <GlCrashBoundary
@@ -100,13 +129,22 @@ export default function Sanctuary3DScreen() {
             A quiet place that grows when you go outside.
           </Text>
         </View>
-        <IslandCanvas
-          zones={data.zones}
-          palette={palette}
-          onMountFailure={() => {
-            recordGlCrash();
-            setSessionFallback(true);
-          }}
+        <View style={styles.canvasWrap}>
+          <IslandCanvas
+            plan={plan}
+            onInspect={setInspected}
+            onMountFailure={() => {
+              recordGlCrash();
+              setSessionFallback(true);
+            }}
+          />
+          {DEV_CONTROLS_ENABLED ? (
+            <DevTierStepper devTier={devTier} onSelect={setDevTier} />
+          ) : null}
+        </View>
+        <ElementInspectModal
+          element={inspected}
+          onClose={() => setInspected(null)}
         />
       </SafeAreaView>
     </GlCrashBoundary>
@@ -118,12 +156,12 @@ export default function Sanctuary3DScreen() {
 // ---------------------------------------------------------------------------
 
 function IslandCanvas({
-  zones,
-  palette,
+  plan,
+  onInspect,
   onMountFailure,
 }: {
-  zones: SanctuaryZoneDto[];
-  palette: ScenePalette;
+  plan: ScenePlan;
+  onInspect: (element: SanctuaryElementDto) => void;
   onMountFailure: () => void;
 }) {
   const firstFrameSeen = useRef(false);
@@ -146,6 +184,7 @@ function IslandCanvas({
         state.camera.lookAt(0, 0, 0);
         // New-architecture workaround lineage (r3f #3399): expo-gl does not
         // implement UNPACK_FLIP_Y_WEBGL; filter it out of pixelStorei calls.
+        // Harmless no-op on web.
         const gl = state.gl.getContext() as WebGLRenderingContext & {
           pixelStorei: (pname: number, param: unknown) => void;
         };
@@ -161,11 +200,16 @@ function IslandCanvas({
           firstFrameSeen.current = true;
         }}
       />
-      <color attach="background" args={[palette.sky]} />
-      <fog attach="fog" args={[palette.fog, 14, 34]} />
-      <hemisphereLight args={[palette.hemiSky, palette.hemiGround, 0.9]} />
-      <directionalLight position={[5, 8, 4]} intensity={palette.sunIntensity} />
-      <PlaceholderIsland zones={zones} palette={palette} />
+      <color attach="background" args={[plan.palette.sky]} />
+      <fog attach="fog" args={[plan.palette.fog, 14, 34]} />
+      <hemisphereLight
+        args={[plan.palette.hemiSky, plan.palette.hemiGround, 0.9]}
+      />
+      <directionalLight
+        position={[5, 8, 4]}
+        intensity={plan.palette.sunIntensity}
+      />
+      <IslandScene plan={plan} onInspect={onInspect} />
     </Canvas>
   );
 }
@@ -182,83 +226,36 @@ function FirstFramePing({ onFirstFrame }: { onFirstFrame: () => void }) {
 }
 
 // ---------------------------------------------------------------------------
-// Placeholder island (replaced by the authored mesh in asset milestone A3)
+// Dev tier stepper (development/preview builds only)
 // ---------------------------------------------------------------------------
 
-function PlaceholderIsland({
-  zones,
-  palette,
+function DevTierStepper({
+  devTier,
+  onSelect,
 }: {
-  zones: SanctuaryZoneDto[];
-  palette: ScenePalette;
+  devTier: number | null;
+  onSelect: (tier: number | null) => void;
 }) {
-  const zoneById = new Map(zones.map((z) => [z.zone_id, z] as const));
-
   return (
-    <group>
-      {/* Island base: a low cylinder with the season ground tint. */}
-      <mesh position={[0, -0.6, 0]}>
-        <cylinderGeometry args={[5.6, 4.2, 1.2, 9]} />
-        <meshLambertMaterial color={palette.ground} />
-      </mesh>
-      {/* Underside rock taper so the island reads as floating. */}
-      <mesh position={[0, -1.8, 0]}>
-        <coneGeometry args={[4.2, 2.4, 9]} />
-        <meshLambertMaterial color="#6B5B49" />
-      </mesh>
-      {SANCTUARY_ZONE_ORDER.map((zoneId) => {
-        const layout = ZONE_LAYOUT[zoneId];
-        const zone = zoneById.get(zoneId);
-        const awake = zone?.unlocked ?? false;
-        const color = awake
-          ? (ZONE_PLACEHOLDER_COLOR[zoneId] ?? palette.ground)
-          : DORMANT_COLOR;
-        if (zoneId === "sky") {
-          // Sky zone placeholder: a small cloud puff overhead when awake.
-          return awake ? (
-            <mesh key={zoneId} position={[layout.center[0], layout.center[1], layout.center[2]]}>
-              <sphereGeometry args={[0.6, 10, 8]} />
-              <meshLambertMaterial color={color} />
-            </mesh>
-          ) : null;
-        }
-        if (zoneId === "elsewhere") {
-          // Detached floating islet.
-          return (
-            <group key={zoneId} position={[layout.center[0], layout.center[1], layout.center[2]]}>
-              <mesh>
-                <cylinderGeometry args={[layout.radius, layout.radius * 0.55, 0.5, 7]} />
-                <meshLambertMaterial color={color} />
-              </mesh>
-            </group>
-          );
-        }
-        if (zoneId === "soil") {
-          // Front cliff cross-section: a flat panel on the island face.
-          return (
-            <mesh
-              key={zoneId}
-              position={[layout.center[0], layout.center[1], layout.center[2]]}
-              rotation={[-0.32, 0, 0]}
-            >
-              <boxGeometry args={[layout.radius * 2, 1.1, 0.2]} />
-              <meshLambertMaterial color={color} />
-            </mesh>
-          );
-        }
-        // Ground zones: a slightly raised patch at the zone center.
-        return (
-          <mesh
-            key={zoneId}
-            position={[layout.center[0], 0.02, layout.center[2]]}
-            rotation={[-Math.PI / 2, 0, 0]}
-          >
-            <circleGeometry args={[layout.radius, 16]} />
-            <meshLambertMaterial color={color} />
-          </mesh>
-        );
-      })}
-    </group>
+    <View style={styles.devBar} pointerEvents="box-none">
+      <Pressable
+        accessibilityRole="button"
+        style={[styles.devChip, devTier === null ? styles.devChipActive : null]}
+        onPress={() => onSelect(null)}
+      >
+        <Text style={styles.devChipText}>live</Text>
+      </Pressable>
+      {DEV_TIER_LADDER.map((tier) => (
+        <Pressable
+          key={tier}
+          accessibilityRole="button"
+          style={[styles.devChip, devTier === tier ? styles.devChipActive : null]}
+          onPress={() => onSelect(tier)}
+        >
+          <Text style={styles.devChipText}>{tier}</Text>
+        </Pressable>
+      ))}
+    </View>
   );
 }
 
@@ -292,6 +289,7 @@ class GlCrashBoundary extends Component<
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: "#F7F6F2" },
+  canvasWrap: { flex: 1 },
   canvas: { flex: 1 },
   header: { paddingHorizontal: 16, paddingTop: 8, paddingBottom: 8 },
   headerTitle: { fontSize: 24, fontWeight: "700", color: "#2A2A2A" },
@@ -313,4 +311,22 @@ const styles = StyleSheet.create({
     backgroundColor: "#3F6B40",
   },
   retryButtonText: { color: "#fff", fontSize: 14, fontWeight: "500" },
+  devButton: { backgroundColor: "#4F4F4F" },
+  devBar: {
+    position: "absolute",
+    bottom: 12,
+    left: 12,
+    right: 12,
+    flexDirection: "row",
+    gap: 6,
+    justifyContent: "center",
+  },
+  devChip: {
+    paddingVertical: 5,
+    paddingHorizontal: 10,
+    borderRadius: 999,
+    backgroundColor: "#2A2A2ACC",
+  },
+  devChipActive: { backgroundColor: "#3F6B40" },
+  devChipText: { color: "#FFF", fontSize: 12, fontWeight: "600" },
 });
