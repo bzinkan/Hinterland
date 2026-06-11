@@ -62,13 +62,26 @@ function hexToLinearRgb(hex) {
   return srgb.map((c) => (c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4));
 }
 
+function linearToSrgbChannel(c) {
+  return c <= 0.0031308 ? c * 12.92 : 1.055 * c ** (1 / 2.4) - 0.055;
+}
+
+// Match in sRGB space with a hue-aware weight: pure-linear euclidean
+// distance maps bright greens onto pale blues (the leafsGreen->sky bug).
+// Authored paletteSlots in assets.json always win over this heuristic.
 function nearestSlot(linearRgb) {
+  const c = linearRgb.map(linearToSrgbChannel);
   let best = null;
   let bestDist = Infinity;
   for (const [name, hex] of Object.entries(palette)) {
-    const p = hexToLinearRgb(hex);
+    const v = hex.replace("#", "");
+    const p = [0, 2, 4].map((i) => parseInt(v.slice(i, i + 2), 16) / 255);
+    // Weighted: penalize channel-ORDER mismatches (hue flips) heavily.
     const d =
-      (p[0] - linearRgb[0]) ** 2 + (p[1] - linearRgb[1]) ** 2 + (p[2] - linearRgb[2]) ** 2;
+      (p[0] - c[0]) ** 2 +
+      (p[1] - c[1]) ** 2 +
+      (p[2] - c[2]) ** 2 +
+      (Math.sign(c[1] - c[2]) !== Math.sign(p[1] - p[2]) ? 0.25 : 0);
     if (d < bestDist) {
       bestDist = d;
       best = name;

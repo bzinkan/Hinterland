@@ -12,10 +12,10 @@
     {
       "id": "kenney-nature-kit",
       "name": "Kenney Nature Kit",
-      "url": "https://kenney.nl/assets/nature-kit",
+      "url": "https://kenney.nl/media/pages/assets/nature-kit/37ac38a37b-1677698939/kenney_nature-kit.zip",
       "license": "CC0",
-      "sha256": null,
-      "notes": "~330 low-poly nature models (trees, rocks, foliage, terrain). Download manually; record sha256 of the zip when first used."
+      "sha256": "FA7974A0D342BFE63C38664BA9F8EC1A4AAB8EA25F099BDC56870E33588C4D9D",
+      "notes": "330 low-poly nature models. Downloaded 2026-06-10; GLB format folder used. Extract to .cache/kenney-nature-kit/."
     },
     {
       "id": "kenney-fantasy-town-kit",

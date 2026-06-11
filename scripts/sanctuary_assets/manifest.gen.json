@@ -1,4 +1,185 @@
 {
   "elements": [],
-  "scenery": []
+  "scenery": [
+    {
+      "name": "bush",
+      "out": "meadow/bush.glb",
+      "zone": "meadow",
+      "anchor": null,
+      "scale": 1,
+      "rotationY": 0,
+      "animations": [],
+      "tierMin": 1
+    },
+    {
+      "name": "bush-large",
+      "out": "meadow/bush-large.glb",
+      "zone": "meadow",
+      "anchor": null,
+      "scale": 1,
+      "rotationY": 0,
+      "animations": [],
+      "tierMin": 3
+    },
+    {
+      "name": "flower-purple",
+      "out": "meadow/flower-purple.glb",
+      "zone": "meadow",
+      "anchor": null,
+      "scale": 1,
+      "rotationY": 0,
+      "animations": [],
+      "tierMin": 3
+    },
+    {
+      "name": "flower-red",
+      "out": "meadow/flower-red.glb",
+      "zone": "meadow",
+      "anchor": null,
+      "scale": 1,
+      "rotationY": 0,
+      "animations": [],
+      "tierMin": 5
+    },
+    {
+      "name": "flower-yellow",
+      "out": "meadow/flower-yellow.glb",
+      "zone": "meadow",
+      "anchor": null,
+      "scale": 1,
+      "rotationY": 0,
+      "animations": [],
+      "tierMin": 3
+    },
+    {
+      "name": "mushroom-group",
+      "out": "woodland/mushroom-group.glb",
+      "zone": "woodland",
+      "anchor": null,
+      "scale": 1,
+      "rotationY": 0,
+      "animations": [],
+      "tierMin": 5
+    },
+    {
+      "name": "pine-round",
+      "out": "woodland/pine-round.glb",
+      "zone": "woodland",
+      "anchor": null,
+      "scale": 1,
+      "rotationY": 0,
+      "animations": [],
+      "tierMin": 1
+    },
+    {
+      "name": "pine-tall",
+      "out": "woodland/pine-tall.glb",
+      "zone": "woodland",
+      "anchor": null,
+      "scale": 1,
+      "rotationY": 0,
+      "animations": [],
+      "tierMin": 3
+    },
+    {
+      "name": "rock-large-a",
+      "out": "shared/rock-large-a.glb",
+      "zone": "woodland",
+      "anchor": null,
+      "scale": 1,
+      "rotationY": 0,
+      "animations": [],
+      "tierMin": 1
+    },
+    {
+      "name": "rock-large-c",
+      "out": "shared/rock-large-c.glb",
+      "zone": "woodland",
+      "anchor": null,
+      "scale": 1,
+      "rotationY": 0,
+      "animations": [],
+      "tierMin": 1
+    },
+    {
+      "name": "rock-small-a",
+      "out": "shared/rock-small-a.glb",
+      "zone": "woodland",
+      "anchor": null,
+      "scale": 1,
+      "rotationY": 0,
+      "animations": [],
+      "tierMin": 1
+    },
+    {
+      "name": "rock-small-d",
+      "out": "shared/rock-small-d.glb",
+      "zone": "woodland",
+      "anchor": null,
+      "scale": 1,
+      "rotationY": 0,
+      "animations": [],
+      "tierMin": 1
+    },
+    {
+      "name": "rock-tall-b",
+      "out": "shared/rock-tall-b.glb",
+      "zone": "woodland",
+      "anchor": null,
+      "scale": 1,
+      "rotationY": 0,
+      "animations": [],
+      "tierMin": 1
+    },
+    {
+      "name": "stump-round",
+      "out": "woodland/stump-round.glb",
+      "zone": "woodland",
+      "anchor": null,
+      "scale": 1,
+      "rotationY": 0,
+      "animations": [],
+      "tierMin": 3
+    },
+    {
+      "name": "tree-default",
+      "out": "woodland/tree-default.glb",
+      "zone": "woodland",
+      "anchor": null,
+      "scale": 1,
+      "rotationY": 0,
+      "animations": [],
+      "tierMin": 1
+    },
+    {
+      "name": "tree-detailed",
+      "out": "woodland/tree-detailed.glb",
+      "zone": "woodland",
+      "anchor": null,
+      "scale": 1,
+      "rotationY": 0,
+      "animations": [],
+      "tierMin": 3
+    },
+    {
+      "name": "tree-oak",
+      "out": "woodland/tree-oak.glb",
+      "zone": "woodland",
+      "anchor": null,
+      "scale": 1,
+      "rotationY": 0,
+      "animations": [],
+      "tierMin": 1
+    },
+    {
+      "name": "tree-thin",
+      "out": "woodland/tree-thin.glb",
+      "zone": "woodland",
+      "anchor": null,
+      "scale": 1,
+      "rotationY": 0,
+      "animations": [],
+      "tierMin": 1
+    }
+  ]
 }

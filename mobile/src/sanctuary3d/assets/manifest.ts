@@ -34,4 +34,9 @@ export function modeledIconKeys(): string[] {
   return Object.keys(SANCTUARY_ELEMENT_ASSETS);
 }
 
+/** One scenery (tier-dressing) entry by manifest name, or null. */
+export function getSceneryAsset(name: string): SanctuarySceneryAsset | null {
+  return SANCTUARY_SCENERY_ASSETS[name] ?? null;
+}
+
 export type { SanctuaryElementAsset, SanctuarySceneryAsset };

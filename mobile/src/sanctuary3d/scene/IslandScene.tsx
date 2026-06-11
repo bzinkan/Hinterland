@@ -10,6 +10,7 @@ import React from "react";
 import type { SanctuaryElementDto, SanctuaryZoneId } from "@/src/api/sanctuary";
 import type { ScenePlan } from "@/src/sanctuary3d/scenePlan";
 import { GrassField } from "@/src/sanctuary3d/scene/GrassField";
+import { IslandDressing } from "@/src/sanctuary3d/scene/IslandDressing";
 import { SkyDome } from "@/src/sanctuary3d/scene/SkyDome";
 import { TerrainMesh } from "@/src/sanctuary3d/scene/TerrainMesh";
 import { ZoneGroup } from "@/src/sanctuary3d/scene/ZoneGroup";
@@ -33,6 +34,7 @@ export function IslandScene({
       <SkyDome topColor={plan.palette.skyTop} horizonColor={plan.palette.horizon} />
       <TerrainMesh plan={plan} />
       <GrassField dormant={meadowDormant} />
+      <IslandDressing plan={plan} />
       {/* Rocky underside taper: closes the floating-island silhouette.
           Kept tight and shadow-dark so it never competes with the frame. */}
       <mesh position={[0, -3.9, 0]}>

@@ -226,7 +226,8 @@ function IslandCanvas({
       />
       <CameraRig view={focusedZone ? ZONE_VIEWS[focusedZone] : VISTA_VIEW} />
       <color attach="background" args={[plan.palette.horizon]} />
-      <fog attach="fog" args={[plan.palette.fog, 16, 46]} />
+      {/* Fog starts beyond the island so it hazes the horizon, not the trees. */}
+      <fog attach="fog" args={[plan.palette.fog, 26, 70]} />
       <hemisphereLight
         args={[plan.palette.hemiSky, plan.palette.hemiGround, 0.85]}
       />

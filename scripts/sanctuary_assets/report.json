@@ -3,5 +3,293 @@
     "name": "spike-tree",
     "out": "dev/spike-tree.glb",
     "skipped": "generated"
+  },
+  {
+    "name": "tree-default",
+    "out": "woodland/tree-default.glb",
+    "kb": 6,
+    "tris": 114,
+    "budget": {
+      "maxTris": 3000,
+      "maxKB": 60
+    },
+    "withinBudget": true,
+    "paletteSlots": {
+      "woodBark": "bark",
+      "leafsGreen": "green_mid"
+    },
+    "animations": []
+  },
+  {
+    "name": "tree-oak",
+    "out": "woodland/tree-oak.glb",
+    "kb": 8,
+    "tris": 196,
+    "budget": {
+      "maxTris": 3000,
+      "maxKB": 60
+    },
+    "withinBudget": true,
+    "paletteSlots": {
+      "leafsGreen": "green_mid",
+      "woodBark": "bark"
+    },
+    "animations": []
+  },
+  {
+    "name": "tree-detailed",
+    "out": "woodland/tree-detailed.glb",
+    "kb": 17,
+    "tris": 402,
+    "budget": {
+      "maxTris": 3000,
+      "maxKB": 60
+    },
+    "withinBudget": true,
+    "paletteSlots": {
+      "leafsGreen": "green_mid",
+      "woodBark": "bark",
+      "_defaultMat": "cloud"
+    },
+    "animations": []
+  },
+  {
+    "name": "tree-thin",
+    "out": "woodland/tree-thin.glb",
+    "kb": 9,
+    "tris": 228,
+    "budget": {
+      "maxTris": 3000,
+      "maxKB": 60
+    },
+    "withinBudget": true,
+    "paletteSlots": {
+      "leafsGreen": "green_mid",
+      "woodBark": "bark"
+    },
+    "animations": []
+  },
+  {
+    "name": "pine-round",
+    "out": "woodland/pine-round.glb",
+    "kb": 8,
+    "tris": 204,
+    "budget": {
+      "maxTris": 3000,
+      "maxKB": 60
+    },
+    "withinBudget": true,
+    "paletteSlots": {
+      "woodBarkDark": "bark",
+      "leafsDark": "green_deep"
+    },
+    "animations": []
+  },
+  {
+    "name": "pine-tall",
+    "out": "woodland/pine-tall.glb",
+    "kb": 5,
+    "tris": 78,
+    "budget": {
+      "maxTris": 3000,
+      "maxKB": 60
+    },
+    "withinBudget": true,
+    "paletteSlots": {
+      "woodBarkDark": "bark",
+      "leafsDark": "green_deep"
+    },
+    "animations": []
+  },
+  {
+    "name": "stump-round",
+    "out": "woodland/stump-round.glb",
+    "kb": 4,
+    "tris": 56,
+    "budget": {
+      "maxTris": 3000,
+      "maxKB": 60
+    },
+    "withinBudget": true,
+    "paletteSlots": {
+      "woodBark": "bark",
+      "woodInner": "sand"
+    },
+    "animations": []
+  },
+  {
+    "name": "mushroom-group",
+    "out": "woodland/mushroom-group.glb",
+    "kb": 8,
+    "tris": 144,
+    "budget": {
+      "maxTris": 3000,
+      "maxKB": 60
+    },
+    "withinBudget": true,
+    "paletteSlots": {
+      "_defaultMat": "cloud",
+      "colorRed": "accent_warm"
+    },
+    "animations": []
+  },
+  {
+    "name": "rock-large-a",
+    "out": "shared/rock-large-a.glb",
+    "kb": 5,
+    "tris": 80,
+    "budget": {
+      "maxTris": 3000,
+      "maxKB": 60
+    },
+    "withinBudget": true,
+    "paletteSlots": {
+      "dirt": "earth_mid",
+      "grass": "green_light"
+    },
+    "animations": []
+  },
+  {
+    "name": "rock-large-c",
+    "out": "shared/rock-large-c.glb",
+    "kb": 4,
+    "tris": 72,
+    "budget": {
+      "maxTris": 3000,
+      "maxKB": 60
+    },
+    "withinBudget": true,
+    "paletteSlots": {
+      "dirt": "earth_mid",
+      "grass": "green_light"
+    },
+    "animations": []
+  },
+  {
+    "name": "rock-tall-b",
+    "out": "shared/rock-tall-b.glb",
+    "kb": 8,
+    "tris": 172,
+    "budget": {
+      "maxTris": 3000,
+      "maxKB": 60
+    },
+    "withinBudget": true,
+    "paletteSlots": {
+      "dirt": "earth_mid",
+      "grass": "green_light",
+      "_defaultMat": "cloud"
+    },
+    "animations": []
+  },
+  {
+    "name": "rock-small-a",
+    "out": "shared/rock-small-a.glb",
+    "kb": 2,
+    "tris": 16,
+    "budget": {
+      "maxTris": 3000,
+      "maxKB": 60
+    },
+    "withinBudget": true,
+    "paletteSlots": {
+      "grass": "green_light",
+      "dirt": "earth_mid"
+    },
+    "animations": []
+  },
+  {
+    "name": "rock-small-d",
+    "out": "shared/rock-small-d.glb",
+    "kb": 3,
+    "tris": 32,
+    "budget": {
+      "maxTris": 3000,
+      "maxKB": 60
+    },
+    "withinBudget": true,
+    "paletteSlots": {
+      "grass": "green_light",
+      "dirt": "earth_mid"
+    },
+    "animations": []
+  },
+  {
+    "name": "flower-purple",
+    "out": "meadow/flower-purple.glb",
+    "kb": 4,
+    "tris": 76,
+    "budget": {
+      "maxTris": 3000,
+      "maxKB": 60
+    },
+    "withinBudget": true,
+    "paletteSlots": {
+      "grass": "green_light",
+      "colorPurple": "accent_cool"
+    },
+    "animations": []
+  },
+  {
+    "name": "flower-yellow",
+    "out": "meadow/flower-yellow.glb",
+    "kb": 4,
+    "tris": 76,
+    "budget": {
+      "maxTris": 3000,
+      "maxKB": 60
+    },
+    "withinBudget": true,
+    "paletteSlots": {
+      "grass": "green_light",
+      "colorYellow": "glow"
+    },
+    "animations": []
+  },
+  {
+    "name": "flower-red",
+    "out": "meadow/flower-red.glb",
+    "kb": 4,
+    "tris": 76,
+    "budget": {
+      "maxTris": 3000,
+      "maxKB": 60
+    },
+    "withinBudget": true,
+    "paletteSlots": {
+      "grass": "green_light",
+      "colorRed": "accent_warm"
+    },
+    "animations": []
+  },
+  {
+    "name": "bush",
+    "out": "meadow/bush.glb",
+    "kb": 3,
+    "tris": 32,
+    "budget": {
+      "maxTris": 3000,
+      "maxKB": 60
+    },
+    "withinBudget": true,
+    "paletteSlots": {
+      "grass": "green_light"
+    },
+    "animations": []
+  },
+  {
+    "name": "bush-large",
+    "out": "meadow/bush-large.glb",
+    "kb": 4,
+    "tris": 60,
+    "budget": {
+      "maxTris": 3000,
+      "maxKB": 60
+    },
+    "withinBudget": true,
+    "paletteSlots": {
+      "grass": "green_light"
+    },
+    "animations": []
   }
 ]

@@ -67,12 +67,7 @@ export function TerrainMesh({ plan }: { plan: ScenePlan }) {
         rotation={[-Math.PI / 2, 0, 0]}
       >
         <circleGeometry args={[ZONE_LAYOUT.pond.radius * 1.05, 24]} />
-        <meshToonMaterial
-          color="#5F93A8"
-          gradientMap={toonRamp()}
-          transparent
-          opacity={0.92}
-        />
+        <meshBasicMaterial color="#7FB8C4" transparent opacity={0.9} />
       </mesh>
     </group>
   );
