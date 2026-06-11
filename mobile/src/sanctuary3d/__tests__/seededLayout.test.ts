@@ -4,6 +4,7 @@ import {
   placeElement,
 } from "@/src/sanctuary3d/placement/seededLayout";
 import { ZONE_LAYOUT } from "@/src/sanctuary3d/placement/zoneAnchors";
+import { heightAt } from "@/src/sanctuary3d/terrain/heightfield";
 import { SANCTUARY_ZONE_ORDER } from "@/src/api/sanctuary";
 
 describe("fnv1a32 / mulberry32", () => {
@@ -41,13 +42,19 @@ describe("placeElement", () => {
     "keeps %s placements inside the zone footprint",
     (zoneId) => {
       const layout = ZONE_LAYOUT[zoneId];
+      const onTerrain = ["meadow", "woodland", "pond", "urban"].includes(zoneId);
       for (let i = 0; i < 12; i++) {
         const t = placeElement(zoneId, `el_${i}`, i, 12);
         const dx = t.position[0] - layout.center[0];
         const dz = t.position[2] - layout.center[2];
         const dist = Math.hypot(dx, dz);
         expect(dist).toBeLessThanOrEqual(layout.radius * 1.01);
-        expect(t.position[1]).toBe(layout.center[1]);
+        if (onTerrain) {
+          // Ground zones stand on the sculpted terrain.
+          expect(t.position[1]).toBe(heightAt(t.position[0], t.position[2]));
+        } else {
+          expect(t.position[1]).toBe(layout.center[1]);
+        }
         expect(t.scale).toBeGreaterThanOrEqual(0.9);
         expect(t.scale).toBeLessThanOrEqual(1.1);
       }

@@ -35,11 +35,13 @@ import React, {
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
-import type { SanctuaryElementDto } from "@/src/api/sanctuary";
+import type { SanctuaryElementDto, SanctuaryZoneId } from "@/src/api/sanctuary";
 import { env } from "@/src/config/env";
 import Sanctuary2DScreen from "@/src/sanctuary/Sanctuary2DScreen";
 import { ElementInspectModal } from "@/src/sanctuary/panels/ElementInspectModal";
 import { useSanctuary } from "@/src/sanctuary/useSanctuary";
+import { CameraRig } from "@/src/sanctuary3d/camera/CameraRig";
+import { VISTA_VIEW, ZONE_VIEWS } from "@/src/sanctuary3d/camera/cameraViews";
 import {
   DEV_TIER_LADDER,
   makeSampleSnapshot,
@@ -58,6 +60,7 @@ export default function Sanctuary3DScreen() {
   const recordGlCrash = useSanctuary3DPrefs((s) => s.recordGlCrash);
   const [sessionFallback, setSessionFallback] = useState(false);
   const [inspected, setInspected] = useState<SanctuaryElementDto | null>(null);
+  const [focusedZone, setFocusedZone] = useState<SanctuaryZoneId | null>(null);
 
   // Dev preview: null = off (real data), number = sample snapshot at tier.
   const [devTier, setDevTier] = useState<number | null>(null);
@@ -132,12 +135,23 @@ export default function Sanctuary3DScreen() {
         <View style={styles.canvasWrap}>
           <IslandCanvas
             plan={plan}
+            focusedZone={focusedZone}
             onInspect={setInspected}
+            onFocusZone={setFocusedZone}
             onMountFailure={() => {
               recordGlCrash();
               setSessionFallback(true);
             }}
           />
+          {focusedZone ? (
+            <Pressable
+              accessibilityRole="button"
+              style={styles.backChip}
+              onPress={() => setFocusedZone(null)}
+            >
+              <Text style={styles.backChipText}>‹ Back to island</Text>
+            </Pressable>
+          ) : null}
           {DEV_CONTROLS_ENABLED ? (
             <DevTierStepper devTier={devTier} onSelect={setDevTier} />
           ) : null}
@@ -157,11 +171,15 @@ export default function Sanctuary3DScreen() {
 
 function IslandCanvas({
   plan,
+  focusedZone,
   onInspect,
+  onFocusZone,
   onMountFailure,
 }: {
   plan: ScenePlan;
+  focusedZone: SanctuaryZoneId | null;
   onInspect: (element: SanctuaryElementDto) => void;
+  onFocusZone: (zone: SanctuaryZoneId | null) => void;
   onMountFailure: () => void;
 }) {
   const firstFrameSeen = useRef(false);
@@ -179,9 +197,13 @@ function IslandCanvas({
   return (
     <Canvas
       style={styles.canvas}
-      camera={{ position: [0, 6.5, 11], fov: 42 }}
+      camera={{
+        position: [...VISTA_VIEW.position],
+        fov: 50,
+        near: 0.2,
+        far: 140,
+      }}
       onCreated={(state) => {
-        state.camera.lookAt(0, 0, 0);
         // New-architecture workaround lineage (r3f #3399): expo-gl does not
         // implement UNPACK_FLIP_Y_WEBGL; filter it out of pixelStorei calls.
         // Harmless no-op on web.
@@ -200,16 +222,22 @@ function IslandCanvas({
           firstFrameSeen.current = true;
         }}
       />
-      <color attach="background" args={[plan.palette.sky]} />
-      <fog attach="fog" args={[plan.palette.fog, 14, 34]} />
+      <CameraRig view={focusedZone ? ZONE_VIEWS[focusedZone] : VISTA_VIEW} />
+      <color attach="background" args={[plan.palette.horizon]} />
+      <fog attach="fog" args={[plan.palette.fog, 16, 46]} />
       <hemisphereLight
-        args={[plan.palette.hemiSky, plan.palette.hemiGround, 0.9]}
+        args={[plan.palette.hemiSky, plan.palette.hemiGround, 0.85]}
       />
       <directionalLight
-        position={[5, 8, 4]}
+        position={[6, 9, 3]}
+        color={plan.palette.sunColor}
         intensity={plan.palette.sunIntensity}
       />
-      <IslandScene plan={plan} onInspect={onInspect} />
+      <IslandScene
+        plan={plan}
+        onInspect={onInspect}
+        onFocusZone={onFocusZone}
+      />
     </Canvas>
   );
 }
@@ -329,4 +357,14 @@ const styles = StyleSheet.create({
   },
   devChipActive: { backgroundColor: "#3F6B40" },
   devChipText: { color: "#FFF", fontSize: 12, fontWeight: "600" },
+  backChip: {
+    position: "absolute",
+    top: 10,
+    left: 12,
+    paddingVertical: 7,
+    paddingHorizontal: 12,
+    borderRadius: 999,
+    backgroundColor: "#2A2A2ACC",
+  },
+  backChipText: { color: "#FFF", fontSize: 13, fontWeight: "600" },
 });

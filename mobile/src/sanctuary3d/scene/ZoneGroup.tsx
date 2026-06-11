@@ -1,47 +1,90 @@
 /**
- * One zone of the island: ground patch (awake color vs dormant grey),
- * placed elements, and the mystery silhouette when cued. Geometry is the
- * M1 placeholder treatment until the authored island mesh lands (A3) --
- * the ZonePlan contract this renders from is final.
+ * One zone of the island: its placed elements, the mystery silhouette when
+ * cued, special geometry for the off-terrain zones (sky puff, elsewhere
+ * islet, soil cliff panel), and an invisible tap disc that dives the
+ * camera into the zone. Ground coloring itself lives in the terrain's
+ * vertex paint (terrainColors.ts) -- awake/dormant is painted, not patched.
  */
 
 import React from "react";
 
-import type { SanctuaryElementDto } from "@/src/api/sanctuary";
+import type { SanctuaryElementDto, SanctuaryZoneId } from "@/src/api/sanctuary";
 import { ZONE_LAYOUT } from "@/src/sanctuary3d/placement/zoneAnchors";
 import type { ZonePlan } from "@/src/sanctuary3d/scenePlan";
 import { ElementModel } from "@/src/sanctuary3d/scene/ElementModel";
 import { MysterySilhouette } from "@/src/sanctuary3d/scene/MysterySilhouette";
+import { toonRamp } from "@/src/sanctuary3d/scene/toonRamp";
 import {
   DORMANT_COLOR,
   ZONE_PLACEHOLDER_COLOR,
 } from "@/src/sanctuary3d/scene/zoneColors";
+import { heightAt } from "@/src/sanctuary3d/terrain/heightfield";
+
+const TERRAIN_ZONES = new Set<SanctuaryZoneId>([
+  "meadow",
+  "woodland",
+  "pond",
+  "urban",
+]);
 
 export function ZoneGroup({
   plan,
-  groundColor,
   onInspect,
+  onFocusZone,
 }: {
   plan: ZonePlan;
-  groundColor: string;
   onInspect: (element: SanctuaryElementDto) => void;
+  onFocusZone: (zone: SanctuaryZoneId) => void;
 }) {
   const layout = ZONE_LAYOUT[plan.zoneId];
   const awake = plan.unlocked;
   const color = awake
-    ? (ZONE_PLACEHOLDER_COLOR[plan.zoneId] ?? groundColor)
+    ? (ZONE_PLACEHOLDER_COLOR[plan.zoneId] ?? DORMANT_COLOR)
     : DORMANT_COLOR;
   const [cx, cy, cz] = layout.center;
+  const focus = () => onFocusZone(plan.zoneId);
 
   return (
     <group>
-      <ZonePatch
-        zoneId={plan.zoneId}
-        color={color}
-        center={[cx, cy, cz]}
-        radius={layout.radius}
-        awake={awake}
-      />
+      {/* Off-terrain zone geometry. */}
+      {plan.zoneId === "sky" && awake ? (
+        <mesh position={[cx, cy, cz]} onClick={(e) => { e.stopPropagation(); focus(); }}>
+          <sphereGeometry args={[0.6, 10, 8]} />
+          <meshToonMaterial color="#F4F7F8" gradientMap={toonRamp()} />
+        </mesh>
+      ) : null}
+      {plan.zoneId === "elsewhere" ? (
+        <mesh position={[cx, cy, cz]} onClick={(e) => { e.stopPropagation(); focus(); }}>
+          <cylinderGeometry args={[layout.radius, layout.radius * 0.55, 0.5, 7]} />
+          <meshToonMaterial color={color} gradientMap={toonRamp()} />
+        </mesh>
+      ) : null}
+      {plan.zoneId === "soil" ? (
+        <mesh
+          position={[cx, cy, cz]}
+          rotation={[-0.18, 0, 0]}
+          onClick={(e) => { e.stopPropagation(); focus(); }}
+        >
+          <boxGeometry args={[layout.radius * 2, 1.2, 0.25]} />
+          <meshToonMaterial color={color} gradientMap={toonRamp()} />
+        </mesh>
+      ) : null}
+
+      {/* Invisible camera-dive tap disc on the terrain zones. */}
+      {TERRAIN_ZONES.has(plan.zoneId) ? (
+        <mesh
+          position={[cx, heightAt(cx, cz) + 0.05, cz]}
+          rotation={[-Math.PI / 2, 0, 0]}
+          onClick={(e) => {
+            e.stopPropagation();
+            focus();
+          }}
+        >
+          <circleGeometry args={[layout.radius, 14]} />
+          <meshBasicMaterial transparent opacity={0} depthWrite={false} />
+        </mesh>
+      ) : null}
+
       {plan.elements.map((placed) => (
         <ElementModel
           key={placed.element.element_id}
@@ -51,56 +94,5 @@ export function ZoneGroup({
       ))}
       {plan.silhouette ? <MysterySilhouette zoneId={plan.zoneId} /> : null}
     </group>
-  );
-}
-
-function ZonePatch({
-  zoneId,
-  color,
-  center,
-  radius,
-  awake,
-}: {
-  zoneId: string;
-  color: string;
-  center: readonly [number, number, number];
-  radius: number;
-  awake: boolean;
-}) {
-  const [cx, cy, cz] = center;
-  if (zoneId === "sky") {
-    // Sky zone: a cloud puff overhead once awake; nothing while dormant
-    // (an empty sky reads fine -- the silhouette covers the cue case).
-    return awake ? (
-      <mesh position={[cx, cy, cz]}>
-        <sphereGeometry args={[0.6, 10, 8]} />
-        <meshLambertMaterial color={color} />
-      </mesh>
-    ) : null;
-  }
-  if (zoneId === "elsewhere") {
-    // Detached floating islet.
-    return (
-      <mesh position={[cx, cy, cz]}>
-        <cylinderGeometry args={[radius, radius * 0.55, 0.5, 7]} />
-        <meshLambertMaterial color={color} />
-      </mesh>
-    );
-  }
-  if (zoneId === "soil") {
-    // Front cliff cross-section panel.
-    return (
-      <mesh position={[cx, cy, cz]} rotation={[-0.32, 0, 0]}>
-        <boxGeometry args={[radius * 2, 1.1, 0.2]} />
-        <meshLambertMaterial color={color} />
-      </mesh>
-    );
-  }
-  // Ground zones: a slightly raised patch at the zone center.
-  return (
-    <mesh position={[cx, 0.02, cz]} rotation={[-Math.PI / 2, 0, 0]}>
-      <circleGeometry args={[radius, 16]} />
-      <meshLambertMaterial color={color} />
-    </mesh>
   );
 }

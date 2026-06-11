@@ -15,6 +15,7 @@
 import React from "react";
 
 import type { SanctuaryElementType } from "@/src/api/sanctuary";
+import { toonRamp } from "@/src/sanctuary3d/scene/toonRamp";
 
 export function FallbackShape({
   elementType,
@@ -28,28 +29,28 @@ export function FallbackShape({
       return (
         <mesh position={[0, 0.35, 0]}>
           <octahedronGeometry args={[0.28]} />
-          <meshLambertMaterial color={color} />
+          <meshToonMaterial color={color} gradientMap={toonRamp()} />
         </mesh>
       );
     case "relationship":
       return (
         <mesh position={[0, 0.25, 0]} rotation={[Math.PI / 2, 0, 0]}>
           <torusGeometry args={[0.22, 0.07, 8, 16]} />
-          <meshLambertMaterial color={color} />
+          <meshToonMaterial color={color} gradientMap={toonRamp()} />
         </mesh>
       );
     case "surprise":
       return (
         <mesh position={[0, 0.16, 0]}>
           <tetrahedronGeometry args={[0.2]} />
-          <meshLambertMaterial color={color} />
+          <meshToonMaterial color={color} gradientMap={toonRamp()} />
         </mesh>
       );
     case "signature":
       return (
         <mesh position={[0, 0.45, 0]}>
           <coneGeometry args={[0.22, 0.9, 6]} />
-          <meshLambertMaterial color={color} />
+          <meshToonMaterial color={color} gradientMap={toonRamp()} />
         </mesh>
       );
     case "coarse":
@@ -57,7 +58,7 @@ export function FallbackShape({
       return (
         <mesh position={[0, 0.12, 0]} scale={[1, 0.55, 1]}>
           <sphereGeometry args={[0.3, 10, 8]} />
-          <meshLambertMaterial color={color} />
+          <meshToonMaterial color={color} gradientMap={toonRamp()} />
         </mesh>
       );
   }

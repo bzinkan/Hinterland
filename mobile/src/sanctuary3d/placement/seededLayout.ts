@@ -8,35 +8,28 @@
  * arrangement reads organic, not gridded. A new unlock changes only its own
  * slot; existing inhabitants never move ("my monarch lives there").
  *
+ * Ground-zone Y comes from the terrain heightfield so elements stand ON
+ * the sculpted island; sky/elsewhere/soil keep their authored heights.
+ *
  * Pure data + math -- no three imports, fully unit-testable.
  */
 
 import type { SanctuaryZoneId } from "@/src/api/sanctuary";
+import { fnv1a32, mulberry32 } from "@/src/sanctuary3d/placement/seeds";
 import { ZONE_LAYOUT, type Vec3 } from "@/src/sanctuary3d/placement/zoneAnchors";
+import { heightAt } from "@/src/sanctuary3d/terrain/heightfield";
 
-/** FNV-1a 32-bit string hash (stable across platforms/sessions). */
-export function fnv1a32(text: string): number {
-  let hash = 0x811c9dc5;
-  for (let i = 0; i < text.length; i++) {
-    hash ^= text.charCodeAt(i);
-    hash = Math.imul(hash, 0x01000193);
-  }
-  return hash >>> 0;
-}
-
-/** mulberry32 PRNG: tiny, deterministic, good enough for visual jitter. */
-export function mulberry32(seed: number): () => number {
-  let state = seed >>> 0;
-  return () => {
-    state = (state + 0x6d2b79f5) >>> 0;
-    let t = state;
-    t = Math.imul(t ^ (t >>> 15), t | 1);
-    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
+export { fnv1a32, mulberry32 } from "@/src/sanctuary3d/placement/seeds";
 
 const GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5)); // ~2.39996 rad
+
+/** Zones whose elements stand on the sculpted terrain surface. */
+const TERRAIN_ZONES = new Set<SanctuaryZoneId>([
+  "meadow",
+  "woodland",
+  "pond",
+  "urban",
+]);
 
 export type ElementTransform = {
   position: Vec3;
@@ -81,8 +74,12 @@ export function placeElement(
   }
 
   const [cx, cy, cz] = layout.center;
+  const x = cx + dx;
+  const z = cz + dz;
+  const y = TERRAIN_ZONES.has(zoneId) ? heightAt(x, z) : cy;
+
   return {
-    position: [cx + dx, cy, cz + dz],
+    position: [x, y, z],
     rotationY: rng() * Math.PI * 2,
     scale: 0.9 + rng() * 0.2,
   };

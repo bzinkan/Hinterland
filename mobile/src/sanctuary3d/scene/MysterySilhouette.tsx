@@ -11,11 +11,20 @@ import React from "react";
 import type { SanctuaryZoneId } from "@/src/api/sanctuary";
 import { ZONE_LAYOUT } from "@/src/sanctuary3d/placement/zoneAnchors";
 import { SILHOUETTE_COLOR } from "@/src/sanctuary3d/scene/zoneColors";
+import { heightAt } from "@/src/sanctuary3d/terrain/heightfield";
+
+const TERRAIN_ZONES = new Set<SanctuaryZoneId>([
+  "meadow",
+  "woodland",
+  "pond",
+  "urban",
+]);
 
 export function MysterySilhouette({ zoneId }: { zoneId: SanctuaryZoneId }) {
   const [cx, cy, cz] = ZONE_LAYOUT[zoneId].center;
+  const y = TERRAIN_ZONES.has(zoneId) ? heightAt(cx, cz) : cy;
   return (
-    <group position={[cx, cy, cz]}>
+    <group position={[cx, y, cz]}>
       <mesh position={[0, 0.5, 0]}>
         {zoneId === "pond" ? (
           // Lily-pad disc for the pond...
