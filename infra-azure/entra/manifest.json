@@ -77,16 +77,17 @@
         "roleDefinitionId": "b86a8fe4-44ce-4948-aee5-eccb2c155cd7"
       }
     ],
+    "secretsNote": "Secret names only. Resolve the live URI as {keyVault.uri}secrets/{name}; per-version URIs are intentionally not recorded in the repo.",
     "secrets": {
       "kid-jwt-signing-key": {
-        "id": "https://dragonfly-kv-dev.vault.azure.net/secrets/kid-jwt-signing-key/f4493e6513e0492389a4b1889c51469d",
+        "name": "kid-jwt-signing-key",
         "kid": "k1-2026-06",
         "alg": "RS256",
         "purpose": "kid-handoff-jwt",
         "format": "PEM PKCS#8 RSA 2048 private key"
       },
       "kid-jwt-public-key": {
-        "id": "https://dragonfly-kv-dev.vault.azure.net/secrets/kid-jwt-public-key/19104a96a62047368aa33cea913ffd8f",
+        "name": "kid-jwt-public-key",
         "kid": "k1-2026-06",
         "alg": "RS256",
         "purpose": "kid-handoff-jwt",
@@ -94,63 +95,62 @@
         "servedAt": "/.well-known/dragonfly-kid-jwks.json"
       },
       "entra-tenant-id": {
-        "id": "https://dragonfly-kv-dev.vault.azure.net/secrets/entra-tenant-id/50bd5cd0932c4faaa7220b5cb64ae6b9"
+        "name": "entra-tenant-id"
       },
       "entra-api-app-id": {
-        "id": "https://dragonfly-kv-dev.vault.azure.net/secrets/entra-api-app-id/5f8eafe113044d2d800b27dd4b81f577"
+        "name": "entra-api-app-id"
       },
       "entra-client-app-id": {
-        "id": "https://dragonfly-kv-dev.vault.azure.net/secrets/entra-client-app-id/85ec2a81338e430b9163591aff3a5cea"
+        "name": "entra-client-app-id"
       },
       "entra-api-scope-user-access-guid": {
-        "id": "https://dragonfly-kv-dev.vault.azure.net/secrets/entra-api-scope-user-access-guid/ea4821ddcb434ba9a85d9c60e43e9d73"
+        "name": "entra-api-scope-user-access-guid"
       },
       "postgres-admin-password": {
-        "id": "https://dragonfly-kv-dev.vault.azure.net/secrets/postgres-admin-password/381af71e637f483780d99f341f4326de",
-        "format": "string (24+suffix 'Aa1!')",
+        "name": "postgres-admin-password",
         "purpose": "postgres-admin"
       },
       "postgres-host": {
-        "id": "https://dragonfly-kv-dev.vault.azure.net/secrets/postgres-host/b5d8aa17e4c14fdea942e1c6305ab8d9"
+        "name": "postgres-host"
       },
       "postgres-port": {
-        "id": "https://dragonfly-kv-dev.vault.azure.net/secrets/postgres-port/24609360ee4c4938920a1b079573b95d"
+        "name": "postgres-port"
       },
       "postgres-database": {
-        "id": "https://dragonfly-kv-dev.vault.azure.net/secrets/postgres-database/ec0c33b7c526431a9969da67c9eef060"
+        "name": "postgres-database"
       },
       "postgres-admin-user": {
-        "id": "https://dragonfly-kv-dev.vault.azure.net/secrets/postgres-admin-user/78604cb08b6b422a805d2499cc2d9beb"
+        "name": "postgres-admin-user"
       },
       "blob-account-name": {
-        "id": "https://dragonfly-kv-dev.vault.azure.net/secrets/blob-account-name/7c6073a154564dcf9f0ab988ef3920fa"
+        "name": "blob-account-name"
       },
       "blob-photos-container": {
-        "id": "https://dragonfly-kv-dev.vault.azure.net/secrets/blob-photos-container/bb4eff95c1b74ddbbfef855c6ee13ae0"
+        "name": "blob-photos-container"
       },
       "blob-account-endpoint": {
-        "id": "https://dragonfly-kv-dev.vault.azure.net/secrets/blob-account-endpoint/54d63266a50a4f0eb6daba0f4599eac4"
+        "name": "blob-account-endpoint"
       },
       "acr-login-server": {
-        "id": "https://dragonfly-kv-dev.vault.azure.net/secrets/acr-login-server/eb91436309ae462bb936b035c5d4633c"
+        "name": "acr-login-server"
       },
       "containerapp-fqdn": {
-        "id": "https://dragonfly-kv-dev.vault.azure.net/secrets/containerapp-fqdn/3e01b4cda84142af956bd082edcad4ea"
+        "name": "containerapp-fqdn"
       },
       "containerapp-name": {
-        "id": "https://dragonfly-kv-dev.vault.azure.net/secrets/containerapp-name/a16ed35c64924f68912727158d542b3b"
+        "name": "containerapp-name"
       },
       "swa-landing-hostname": {
-        "id": "https://dragonfly-kv-dev.vault.azure.net/secrets/swa-landing-hostname/455b0db698cd4bf3806e058b1bd12fc7"
+        "name": "swa-landing-hostname"
       },
       "swa-parents-hostname": {
-        "id": "https://dragonfly-kv-dev.vault.azure.net/secrets/swa-parents-hostname/ae048036094641c88aa979f2cc00a172"
+        "name": "swa-parents-hostname"
       },
       "content-safety-endpoint": {
-        "id": "https://dragonfly-kv-dev.vault.azure.net/secrets/content-safety-endpoint/e92cb066b3794376827795c58ff06b1c"
+        "name": "content-safety-endpoint"
       },
       "content-safety-key": {
-        "id": "https://dragonfly-kv-dev.vault.azure.net/secrets/content-safety-key/cf8c8b4057b84685ada85b8f7defe937"
+        "name": "content-safety-key"
       }
     }
   },
@@ -188,7 +188,8 @@
     "location": "centralus",
     "locationNote": "Postgres is in centralus, not eastus2 (where RG + KV live). This Sponsored subscription (quotaId Sponsored_2016-01-01) blocks Burstable Postgres in eastus/eastus2. centralus succeeded on first try. Container Apps in Phase 5 will land in eastus2; ~25ms cross-region latency to Postgres is acceptable for the beta.",
     "publicAccess": {
-      "operatorIp": "74.215.28.159",
+      "operatorIp": "<operator-ip>",
+      "operatorIpNote": "Per-operator firewall rule managed by phase-2-postgres.sh (rule name op-<ip-with-dashes>); actual IPs intentionally not recorded in the repo.",
       "allowAllAzureServicesRule": "AllowAllAzureServices (0.0.0.0/0.0.0.0)"
     },
     "connectionString": {

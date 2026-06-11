@@ -71,6 +71,20 @@ def test_me_rejects_invalid_firebase_token(
     assert response.json()["error"]["message"] == "Invalid bearer token"
 
 
+@pytest.mark.parametrize("env", ["dev", "staging", "prod"])
+def test_me_rejects_stub_claims_outside_local(env: str, monkeypatch) -> None:
+    """The test-compat stub shortcut must be fail-closed on non-local envs."""
+    stub_token_verifier(monkeypatch, uid="firebase-user-1", role="parent")
+    app = create_app(Settings(env=env, app_version="test"))  # type: ignore[arg-type]
+
+    with TestClient(app) as client:
+        response = client.get("/v1/me", headers={"Authorization": "Bearer valid-token"})
+
+    assert response.status_code == 401
+    assert response.headers["www-authenticate"] == "Bearer"
+    assert response.json()["error"]["message"] == "Bearer token missing required identity claims"
+
+
 # ---------------------------------------------------------------------------
 # POST /v1/auth/parent-signup
 # ---------------------------------------------------------------------------

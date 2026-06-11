@@ -95,7 +95,14 @@ fi
 
 echo "==> ensure postgres-admin-password in $KV_NAME"
 if ! az keyvault secret show --vault-name "$KV_NAME" --name postgres-admin-password --subscription "$MGMT_SUB" >/dev/null 2>&1; then
-  PG_PASSWORD="$(openssl rand -base64 32 | tr -d '/+=' | head -c 24)Aa1!"
+  # Fully random password; regenerate until the character classes Azure
+  # Postgres requires (upper/lower/digit) are all present.
+  while :; do
+    PG_PASSWORD="$(openssl rand -base64 48 | tr -d '/+=' | head -c 32)"
+    if [[ "$PG_PASSWORD" == *[A-Z]* && "$PG_PASSWORD" == *[a-z]* && "$PG_PASSWORD" == *[0-9]* ]]; then
+      break
+    fi
+  done
   az keyvault secret set \
     --vault-name "$KV_NAME" \
     --name postgres-admin-password \

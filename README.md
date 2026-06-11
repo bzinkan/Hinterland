@@ -1,15 +1,33 @@
 # Dragonfly
 
+[![CI](https://github.com/bzinkan/Dragonfly/actions/workflows/ci.yml/badge.svg)](https://github.com/bzinkan/Dragonfly/actions/workflows/ci.yml)
+
 Citizen-science field app for curious explorers of all ages. People log real
 outdoor observations, fill a personal Dex, complete expeditions, and may
 eventually contribute approved observations to iNaturalist through a reviewed
 contribution flow. Kid accounts remain adult-managed.
+
+**Live landing page:** [dragonfly-app.net](https://dragonfly-app.net)
+
+<table>
+  <tr>
+    <td align="center">
+      <a href="https://dragonfly-app.net">
+        <img src="web/public/social-card.png" alt="Dragonfly - Real nature. Real science. A field app for curious kids and adult-managed pilot groups." width="520">
+      </a>
+    </td>
+    <td align="center">
+      <img src="web/public/apple-touch-icon.png" alt="Dragonfly app icon" width="130">
+    </td>
+  </tr>
+</table>
 
 ## Repo Layout
 
 ```text
 backend/      FastAPI app, Alembic migrations, admin jobs, async-worker code.
 mobile/       Expo app for Android, iOS, and parents web.
+web/          Public landing page static site (dragonfly-app.net).
 content/      Expedition and Sanctuary JSON. Source of truth for authored content.
 scripts/      Smoke tests, content validation/sync, schema generation, helper tools.
 infra-azure/  Azure setup/decommission scripts and manifest.

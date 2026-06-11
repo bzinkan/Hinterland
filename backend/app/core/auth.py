@@ -21,6 +21,9 @@ pydantic model and the :data:`CurrentUserDep` FastAPI dependency. A
 test-compat short-circuit lets stub tokens (claims dicts without ``oid``
 or ``token_type``) flow through ``current_user_from_claims`` without
 touching the DB session mock, keeping the existing test surface green.
+The short-circuit is gated by ``settings.stub_auth_allowed`` and is
+fail-closed everywhere except ``env == "local"`` (or an explicit
+``DRAGONFLY_ALLOW_STUB_AUTH`` override).
 """
 
 from __future__ import annotations
@@ -177,7 +180,10 @@ def _verify_entra_inline(token: str, settings: Settings) -> dict[str, object]:
             audience=settings.entra_api_audience,
             issuer=settings.entra_issuer,
             options={
-                "require": ["exp", "iat", "iss", "aud", "sub"],
+                # ``oid`` is required: the local users lookup keys on it,
+                # and the stub-claims detection treats its absence as a
+                # non-production token shape.
+                "require": ["exp", "iat", "iss", "aud", "sub", "oid"],
                 "verify_signature": True,
                 "verify_exp": True,
                 "verify_aud": True,
@@ -454,10 +460,13 @@ async def get_current_user(
     1. 401 if no ``Authorization: Bearer ...`` header.
     2. Dispatch via :func:`verify_bearer_token` to either the Entra or
        Dragonfly verifier; 401 on any verification failure.
-    3. **Test-compat shortcut**: if the verifier returns a claims dict
-       lacking both ``oid`` and ``token_type`` (the shape produced by
+    3. **Test-compat shortcut** (only when ``settings.stub_auth_allowed``,
+       i.e. ``env == "local"`` unless explicitly overridden): if the
+       verifier returns a claims dict lacking both ``oid`` and
+       ``token_type`` (the shape produced by
        ``tests.helpers.auth.stub_token_verifier``), skip the DB lookup
-       and build the ``CurrentUser`` directly from the claims.
+       and build the ``CurrentUser`` directly from the claims. On any
+       other env, marker-less claims are rejected with a 401.
     4. Otherwise, look up the local ``users`` row + primary group_id via
        the 30-second TTL cache. Missing rows on the Entra path return a
        transient bootstrap CurrentUser so ``parent_signup`` can create
@@ -475,8 +484,12 @@ async def get_current_user(
 
     # Test-compat shortcut: stub claims lack the real-token markers, so we
     # bypass the DB entirely and let the route work against the AsyncMock
-    # session that the existing test files configure.
+    # session that the existing test files configure. Fail-closed outside
+    # local: when ``settings.stub_auth_allowed`` is False, marker-less
+    # claims are rejected like any other invalid token.
     if _is_stub_claims(raw_claims):
+        if not settings.stub_auth_allowed:
+            raise _http_401("Bearer token missing required identity claims")
         return current_user_from_claims(raw_claims)
 
     if path == "entra":

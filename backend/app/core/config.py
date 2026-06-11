@@ -86,6 +86,21 @@ class Settings(BaseSettings):
     user_claims_cache_ttl_seconds: float = 30.0
     user_claims_cache_max_size: int = 1024
 
+    # Test-compat stub auth. When allowed, bearer claims lacking both the
+    # ``oid`` (Entra) and ``token_type`` (Dragonfly) markers short-circuit
+    # to a claims-only CurrentUser with no DB lookup -- a shape only the
+    # test suite's stubbed verifiers produce. Production-safe default is
+    # fail-closed: explicit override (`DRAGONFLY_ALLOW_STUB_AUTH=true|false`)
+    # wins; otherwise the shortcut is permitted on `local` only.
+    allow_stub_auth: bool | None = None
+
+    @property
+    def stub_auth_allowed(self) -> bool:
+        """True when the test-compat stub-claims shortcut may be taken."""
+        if self.allow_stub_auth is not None:
+            return self.allow_stub_auth
+        return self.env == "local"
+
     # iNaturalist API integration. Token is empty in dev / CI; the iNat client
     # treats absence of a token as "no third-party calls allowed" and CV
     # endpoints return a `cv_unavailable` flag instead of raising.

@@ -76,5 +76,8 @@ jobs:
       - name: Typecheck
         run: npm run typecheck
 
+      - name: Test (jest)
+        run: npm test -- --ci
+
       - name: Verify play-internal config
         run: APP_ENV=play-internal npm run config:play-internal
