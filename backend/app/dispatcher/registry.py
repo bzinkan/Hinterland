@@ -24,7 +24,7 @@ HANDLERS: list[Handler] = [
     # the celebration sequence at their documented weights. See
     # `docs/sanctuary.md` section 9 for the contract.
     WorldHandler(),
-    ExpeditionHandler(),  # Phase 9 stub; full impl lands in Phase 10
+    ExpeditionHandler(),  # full impl (Phase 10); per-observation replay gate inside
     # TerritoryHandler()  -- Phase 2
     # SeasonHandler()     -- Phase 3
     # MissionHandler()    -- Phase 4

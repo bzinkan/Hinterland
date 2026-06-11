@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { router } from "expo-router";
 import { useState } from "react";
 import {
   ActivityIndicator,
@@ -13,6 +14,7 @@ import { Text, View } from "@/components/Themed";
 import { ApiError } from "@/src/api/client";
 import {
   type ExpeditionSummary,
+  type ProgressItem,
   listAvailableExpeditions,
   listMyExpeditions,
   startExpedition,
@@ -113,21 +115,24 @@ export default function ExpeditionsScreen() {
   );
 }
 
-function InProgressList({
-  items,
-}: {
-  items: { expedition_id: string; title: string; completed_step_count: number; total_step_count: number }[];
-}) {
+function InProgressList({ items }: { items: ProgressItem[] }) {
   return (
     <View style={styles.section}>
       <Text style={styles.sectionLabel}>In progress</Text>
       {items.map((p) => (
-        <View key={p.expedition_id} style={styles.progressRow}>
-          <Text style={styles.progressTitle}>{p.title}</Text>
-          <Text style={styles.progressMeta}>
-            {p.completed_step_count} / {p.total_step_count} steps
-          </Text>
-        </View>
+        <Pressable
+          key={p.expedition_id}
+          style={styles.progressRow}
+          onPress={() => router.push(`/expedition/${p.expedition_id}`)}
+        >
+          <View style={styles.progressBody}>
+            <Text style={styles.progressTitle}>{p.title}</Text>
+            <Text style={styles.progressMeta}>
+              {p.completed_step_count} / {p.total_step_count} steps
+            </Text>
+          </View>
+          <Text style={styles.progressChevron}>›</Text>
+        </Pressable>
       ))}
       <View
         style={styles.divider}
@@ -188,14 +193,19 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   progressRow: {
+    flexDirection: "row",
+    alignItems: "center",
     paddingVertical: 12,
     paddingHorizontal: 14,
     borderRadius: 6,
     backgroundColor: "#1a1a1a",
     marginBottom: 8,
   },
+  // Transparent so the themed View doesn't paint over the row card.
+  progressBody: { flex: 1, backgroundColor: "transparent" },
   progressTitle: { fontSize: 15, fontWeight: "500" },
   progressMeta: { fontSize: 12, opacity: 0.7, marginTop: 2 },
+  progressChevron: { fontSize: 22, opacity: 0.4, marginLeft: 8 },
   divider: { height: 1, marginVertical: 16 },
   card: {
     paddingVertical: 12,

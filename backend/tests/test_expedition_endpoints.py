@@ -210,6 +210,143 @@ def test_available_filters_unmet_completed_prereq(
 
 
 # ---------------------------------------------------------------------------
+# GET /v1/expeditions/me
+# ---------------------------------------------------------------------------
+
+
+def _wire_me(
+    fake_session: AsyncMock,
+    *,
+    user: models.User | None,
+    rows: list[tuple[models.ExpeditionProgress, models.ExpeditionContent]] | None = None,
+) -> None:
+    user_result = MagicMock()
+    user_result.scalar_one_or_none = MagicMock(return_value=user)
+
+    rows_result = MagicMock()
+    rows_result.all = MagicMock(return_value=rows or [])
+
+    side_effects: list[Any] = [user_result]
+    if user is not None:
+        side_effects.append(rows_result)
+
+    fake_session.execute = AsyncMock(side_effect=side_effects)
+
+
+def _progress_row(
+    exp_id: str,
+    *,
+    completed_steps: dict[str, Any],
+    completed_at: datetime | None = None,
+) -> models.ExpeditionProgress:
+    progress = models.ExpeditionProgress(
+        id=f"prog-{exp_id}",
+        user_id=_USER_ID,
+        group_id=_GROUP_ID,
+        expedition_id=exp_id,
+        completed_steps=completed_steps,
+        completed_at=completed_at,
+    )
+    progress.created_at = datetime(2026, 5, 10, 12, 0, 0, tzinfo=UTC)
+    return progress
+
+
+def test_me_requires_bearer(fake_session: AsyncMock) -> None:
+    for client in _build_client(fake_session):
+        response = client.get("/v1/expeditions/me")
+        assert response.status_code == 401
+
+
+def test_me_returns_step_detail_with_mixed_completion_formats(
+    monkeypatch: pytest.MonkeyPatch, fake_session: AsyncMock
+) -> None:
+    """Steps come back in content order with description/hint, and
+    completed_at resolves for BOTH stored value formats (new dict +
+    legacy plain string)."""
+    _stub_token_verifier(monkeypatch)
+    body = _exp_body(exp_id="backyard_starter", steps_count=3)
+    body["subtitle"] = "Start here"
+    body["steps"][0]["hint"] = "look down"
+    progress = _progress_row(
+        "backyard_starter",
+        completed_steps={
+            # New dict format ...
+            "s0": {
+                "completed_at": "2026-05-10T13:00:00+00:00",
+                "observation_id": "01J0OBSID0000000000000ULID",
+            },
+            # ... and a legacy plain-string row.
+            "s1": "2026-05-10T14:00:00+00:00",
+        },
+    )
+    _wire_me(
+        fake_session,
+        user=_user(),
+        rows=[(progress, _content("backyard_starter", body))],
+    )
+    for client in _build_client(fake_session):
+        response = client.get("/v1/expeditions/me", headers={"Authorization": "Bearer fake"})
+        assert response.status_code == 200
+        items = response.json()["items"]
+        assert len(items) == 1
+        item = items[0]
+        assert item["expedition_id"] == "backyard_starter"
+        assert item["title"] == "Test backyard_starter"
+        assert item["subtitle"] == "Start here"
+        assert item["intro"] == "Find some things."
+        assert item["outro"] == "Real science."
+        assert item["completed_step_count"] == 2
+        assert item["total_step_count"] == 3
+        steps = item["steps"]
+        assert [s["id"] for s in steps] == ["s0", "s1", "s2"]
+        assert steps[0]["description"] == "x"
+        assert steps[0]["hint"] == "look down"
+        assert steps[1]["hint"] is None
+        assert steps[0]["completed_at"].startswith("2026-05-10T13:00:00")
+        assert steps[1]["completed_at"].startswith("2026-05-10T14:00:00")
+        assert steps[2]["completed_at"] is None
+
+
+def test_me_malformed_completed_at_degrades_to_null(
+    monkeypatch: pytest.MonkeyPatch, fake_session: AsyncMock
+) -> None:
+    """A garbage completed_at string in a stored row must not 500 /me."""
+    _stub_token_verifier(monkeypatch)
+    body = _exp_body(exp_id="x")
+    progress = _progress_row("x", completed_steps={"s0": "not-a-timestamp"})
+    _wire_me(fake_session, user=_user(), rows=[(progress, _content("x", body))])
+    for client in _build_client(fake_session):
+        response = client.get("/v1/expeditions/me", headers={"Authorization": "Bearer fake"})
+        assert response.status_code == 200
+        item = response.json()["items"][0]
+        # The count still reflects the stored key; the step itself
+        # degrades to "not completed".
+        assert item["completed_step_count"] == 1
+        assert item["steps"][0]["completed_at"] is None
+
+
+def test_me_bad_content_falls_back_to_empty_detail(
+    monkeypatch: pytest.MonkeyPatch, fake_session: AsyncMock
+) -> None:
+    _stub_token_verifier(monkeypatch)
+    content = models.ExpeditionContent(
+        id="x", tier=1, content_hash="x", body={"not": "valid"}, archived=False
+    )
+    progress = _progress_row("x", completed_steps={})
+    _wire_me(fake_session, user=_user(), rows=[(progress, content)])
+    for client in _build_client(fake_session):
+        response = client.get("/v1/expeditions/me", headers={"Authorization": "Bearer fake"})
+        assert response.status_code == 200
+        item = response.json()["items"][0]
+        assert item["title"] == "x"
+        assert item["subtitle"] is None
+        assert item["intro"] == ""
+        assert item["outro"] == ""
+        assert item["steps"] == []
+        assert item["total_step_count"] == 0
+
+
+# ---------------------------------------------------------------------------
 # POST /v1/expeditions/{id}/start
 # ---------------------------------------------------------------------------
 

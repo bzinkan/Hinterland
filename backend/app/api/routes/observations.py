@@ -482,6 +482,18 @@ async def patch_observation(
     if obs is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Observation not found")
 
+    # Detect the kid's FIRST species pick BEFORE applying fields -- this
+    # is what triggers the re-dispatch below. Only the None -> taxon
+    # transition counts: corrections (A -> B) deliberately do NOT
+    # re-dispatch, because DexHandler's first-find gate is per
+    # (user, taxon), not per observation -- re-dispatching on every
+    # transition would let one photo mint first_find / dex_count credit
+    # for arbitrarily many species. Clearing the taxon (explicit null)
+    # is not a transition either.
+    taxon_assigned = (
+        "taxon_id" in fields and fields["taxon_id"] is not None and obs.taxon_id is None
+    )
+
     # If taxon_id is being set AND species_name wasn't explicitly sent,
     # auto-fill species_name from the species cache. Cache miss falls
     # through to iNat; iNat outage just leaves species_name as-is.
@@ -510,4 +522,89 @@ async def patch_observation(
         observation_id=observation_id,
         fields=list(fields.keys()),
     )
-    return ObservationResponse.from_model(obs)
+
+    # Re-dispatch when the kid's species pick first lands. The live mobile
+    # flow sets the taxon AFTER create (CV identify -> PATCH), so the
+    # create-time dispatch ran with taxon_id=None and taxon-based
+    # expedition steps could never advance -- this second dispatch is what
+    # makes them reachable. In the taxon-only PATCH shape the autofill
+    # above has already warmed species_cache (including the raw iNat
+    # payload with ancestor_ids); an explicit species_name or an iNat
+    # outage can leave the cache cold, in which case iconic/descendant
+    # matches simply don't fire for this dispatch.
+    #
+    # Re-running the full handler list is safe: RarityHandler only does a
+    # conditional monotonic counter bump, WorldHandler gates on its
+    # per-observation contribution row, and ExpeditionHandler gates on the
+    # observation_id recorded in completed_steps. DexHandler's first-find
+    # insert is only ON CONFLICT-gated per (user, taxon), so on top of the
+    # None -> taxon trigger above we skip the dispatch entirely when this
+    # observation already minted a dex entry (kid cleared the taxon and
+    # picked again) -- one observation never mints two first finds.
+    #
+    # The response is snapshotted before dispatching: a failure path below
+    # rolls the session back, which expires `obs`.
+    response = ObservationResponse.from_model(obs)
+    if taxon_assigned:
+        try:
+            already_minted = (
+                await session.execute(
+                    select(models.DexEntry.id)
+                    .where(models.DexEntry.first_observation_id == obs.id)
+                    .limit(1)
+                )
+            ).scalar_one_or_none()
+            if already_minted is None:
+                photo = (
+                    await session.execute(
+                        select(models.Photo).where(models.Photo.id == obs.photo_id)
+                    )
+                ).scalar_one()
+                group = (
+                    await session.execute(
+                        select(models.Group).where(models.Group.id == obs.group_id)
+                    )
+                ).scalar_one_or_none()
+                ctx = Context(
+                    db=session,
+                    user=user_row,
+                    group=group,
+                    observation=obs,
+                    photo=photo,
+                )
+                rewards = await dispatch(ctx, HANDLERS)
+                obs.dispatched_at = datetime.now(UTC)
+                await session.commit()
+                response.rewards = [RewardDTO.from_reward(r) for r in rewards]
+            else:
+                log.info(
+                    "observations.patch.redispatch_skipped_already_minted",
+                    observation_id=observation_id,
+                )
+        except Exception:
+            log.exception(
+                "observations.patch.dispatch_failed",
+                observation_id=observation_id,
+            )
+            # The create-time dispatch already stamped dispatched_at, so
+            # without a reset the nightly replay (dispatched_at IS NULL)
+            # would never revisit this observation and the kid's species
+            # pick would never earn its expedition / dex credit. Handlers
+            # are per-observation idempotent, so clearing the stamp and
+            # letting the replay re-run the full dispatch is safe. Direct
+            # UPDATE rather than ORM mutation: the rollback expired `obs`.
+            try:
+                await session.rollback()
+                await session.execute(
+                    update(models.Observation)
+                    .where(models.Observation.id == observation_id)
+                    .values(dispatched_at=None)
+                )
+                await session.commit()
+            except Exception:
+                log.exception(
+                    "observations.patch.dispatch_reset_failed",
+                    observation_id=observation_id,
+                )
+
+    return response

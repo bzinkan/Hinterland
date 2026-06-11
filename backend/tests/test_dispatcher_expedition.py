@@ -101,7 +101,7 @@ def _content(exp_id: str, body: dict[str, Any]) -> models.ExpeditionContent:
     )
 
 
-def _progress(exp_id: str, *, completed: dict[str, str] | None = None) -> models.ExpeditionProgress:
+def _progress(exp_id: str, *, completed: dict[str, Any] | None = None) -> models.ExpeditionProgress:
     return models.ExpeditionProgress(
         id=f"prog-{exp_id}",
         user_id=_USER_ID,
@@ -176,7 +176,12 @@ async def test_step_advances_when_match_succeeds(fake_session: AsyncMock) -> Non
     reward = result.rewards[0]
     assert reward.type == "expedition_step"
     assert reward.payload["step_id"] == "first"
-    assert "first" in progress.completed_steps
+    # Value format: dict carrying the iso timestamp + the crediting
+    # observation (the replay-gate key).
+    assert progress.completed_steps["first"] == {
+        "completed_at": "2026-05-10T12:00:00+00:00",
+        "observation_id": _OBS_ID,
+    }
     assert progress.completed_at is None  # not the final step
     fake_session.commit.assert_awaited_once()
 
@@ -284,3 +289,89 @@ async def test_corrupted_content_body_logged_and_skipped(
 
     assert result.rewards == []
     fake_session.commit.assert_not_called()
+
+
+async def test_replay_gate_skips_expedition_already_credited(
+    fake_session: AsyncMock,
+) -> None:
+    """A re-dispatch of an observation that already completed a step in
+    this expedition must not advance it again -- no chaining one
+    observation through multiple steps."""
+    body = _expedition_body(
+        exp_id="x",
+        steps=[_step("first"), _step("second")],
+    )
+    progress = _progress(
+        "x",
+        completed={
+            "first": {
+                "completed_at": "2026-05-10T11:00:00+00:00",
+                "observation_id": _OBS_ID,
+            },
+        },
+    )
+    _wire_session(fake_session, progress_pairs=[(progress, _content("x", body))])
+
+    handler = ExpeditionHandler()
+    result = await handler.handle(_ctx(fake_session))
+
+    assert result.rewards == []
+    assert "second" not in progress.completed_steps
+    fake_session.commit.assert_not_called()
+
+
+async def test_legacy_string_rows_still_advance(fake_session: AsyncMock) -> None:
+    """Rows written before the dict value format hold plain iso strings.
+    The gate must not trip on them (no observation_id recorded) and the
+    next step still advances with the new format."""
+    body = _expedition_body(
+        exp_id="x",
+        steps=[_step("first"), _step("second"), _step("third")],
+    )
+    progress = _progress("x", completed={"first": "2026-05-10T11:00:00+00:00"})
+    _wire_session(fake_session, progress_pairs=[(progress, _content("x", body))])
+
+    handler = ExpeditionHandler()
+    result = await handler.handle(_ctx(fake_session))
+
+    assert [r.type for r in result.rewards] == ["expedition_step"]
+    assert result.rewards[0].payload["step_id"] == "second"
+    # Legacy value preserved verbatim; the new step uses the dict format.
+    assert progress.completed_steps["first"] == "2026-05-10T11:00:00+00:00"
+    assert progress.completed_steps["second"] == {
+        "completed_at": "2026-05-10T12:00:00+00:00",
+        "observation_id": _OBS_ID,
+    }
+    fake_session.commit.assert_awaited_once()
+
+
+async def test_ancestor_ids_flow_into_descendant_taxon_match(
+    fake_session: AsyncMock,
+) -> None:
+    """Step wants taxon 3 with descendants; the observation's taxon 12345
+    lists 3 in the ancestor chain of its cached iNat payload."""
+    body = _expedition_body(
+        exp_id="x",
+        steps=[_step("bird", "taxon_id", value=3, include_descendants=True)],
+    )
+    progress = _progress("x")
+    species = models.SpeciesCache(
+        taxon_id=12345,
+        scientific_name="Cardinalis cardinalis",
+        common_name="Northern Cardinal",
+        iconic_taxon="Aves",
+        source_payload={"ancestor_ids": [1, 2, 3, 12345]},
+    )
+    _wire_session(
+        fake_session,
+        progress_pairs=[(progress, _content("x", body))],
+        species=species,
+    )
+
+    handler = ExpeditionHandler()
+    result = await handler.handle(_ctx(fake_session))
+
+    types = [r.type for r in result.rewards]
+    assert types == ["expedition_step", "expedition_complete"]
+    assert progress.completed_steps["bird"]["observation_id"] == _OBS_ID
+    fake_session.commit.assert_awaited_once()

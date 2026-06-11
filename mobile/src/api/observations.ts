@@ -76,10 +76,11 @@ export type Observation = {
   taxon_id: number | null;
   species_name: string | null;
   place_name: string | null;
-  // Dispatcher-returned rewards. Present on the create response (the only
-  // endpoint that runs the dispatcher); absent or [] on PATCH responses
-  // since the PATCH handler does not re-run the dispatcher. Field is
-  // optional so list / list-item types do not break.
+  // Dispatcher-returned rewards. Present on the create response, and on
+  // PATCH responses when the patch sets or changes ``taxon_id`` -- that
+  // second dispatch is what advances taxon-based expedition steps. Absent
+  // or [] when nothing was dispatched. Field is optional so list /
+  // list-item types do not break.
   rewards?: ObservationReward[];
 };
 

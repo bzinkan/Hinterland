@@ -466,8 +466,12 @@ async def test_scenario_6_observation_completes_an_expedition_step(
     exp_step = next(r for r in rewards if r.type == "expedition_step")
     assert exp_step.payload["expedition_id"] == "backyard_starter"
     assert exp_step.payload["step_id"] == "first"
-    # Progress mutated in place; first step is now in completed_steps.
-    assert "first" in (progress.completed_steps or {})
+    # Progress mutated in place; first step is now in completed_steps,
+    # recorded with the iso timestamp + crediting observation.
+    assert progress.completed_steps["first"] == {
+        "completed_at": "2026-05-10T12:00:00+00:00",
+        "observation_id": _OBS_ID,
+    }
 
 
 async def test_scenario_7_observation_completes_the_final_step(
@@ -490,8 +494,13 @@ async def test_scenario_7_observation_completes_the_final_step(
     assert [r.weight for r in rewards] == [80, 40, 30, 10]
     complete_reward = next(r for r in rewards if r.type == "expedition_complete")
     assert complete_reward.payload == {"expedition_id": "park_starter"}
-    # Progress row got completed_at stamped.
+    # Progress row got completed_at stamped; the final step is recorded
+    # in the dict value format crediting this observation.
     assert progress.completed_at is not None
+    assert progress.completed_steps["three"] == {
+        "completed_at": "2026-05-10T12:00:00+00:00",
+        "observation_id": _OBS_ID,
+    }
 
 
 async def test_scenario_8_one_observation_advances_two_expeditions(
@@ -525,8 +534,9 @@ async def test_scenario_8_one_observation_advances_two_expeditions(
     assert len(step_rewards) == 2
     advanced_ids = {r.payload["expedition_id"] for r in step_rewards}
     assert advanced_ids == {"exp_a", "exp_b"}
-    # Each progress row got its first step advanced.
-    assert "a1" in (progress_a.completed_steps or {})
-    assert "b1" in (progress_b.completed_steps or {})
+    # Each progress row got its first step advanced, both crediting
+    # this observation in the dict value format.
+    assert progress_a.completed_steps["a1"]["observation_id"] == _OBS_ID
+    assert progress_b.completed_steps["b1"]["observation_id"] == _OBS_ID
     # No `expedition_complete` -- neither expedition is done.
     assert not any(r.type == "expedition_complete" for r in rewards)

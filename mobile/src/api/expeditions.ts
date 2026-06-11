@@ -29,13 +29,25 @@ export function startExpedition(expeditionId: string): Promise<StartResponse> {
   });
 }
 
+export type StepProgress = {
+  id: string;
+  description: string;
+  hint: string | null;
+  completed_at: string | null;
+};
+
 export type ProgressItem = {
   expedition_id: string;
   title: string;
+  subtitle: string | null;
+  intro: string;
+  outro: string;
   started_at: string;
   completed_at: string | null;
   completed_step_count: number;
   total_step_count: number;
+  // Steps in content order (server sorts; the client never reorders).
+  steps: StepProgress[];
 };
 
 export type MyProgressResponse = {

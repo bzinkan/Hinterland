@@ -9,11 +9,14 @@ matched steps. Per docs/dispatcher.md:
 - ExpeditionHandler runs AFTER DexHandler so `not_in_dex` matchers see
   the dex state before this observation's row was inserted.
 
-Phase 10 follow-up: TaxonInfo.ancestor_ids is left empty here. The
-`taxon_id` matcher with `include_descendants=True` only works when the
-ancestor chain is populated. Once `species_cache` stores the chain
-(needs an iNat taxa-tree fetch on cache fill), this handler picks it
-up automatically.
+Completed steps are recorded as
+``{"completed_at": <iso string>, "observation_id": <ulid>}`` (legacy
+rows hold a plain ISO string -- see `app.services.expedition_progress`).
+The recorded observation_id is the per-observation replay gate: if any
+value in an expedition's completed_steps already carries this
+observation's id, the handler skips that expedition. Without the gate,
+a re-dispatch (taxon PATCH, admin replay) could chain one observation
+through multiple steps, violating the invariant above.
 """
 
 from __future__ import annotations
@@ -27,6 +30,8 @@ from app.dispatcher.types import Context, HandlerResult, Reward
 from app.matchers.context import MatcherInputs, PriorObservation, TaxonInfo
 from app.matchers.registry import matches
 from app.models.expedition import Expedition
+from app.services.expedition_progress import parse_step_completion
+from app.services.species_cache import ancestor_ids_from_payload
 
 log = structlog.get_logger()
 
@@ -69,6 +74,21 @@ class ExpeditionHandler:
                 continue
 
             completed = dict(progress.completed_steps or {})
+
+            # Replay gate: this observation already credited a step in
+            # this expedition. A re-dispatch (taxon PATCH, admin replay)
+            # must not advance it again.
+            if any(
+                parse_step_completion(v).observation_id == ctx.observation.id
+                for v in completed.values()
+            ):
+                log.info(
+                    "dispatcher.expedition.replay_skip",
+                    expedition_id=content.id,
+                    observation_id=ctx.observation.id,
+                )
+                continue
+
             next_step = next((s for s in exp.steps if s.id not in completed), None)
             if next_step is None:
                 # Race: something else completed all steps. Skip.
@@ -77,7 +97,10 @@ class ExpeditionHandler:
             if not matches(next_step.match, inputs):
                 continue
 
-            completed[next_step.id] = ctx.observation.created_at.isoformat()
+            completed[next_step.id] = {
+                "completed_at": ctx.observation.created_at.isoformat(),
+                "observation_id": ctx.observation.id,
+            }
             progress.completed_steps = completed
             # JSONB mutation tracking needs an explicit nudge when we
             # reassign with the same key set.
@@ -133,9 +156,11 @@ class ExpeditionHandler:
             taxon = TaxonInfo(
                 taxon_id=obs.taxon_id,
                 iconic_taxon=species.iconic_taxon if species is not None else None,
-                # Phase 10 follow-up: store the iNat ancestor chain in
-                # species_cache so taxon_id matches with descendants work.
-                ancestor_ids=(),
+                ancestor_ids=(
+                    ancestor_ids_from_payload(species.source_payload, taxon_id=obs.taxon_id)
+                    if species is not None
+                    else ()
+                ),
             )
 
         # Exclude the dex_entry that DexHandler just inserted for this

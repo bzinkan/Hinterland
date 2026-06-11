@@ -22,7 +22,11 @@ import {
 } from "@/src/api/observations";
 import { queryClient } from "@/src/api/queryClient";
 import { putPhotoToSignedUrl } from "@/src/api/upload";
-import { useDraftStore } from "@/src/observation/draftStore";
+import {
+  selectExpeditionRewards,
+  selectSanctuaryRewards,
+} from "@/src/expeditions/logic";
+import { type DraftPhoto, useDraftStore } from "@/src/observation/draftStore";
 import { SanctuaryRevealModal } from "@/src/sanctuary/SanctuaryRevealModal";
 
 type Phase =
@@ -42,6 +46,12 @@ type Phase =
 export default function ObserveSubmitScreen() {
   const photo = useDraftStore((s) => s.photo);
   const clearDraft = useDraftStore((s) => s.clear);
+  // Snapshot of the draft photo, taken when the upload kicks off. The
+  // pick paths call ``clearDraft()`` right before transitioning to
+  // ``done``, which nulls the store photo in the same re-render -- but
+  // the done UI (thumbnail, success line, celebration card, reveal
+  // modal) still needs the photo, so it renders from this snapshot.
+  const [submittedPhoto, setSubmittedPhoto] = useState<DraftPhoto | null>(null);
 
   const [locStatus, setLocStatus] = useState<
     "loading" | "ready" | "denied" | "error"
@@ -53,12 +63,27 @@ export default function ObserveSubmitScreen() {
   // Geocoded place_name resolves in parallel with /identify; gets folded
   // into whatever PATCH the kid eventually sends.
   const [placeName, setPlaceName] = useState<string | null>(null);
-  // Sanctuary rewards captured from the createObservation response. The
-  // dispatcher only runs on POST /v1/observations, so this is the only
-  // place rewards land. The reveal modal renders when we transition to
-  // ``done`` AND ``sanctuaryRewards.length > 0``.
+  // Dispatcher rewards land on the createObservation response AND on
+  // patchObservation responses when the patch sets/changes taxon_id (the
+  // second dispatch is what advances taxon-based expedition steps).
+  // Sanctuary rewards drive the reveal modal once we transition to
+  // ``done``; expedition rewards drive the inline celebration card.
   const [sanctuaryRewards, setSanctuaryRewards] = useState<ObservationReward[]>([]);
+  const [expeditionRewards, setExpeditionRewards] = useState<ObservationReward[]>([]);
   const [revealVisible, setRevealVisible] = useState(false);
+
+  // Fold dispatcher rewards from a create/patch response into local state.
+  // Accumulates -- the create and the eventual PATCH can each dispatch.
+  function collectRewards(rewards: ObservationReward[] | undefined) {
+    const sanctuary = selectSanctuaryRewards(rewards);
+    if (sanctuary.length > 0) {
+      setSanctuaryRewards((prev) => [...prev, ...sanctuary]);
+    }
+    const expedition = selectExpeditionRewards(rewards);
+    if (expedition.length > 0) {
+      setExpeditionRewards((prev) => [...prev, ...expedition]);
+    }
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -101,12 +126,14 @@ export default function ObserveSubmitScreen() {
     // state on first visit. We do NOT await the refetch -- the navigation
     // is the user's intent; the data lands when it lands.
     void queryClient.invalidateQueries({ queryKey: ["sanctuary", "me"] });
+    void queryClient.invalidateQueries({ queryKey: ["expeditions"] });
     setRevealVisible(false);
     router.replace("/sanctuary");
   }
 
   function handleDone() {
     void queryClient.invalidateQueries({ queryKey: ["sanctuary", "me"] });
+    void queryClient.invalidateQueries({ queryKey: ["expeditions"] });
     setRevealVisible(false);
     // Same destination the existing post-submit flow would land on if no
     // reveal fired -- the submit screen stays mounted (kid can read the
@@ -114,7 +141,10 @@ export default function ObserveSubmitScreen() {
     router.back();
   }
 
-  if (!photo) {
+  // Prefer the live draft; fall back to the snapshot once the draft is
+  // cleared. Bail only when neither exists (deep link / stale screen).
+  const displayPhoto = photo ?? submittedPhoto;
+  if (!displayPhoto) {
     return (
       <View style={styles.center}>
         <Stack.Screen options={{ title: "Submit" }} />
@@ -139,13 +169,18 @@ export default function ObserveSubmitScreen() {
     const obsId = phase.observationId;
     setPhase({ kind: "patching", observationId: obsId });
     try {
-      await patchObservation(obsId, {
+      const obs = await patchObservation(obsId, {
         taxon_id: s.taxon_id,
         // Server auto-fills species_name from species_cache when only
         // taxon_id is sent (PR #40).
         place_name: placeName,
       });
+      collectRewards(obs.rewards);
       clearDraft();
+      // Invalidate here (not just in the modal handlers) -- most kids
+      // never see the Sanctuary reveal, and the expedition step counts
+      // on the tab are stale the moment a step completes.
+      void queryClient.invalidateQueries({ queryKey: ["expeditions"] });
       setPhase({ kind: "done", observationId: obsId });
     } catch (err) {
       setPhase({ kind: "error", message: errorMessage(err) });
@@ -159,11 +194,13 @@ export default function ObserveSubmitScreen() {
     if (!trimmed) return;
     setPhase({ kind: "patching", observationId: obsId });
     try {
-      await patchObservation(obsId, {
+      const obs = await patchObservation(obsId, {
         species_name: trimmed,
         place_name: placeName,
       });
+      collectRewards(obs.rewards);
       clearDraft();
+      void queryClient.invalidateQueries({ queryKey: ["expeditions"] });
       setPhase({ kind: "done", observationId: obsId });
     } catch (err) {
       setPhase({ kind: "error", message: errorMessage(err) });
@@ -174,15 +211,19 @@ export default function ObserveSubmitScreen() {
     if (phase.kind !== "picking") return;
     const obsId = phase.observationId;
     if (!placeName) {
-      // Nothing to PATCH; skip straight to done.
+      // Nothing to PATCH; skip straight to done. No response to harvest
+      // rewards from, but the create may have advanced an expedition.
       clearDraft();
+      void queryClient.invalidateQueries({ queryKey: ["expeditions"] });
       setPhase({ kind: "done", observationId: obsId });
       return;
     }
     setPhase({ kind: "patching", observationId: obsId });
     try {
-      await patchObservation(obsId, { place_name: placeName });
+      const obs = await patchObservation(obsId, { place_name: placeName });
+      collectRewards(obs.rewards);
       clearDraft();
+      void queryClient.invalidateQueries({ queryKey: ["expeditions"] });
       setPhase({ kind: "done", observationId: obsId });
     } catch (err) {
       setPhase({ kind: "error", message: errorMessage(err) });
@@ -193,7 +234,7 @@ export default function ObserveSubmitScreen() {
     <View style={styles.container}>
       <Stack.Screen options={{ title: "Submit" }} />
       <Image
-        source={{ uri: photo.localUri }}
+        source={{ uri: displayPhoto.localUri }}
         style={styles.thumb}
         resizeMode="cover"
       />
@@ -240,6 +281,25 @@ export default function ObserveSubmitScreen() {
         <View style={styles.row}>
           <ActivityIndicator />
           <Text style={styles.value}>saving your pick…</Text>
+        </View>
+      )}
+      {/* Expedition celebration -- an inline card, not a modal, so it
+          stays visible after the Sanctuary reveal closes (and renders
+          when no reveal fires at all). Title/detail come straight from
+          the dispatcher; the client never fabricates progress. */}
+      {phase.kind === "done" && expeditionRewards.length > 0 && (
+        <View style={styles.expeditionCard}>
+          {expeditionRewards.map((r, i) => (
+            <View
+              key={`${r.type}-${i}`}
+              style={[styles.expeditionReward, i > 0 && styles.expeditionRewardGap]}
+            >
+              <Text style={styles.expeditionRewardTitle}>{r.title}</Text>
+              {r.detail ? (
+                <Text style={styles.expeditionRewardDetail}>{r.detail}</Text>
+              ) : null}
+            </View>
+          ))}
         </View>
       )}
       {phase.kind === "done" && (
@@ -333,11 +393,17 @@ export default function ObserveSubmitScreen() {
             onPress={async () => {
               if (!coords) return;
               try {
+                // Snapshot the photo so the done UI survives clearDraft().
+                setSubmittedPhoto(displayPhoto);
+
                 setPhase({ kind: "uploading", step: "presign" });
                 const presigned = await presignPhoto();
 
                 setPhase({ kind: "uploading", step: "put" });
-                await putPhotoToSignedUrl(presigned.upload_url, photo.localUri);
+                await putPhotoToSignedUrl(
+                  presigned.upload_url,
+                  displayPhoto.localUri,
+                );
 
                 setPhase({ kind: "uploading", step: "create" });
                 const obs = await createObservation({
@@ -346,18 +412,12 @@ export default function ObserveSubmitScreen() {
                   longitude: coords.lng,
                 });
 
-                // Stash any Sanctuary rewards from the dispatcher response
-                // so the reveal modal can render when we transition to
-                // ``done``. ``rewards`` is optional on the wire (empty list
-                // when the dispatcher emitted nothing); the filter handles
-                // the missing-field case.
-                const sRewards = (obs.rewards ?? []).filter(
-                  (r) =>
-                    r.type === "world_unlock" || r.type === "world_evolution",
-                );
-                if (sRewards.length > 0) {
-                  setSanctuaryRewards(sRewards);
-                }
+                // Stash dispatcher rewards so the reveal modal and the
+                // expedition celebration can render when we transition to
+                // ``done``. ``rewards`` is optional on the wire (empty
+                // list when the dispatcher emitted nothing); the helpers
+                // handle the missing-field case.
+                collectRewards(obs.rewards);
 
                 // Fire geocode in parallel; result folded into the
                 // eventual PATCH. Failure is non-fatal.
@@ -460,6 +520,29 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: "#22c55e",
     marginTop: 12,
+  },
+  expeditionCard: {
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    marginTop: 12,
+    borderRadius: 6,
+    backgroundColor: "#1a1a1a",
+  },
+  expeditionReward: {
+    // Transparent so the themed View doesn't paint over the card.
+    backgroundColor: "transparent",
+  },
+  expeditionRewardGap: {
+    marginTop: 10,
+  },
+  expeditionRewardTitle: {
+    fontSize: 15,
+    fontWeight: "600",
+  },
+  expeditionRewardDetail: {
+    fontSize: 13,
+    opacity: 0.7,
+    marginTop: 2,
   },
   input: {
     width: "100%",

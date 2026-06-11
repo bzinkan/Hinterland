@@ -246,9 +246,9 @@ Downstream handlers read `ctx.results["dex"].state["is_first_find"]`.
 
 ### `ExpeditionHandler`
 
-Queries the user's active expedition progress rows, runs each incomplete step's `match` spec against the observation via the matcher registry, advances matched steps, emits `expedition_step` rewards, and — on the final step — an `expedition_complete` reward.
+Queries the user's active expedition progress rows, runs each incomplete step's `match` spec against the observation via the matcher registry, advances matched steps, emits `expedition_step` rewards, and — on the final step — an `expedition_complete` reward. Each completed step is recorded in `expedition_progress.completed_steps` as `{"completed_at": <iso string>, "observation_id": <ulid>}` (legacy rows hold a plain iso string); the recorded `observation_id` is a per-observation gate — an expedition whose `completed_steps` already credits this observation is skipped on re-dispatch, so a replay cannot chain one observation through multiple steps.
 
-Key correctness property: a single observation can match at most one step per expedition (the first unmatched step), but can progress multiple expeditions at once. Document this in the handler's docstring and snapshot-test it.
+Key correctness property: a single observation can match at most one step per expedition (the first unmatched step), but can progress multiple expeditions at once. Document this in the handler's docstring and snapshot-test it. `PATCH /v1/observations/{id}` re-dispatches the observation when its first `taxon_id` lands (the live mobile flow picks the species after create), which is what makes taxon-based steps reachable; corrections (A -> B) and observations that already minted a dex entry do not re-dispatch (one photo can never farm first-find credit), and a failed re-dispatch resets `dispatched_at` to NULL so the nightly replay recovers it.
 
 ### `RarityHandler`
 

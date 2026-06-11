@@ -4,7 +4,8 @@
 caller has met, that they haven't started or completed yet.
 
 `GET /v1/expeditions/me` -- the caller's in-progress + completed
-expeditions, newest-progress first.
+expeditions, newest-progress first, with per-step detail (description,
+hint, completed_at) so the app can show what each step asks for.
 
 `POST /v1/expeditions/{id}/start` -- create an empty
 `expedition_progress` row. Fails 409 if a row already exists.
@@ -35,7 +36,9 @@ from app.models.expedition import (
     Expedition,
     PrereqCompleted,
     PrereqDexCount,
+    Step,
 )
+from app.services.expedition_progress import parse_step_completion
 
 router = APIRouter(prefix="/v1/expeditions", tags=["expeditions"])
 
@@ -61,13 +64,26 @@ class AvailableListResponse(BaseModel):
     items: list[ExpeditionSummary]
 
 
+class StepProgress(BaseModel):
+    """One step of an in-progress expedition, in content order."""
+
+    id: str
+    description: str
+    hint: str | None
+    completed_at: datetime | None
+
+
 class ProgressItem(BaseModel):
     expedition_id: str
     title: str
+    subtitle: str | None
+    intro: str
+    outro: str
     started_at: datetime
     completed_at: datetime | None
     completed_step_count: int
     total_step_count: int
+    steps: list[StepProgress]
 
 
 class MyProgressResponse(BaseModel):
@@ -125,6 +141,31 @@ def _prerequisites_met(exp: Expedition, *, dex_count: int, completed_ids: set[st
         if isinstance(prereq, PrereqCompleted) and prereq.value not in completed_ids:
             return False
     return True
+
+
+def _step_progress(step: Step, completed_value: object) -> StepProgress:
+    """Build one StepProgress, coercing the stored iso string via Pydantic.
+
+    A malformed completed_at string in a stored row must not 500 the
+    whole /me response -- it degrades to "not completed" for that step.
+    """
+    completion = parse_step_completion(completed_value)
+    try:
+        return StepProgress.model_validate(
+            {
+                "id": step.id,
+                "description": step.description,
+                "hint": step.hint,
+                "completed_at": completion.completed_at,
+            }
+        )
+    except Exception:
+        return StepProgress(
+            id=step.id,
+            description=step.description,
+            hint=step.hint,
+            completed_at=None,
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -209,23 +250,35 @@ async def list_my_progress(
 
     items: list[ProgressItem] = []
     for progress, content in rows:
+        completed = progress.completed_steps or {}
         try:
             exp = Expedition.model_validate(content.body)
             total_steps = len(exp.steps)
             title = exp.title
+            subtitle = exp.subtitle
+            intro = exp.intro
+            outro = exp.outro
+            steps = [_step_progress(step, completed.get(step.id)) for step in exp.steps]
         except Exception:
             log.warning("expeditions.me.bad_content", id=content.id)
             total_steps = 0
             title = content.id
-        completed = progress.completed_steps or {}
+            subtitle = None
+            intro = ""
+            outro = ""
+            steps = []
         items.append(
             ProgressItem(
                 expedition_id=progress.expedition_id,
                 title=title,
+                subtitle=subtitle,
+                intro=intro,
+                outro=outro,
                 started_at=progress.created_at,
                 completed_at=progress.completed_at,
                 completed_step_count=len(completed),
                 total_step_count=total_steps,
+                steps=steps,
             )
         )
 

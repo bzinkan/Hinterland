@@ -32,6 +32,24 @@ class CachedSpecies:
     scientific_name: str | None
     common_name: str | None
     iconic_taxon: str | None
+    ancestor_ids: tuple[int, ...]
+
+
+def ancestor_ids_from_payload(payload: object, *, taxon_id: int) -> tuple[int, ...]:
+    """Extract the iNat ancestor chain from a raw `/v1/taxa` payload.
+
+    iNat sometimes includes the taxon's own id as the last element of
+    `ancestor_ids`; we exclude it so the result is strictly ancestors.
+    Non-int entries (including bools, which are ints to `isinstance`)
+    are dropped. Returns () for any payload that isn't a dict with a
+    list under "ancestor_ids".
+    """
+    if not isinstance(payload, dict):
+        return ()
+    raw = payload.get("ancestor_ids")
+    if not isinstance(raw, list):
+        return ()
+    return tuple(x for x in raw if isinstance(x, int) and not isinstance(x, bool) and x != taxon_id)
 
 
 async def get_or_fill(
@@ -51,6 +69,7 @@ async def get_or_fill(
             scientific_name=row.scientific_name,
             common_name=row.common_name,
             iconic_taxon=row.iconic_taxon,
+            ancestor_ids=ancestor_ids_from_payload(row.source_payload, taxon_id=row.taxon_id),
         )
 
     info = await get_taxon(inat_client, taxon_id)
@@ -84,6 +103,7 @@ async def get_or_fill(
             scientific_name=row.scientific_name,
             common_name=row.common_name,
             iconic_taxon=row.iconic_taxon,
+            ancestor_ids=ancestor_ids_from_payload(row.source_payload, taxon_id=row.taxon_id),
         )
 
     log.info("species_cache.filled", taxon_id=taxon_id)
@@ -92,6 +112,7 @@ async def get_or_fill(
         scientific_name=info.scientific_name,
         common_name=info.common_name,
         iconic_taxon=info.iconic_taxon,
+        ancestor_ids=ancestor_ids_from_payload(info.raw, taxon_id=taxon_id),
     )
 
 
@@ -103,14 +124,18 @@ async def upsert_for_tests(
     scientific_name: str | None = None,
     common_name: str | None = None,
     iconic_taxon: str | None = None,
+    ancestor_ids: list[int] | None = None,
 ) -> None:
+    source_payload: dict[str, object] = (
+        {"ancestor_ids": list(ancestor_ids)} if ancestor_ids is not None else {}
+    )
     session.add(
         models.SpeciesCache(
             taxon_id=taxon_id,
             scientific_name=scientific_name,
             common_name=common_name,
             iconic_taxon=iconic_taxon,
-            source_payload={},
+            source_payload=source_payload,
             expires_at=datetime.now().astimezone(),
         )
     )
