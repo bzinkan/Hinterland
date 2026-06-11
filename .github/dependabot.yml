@@ -1,0 +1,27 @@
+# Weekly dependency update PRs. Keep the noise low: one ecosystem per
+# directory, grouped where the tooling supports it.
+version: 2
+updates:
+  # Backend Python deps (pyproject.toml + uv.lock).
+  - package-ecosystem: "uv"
+    directory: "/backend"
+    schedule:
+      interval: "weekly"
+
+  # Expo mobile app.
+  - package-ecosystem: "npm"
+    directory: "/mobile"
+    schedule:
+      interval: "weekly"
+
+  # Landing page tooling (no runtime deps today, but covered if any land).
+  - package-ecosystem: "npm"
+    directory: "/web"
+    schedule:
+      interval: "weekly"
+
+  # GitHub Actions workflow pins.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
