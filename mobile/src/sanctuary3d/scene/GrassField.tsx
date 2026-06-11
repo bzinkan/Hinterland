@@ -18,7 +18,7 @@ import { useFrame } from "@/src/sanctuary3d/r3f";
 import { toonRamp } from "@/src/sanctuary3d/scene/toonRamp";
 import { heightAt, WATER_LEVEL } from "@/src/sanctuary3d/terrain/heightfield";
 
-const BLADE_HEIGHT = 0.34;
+const BLADE_HEIGHT = 0.24;
 const COUNT_TARGET = 2400;
 
 type GrassInstance = { x: number; y: number; z: number; yaw: number; scale: number; tint: number };
@@ -68,9 +68,9 @@ export function GrassField({ dormant }: { dormant: boolean }) {
     ]);
     const normals = new Float32Array([0, 0, 1, 0, 0, 1, 0, 0, 1]);
     const colors = new Float32Array([
-      0.33, 0.48, 0.24, // base: deeper valley green
-      0.33, 0.48, 0.24,
-      0.68, 0.64, 0.38, // tip: muted gold
+      0.29, 0.44, 0.20, // base: deep valley green
+      0.29, 0.44, 0.20,
+      0.55, 0.56, 0.30, // tip: olive-gold
     ]);
     geo.setAttribute("position", new THREE.BufferAttribute(positions, 3));
     geo.setAttribute("normal", new THREE.BufferAttribute(normals, 3));
@@ -93,7 +93,7 @@ export function GrassField({ dormant }: { dormant: boolean }) {
           [
             "#include <begin_vertex>",
             "{",
-            "  float swayWeight = position.y / 0.34;",
+            "  float swayWeight = position.y / 0.24;",
             "  swayWeight *= swayWeight;",
             "  vec3 blade_origin = vec3(0.0);",
             "  #ifdef USE_INSTANCING",

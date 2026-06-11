@@ -199,7 +199,9 @@ function IslandCanvas({
       style={styles.canvas}
       camera={{
         position: [...VISTA_VIEW.position],
-        fov: 50,
+        // Wide lens: portrait phones crush horizontal FOV (vfov 50 ≈ hfov 24
+        // on 9:19.5) -- 68 vertical restores the open-world wide shot.
+        fov: 68,
         near: 0.2,
         far: 140,
       }}

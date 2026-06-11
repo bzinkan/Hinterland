@@ -21,8 +21,8 @@ function ground(x: number, z: number, lift: number): Vec3 {
  * meadow in the foreground, woodland ridge mid-frame, sky and horizon
  * haze above -- the ridge-top vista. */
 export const VISTA_VIEW: CameraView = {
-  position: [-8.6, 3.1, 10.4],
-  lookAt: [1.4, 0.3, -2.6],
+  position: [-10.8, 4.4, 12.6],
+  lookAt: [1.2, 0.1, -2.2],
 };
 
 export const ZONE_VIEWS: Record<SanctuaryZoneId, CameraView> = {
