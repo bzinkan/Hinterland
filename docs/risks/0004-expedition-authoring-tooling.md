@@ -31,3 +31,11 @@ is printed or written. Authors still review/edit the JSON, run
 A provider-backed LLM drafting mode can be added later if Brian explicitly
 chooses a provider and budget. That would be a convenience feature, not a beta
 blocker.
+
+**Update 2026-07-02:** the drafting mode landed as
+`--provider anthropic` on `scripts/draft_expedition.py`. It stays author-time
+only per ADR 0002: the model is pinned (`ANTHROPIC_MODEL` in the script), the
+`anthropic` SDK is lazily imported and deliberately not a backend dependency,
+output is validated through `Expedition.model_validate` (one retry, then a
+static-template fallback), and a human reviews every draft. The deterministic
+static template remains the default provider.
