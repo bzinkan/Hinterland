@@ -1,8 +1,10 @@
 import type { ObservationReward, RewardType } from "@/src/api/observations";
 import {
+  filterByEnvironment,
   nextIncompleteStep,
   selectExpeditionRewards,
   selectSanctuaryRewards,
+  splitProgress,
 } from "@/src/expeditions/logic";
 
 function reward(type: RewardType, title: string = type): ObservationReward {
@@ -93,5 +95,75 @@ describe("nextIncompleteStep", () => {
       step("c", null),
     ];
     expect(nextIncompleteStep(steps)?.id).toBe("b");
+  });
+});
+
+describe("filterByEnvironment", () => {
+  const exp = (id: string, environments: string[]) => ({ id, environments });
+
+  it("returns [] for an empty list", () => {
+    expect(filterByEnvironment([], "yard")).toEqual([]);
+  });
+
+  it("returns every item when env is null", () => {
+    const items = [exp("a", ["yard"]), exp("b", ["park", "street"])];
+    expect(filterByEnvironment(items, null)).toEqual(items);
+  });
+
+  it("keeps only items tagged with the selected environment", () => {
+    const items = [exp("a", ["yard", "park"]), exp("b", ["street"])];
+    expect(filterByEnvironment(items, "park").map((e) => e.id)).toEqual(["a"]);
+  });
+
+  it('includes "other" items for any environment', () => {
+    const items = [exp("a", ["other"]), exp("b", ["school"])];
+    expect(filterByEnvironment(items, "yard").map((e) => e.id)).toEqual(["a"]);
+    expect(filterByEnvironment(items, "school").map((e) => e.id)).toEqual([
+      "a",
+      "b",
+    ]);
+  });
+
+  it("preserves input order", () => {
+    const items = [
+      exp("a", ["yard"]),
+      exp("b", ["other"]),
+      exp("c", ["yard", "park"]),
+    ];
+    expect(filterByEnvironment(items, "yard").map((e) => e.id)).toEqual([
+      "a",
+      "b",
+      "c",
+    ]);
+  });
+});
+
+describe("splitProgress", () => {
+  const item = (id: string, completed_at: string | null) => ({
+    id,
+    completed_at,
+  });
+
+  it("returns two empty buckets for an empty list", () => {
+    expect(splitProgress([])).toEqual({ inProgress: [], completed: [] });
+  });
+
+  it("buckets by completed_at", () => {
+    const items = [item("a", null), item("b", "2026-06-01T00:00:00Z")];
+    const { inProgress, completed } = splitProgress(items);
+    expect(inProgress.map((i) => i.id)).toEqual(["a"]);
+    expect(completed.map((i) => i.id)).toEqual(["b"]);
+  });
+
+  it("preserves input order within each bucket", () => {
+    const items = [
+      item("a", "2026-06-01T00:00:00Z"),
+      item("b", null),
+      item("c", "2026-06-02T00:00:00Z"),
+      item("d", null),
+    ];
+    const { inProgress, completed } = splitProgress(items);
+    expect(inProgress.map((i) => i.id)).toEqual(["b", "d"]);
+    expect(completed.map((i) => i.id)).toEqual(["a", "c"]);
   });
 });

@@ -1,7 +1,8 @@
 import { router, Stack, useLocalSearchParams } from "expo-router";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ActivityIndicator,
+  Alert,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -10,17 +11,34 @@ import {
 
 import { Text, View } from "@/components/Themed";
 import { ApiError } from "@/src/api/client";
-import { type StepProgress, listMyExpeditions } from "@/src/api/expeditions";
+import {
+  type StepProgress,
+  listMyExpeditions,
+  restartExpedition,
+} from "@/src/api/expeditions";
 import { nextIncompleteStep } from "@/src/expeditions/logic";
 
 export default function ExpeditionDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
+  const queryClient = useQueryClient();
 
   // Same query key as the Expeditions tab, so navigating here from the
   // tab is a cache hit -- no second fetch for data we just rendered.
   const mine = useQuery({
     queryKey: ["expeditions", "me"],
     queryFn: listMyExpeditions,
+  });
+
+  const restart = useMutation({
+    mutationFn: restartExpedition,
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["expeditions"] });
+    },
+    onError: (err) => {
+      const message =
+        err instanceof ApiError ? `${err.status}: ${err.message}` : String(err);
+      Alert.alert("Couldn't start over", message);
+    },
   });
 
   if (mine.isPending) {
@@ -123,6 +141,38 @@ export default function ExpeditionDetailScreen() {
           }
         />
       ))}
+
+      {/* Restart only makes sense mid-expedition -- a completed one keeps
+          its trophy, so no reset offered there. */}
+      {!isComplete && (
+        <Pressable
+          style={[
+            styles.button,
+            styles.buttonGhost,
+            styles.restartButton,
+            restart.isPending && styles.buttonDisabled,
+          ]}
+          disabled={restart.isPending}
+          onPress={() =>
+            Alert.alert(
+              "Start over?",
+              "Your step progress on this expedition will reset.",
+              [
+                { text: "Cancel", style: "cancel" },
+                {
+                  text: "Start over",
+                  style: "destructive",
+                  onPress: () => restart.mutate(item.expedition_id),
+                },
+              ],
+            )
+          }
+        >
+          <Text style={styles.buttonText}>
+            {restart.isPending ? "Starting over…" : "Start over"}
+          </Text>
+        </Pressable>
+      )}
     </ScrollView>
   );
 }
@@ -227,5 +277,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   buttonGhost: { borderColor: "#888", borderWidth: StyleSheet.hairlineWidth },
+  buttonDisabled: { opacity: 0.4 },
   buttonText: { fontSize: 14, color: "#fff" },
+  restartButton: { marginTop: 8 },
 });
