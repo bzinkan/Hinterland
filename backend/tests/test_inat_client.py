@@ -1,4 +1,4 @@
-"""Unit tests for the iNat client wrappers (cv + taxa).
+"""Unit tests for the iNat client wrappers (cv + taxa + observations).
 
 Mocks the iNat HTTP surface with respx so no real network call happens.
 Verifies the graceful-degradation contract from `docs/architecture.md`:
@@ -15,6 +15,7 @@ import respx
 from app.core.config import Settings
 from app.inat.client import InatUnavailable, build_inat_client
 from app.inat.cv import score_image
+from app.inat.observations import SpeciesCount, get_species_counts
 from app.inat.taxa import get_taxon
 
 
@@ -183,3 +184,59 @@ async def test_get_taxon_returns_none_on_empty_results(client: httpx.AsyncClient
         return_value=httpx.Response(200, json={"results": []})
     )
     assert await get_taxon(client, 1) is None
+
+
+# ---------------------------------------------------------------------------
+# get_species_counts
+# ---------------------------------------------------------------------------
+
+
+async def _species_counts(client: httpx.AsyncClient) -> list[SpeciesCount]:
+    return await get_species_counts(
+        client,
+        bbox_swlat=39.0,
+        bbox_swlng=-84.6,
+        bbox_nelat=39.2,
+        bbox_nelng=-84.4,
+    )
+
+
+@respx.mock
+async def test_get_species_counts_keeps_iconic_taxon_name(client: httpx.AsyncClient) -> None:
+    respx.get("https://api.inaturalist.org/v1/observations/species_counts").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "results": [
+                    {"taxon": {"id": 1, "iconic_taxon_name": "Aves"}, "count": 60},
+                    {"taxon": {"id": 2, "iconic_taxon_name": "Insecta"}, "count": 30},
+                ]
+            },
+        )
+    )
+    counts = await _species_counts(client)
+    assert [(c.taxon_id, c.count, c.iconic_taxon_name) for c in counts] == [
+        (1, 60, "Aves"),
+        (2, 30, "Insecta"),
+    ]
+
+
+@respx.mock
+async def test_get_species_counts_iconic_taxon_none_when_missing_or_non_str(
+    client: httpx.AsyncClient,
+) -> None:
+    respx.get("https://api.inaturalist.org/v1/observations/species_counts").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "results": [
+                    {"taxon": {"id": 1}, "count": 10},  # missing
+                    {"taxon": {"id": 2, "iconic_taxon_name": 42}, "count": 20},  # non-str
+                    {"taxon": {"id": 3, "iconic_taxon_name": None}, "count": 30},  # null
+                    {"taxon": {"id": 4, "iconic_taxon_name": ""}, "count": 40},  # empty
+                ]
+            },
+        )
+    )
+    counts = await _species_counts(client)
+    assert [c.iconic_taxon_name for c in counts] == [None, None, None, None]
