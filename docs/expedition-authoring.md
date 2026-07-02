@@ -2,7 +2,7 @@
 
 Expeditions are the content that gives kids a reason to go outside. Each one is a short guided prompt ("find three things that fit these criteria") that the app runs against incoming observations, marking steps complete as matches come in and celebrating when the expedition finishes.
 
-This doc is the reference for writing them: the file format, the match language, validation, and the sync pipeline that gets JSON from the repo to DynamoDB.
+This doc is the reference for writing them: the file format, the match language, validation, and the sync pipeline that gets JSON from the repo to Postgres.
 
 Related reading: `dispatcher.md` (how `ExpeditionHandler` interprets these files at observation time), `data-model.md` (how expedition progress is stored per-user).
 
@@ -170,7 +170,7 @@ Every expedition file is validated against a Pydantic model at three points:
 
 1. **Author-time**: `make validate-content` runs the validator across `content/expeditions/` and reports broken files.
 2. **CI**: `.github/workflows/content-validate.yml` runs the same check on every PR. A broken expedition fails the build and never merges.
-3. **App boot**: on Lambda cold start, the matcher registry rejects any match `kind` not registered in code. Boot fails loudly rather than serving a broken expedition at runtime.
+3. **App boot**: at API startup, the matcher registry rejects any match `kind` not registered in code. Boot fails loudly rather than serving a broken expedition at runtime.
 
 The canonical model (source of truth — the doc follows this, not the other way around):
 
@@ -265,23 +265,28 @@ A matching JSON Schema lives at `content/schema/expedition.schema.json` (generat
 
 ## Sync pipeline
 
-The repo is the source of truth. DynamoDB is a materialized view. The only write path is deploy.
+The repo is the source of truth. Postgres is a materialized view. The only write path is deploy.
 
 ```
 content/expeditions/*.json
          │
-         ▼                                     (ran in CI on merge to main)
-  scripts/sync_expeditions.py  ───────────────▶  DynamoDB (Dragonfly table)
+         ▼  (validated in CI: content-validate.yml)
+  dragonfly-api image build          — repo-root context bakes content into the image
          │
-         ├─ validates every file with the Pydantic model
+         ▼  (Container Apps Job `dragonfly-sync-expeditions`, started after each deploy)
+  admin/sync_expeditions.py  ───────▶  Postgres (`expedition_content` table)
+         │
+         ├─ validates every file with the Pydantic model (any broken file aborts the run)
          ├─ computes content_hash per file
          ├─ skips rows whose hash hasn't changed
-         └─ never deletes (tombstoning is manual — see runbook)
+         └─ never deletes and never resurrects (tombstoning = the `archived` flag; revival = `--unarchive`)
 ```
 
-**Never edit expeditions in DynamoDB directly.** The rule is enforced by habit, not by IAM (that's an overreaction for a solo build), but the moment two authors exist it becomes a real constraint. Lose the source of truth in the repo and you lose reproducibility, PR review, and the ability to roll back.
+`scripts/sync_expeditions.py` is the local shim around the same module, pointed at the repo checkout instead of the baked-in `/app/content/expeditions`.
 
-**Never edit the `id` of a live expedition.** Expedition progress is keyed on `(USER#<id>, EXP#<expeditionId>)`. Change the id and every kid's progress vanishes from the UI. If an expedition needs retiring, deprecate it (set `tier: 0` or add an `archived: true` field — ADR-worthy) rather than renaming.
+**Never edit `expedition_content` rows directly.** The rule is enforced by habit, not by grants (that's an overreaction for a solo build), but the moment two authors exist it becomes a real constraint. Lose the source of truth in the repo and you lose reproducibility, PR review, and the ability to roll back.
+
+**Never edit the `id` of a live expedition.** Expedition progress is keyed on `(user_id, expedition_id)`. Change the id and every kid's progress vanishes from the UI. If an expedition needs retiring, tombstone it (set the row's `archived` flag — see runbook) rather than renaming; the sync job's `--unarchive <id>` flag revives it later.
 
 ## Adding a new match kind — the recipe
 
@@ -318,7 +323,7 @@ Each starter is tier 1, no prerequisites, `duration_minutes: 20`. Filenames unde
 
 1. **`backyard_starter.json` — Start Where You Are.** The canonical example above. Plant / insect / surprise. `environments: ["yard", "park", "street", "school", "other"]` — the only starter that works anywhere, surfaced as the default.
 
-2. **`park_starter.json` — Park Patrol.** Tree (Plantae) / something flying (`any_of` Aves, Insecta) / something on the ground that isn't grass (`all_of` not_in_dex + not Plantae-fallback). `environments: ["park"]`.
+2. **`park_starter.json` — Park Patrol.** Tree (Plantae) / something flying (`any_of` Aves, Insecta) / something on the ground the kid hasn't logged before (plain `not_in_dex` — no taxon exclusion). `environments: ["park"]`.
 
 3. **`street_starter.json` — Sidewalk Science.** A plant in a crack (Plantae) / a bug on a wall (Insecta) / a bird overhead (Aves). The copy leans into how cities are habitats too — this is the hardest environment to feel "natural" in, so the voice matters most here. `environments: ["street"]`.
 
@@ -326,4 +331,16 @@ Each starter is tier 1, no prerequisites, `duration_minutes: 20`. Filenames unde
 
 5. **`anywhere_starter.json` — Found Anywhere.** Three observations, no taxon constraint, `not_in_dex` on each. The fallback — works in a car, a boat, a grandma's apartment. `environments: ["other"]`.
 
-All five unlock a matching tier-2 expedition on completion (via `completed_expedition` prerequisite), giving an unbroken ladder from "first observation" to "themed challenge." Tier-2 authoring is Week 11 work, not blocking Phase 1 ship.
+## The five tier-2 sequels (reference)
+
+Each starter unlocks exactly one tier-2 sequel via a `completed_expedition` prerequisite, giving an unbroken ladder from "first observation" to "themed challenge." Filenames under `content/expeditions/tier2/`.
+
+1. **`backyard_closeup.json` — Look Closer.** Unlocked by `backyard_starter`. Beetle (`taxon_id` 47208, Coleoptera) / spider (`taxon_id` 47118, Araneae) / a plant new to the Dex (`all_of` not_in_dex + Plantae) / smallest-thing wildcard. `environments: ["yard"]`.
+
+2. **`park_pollinators.json` — Pollinator Patrol.** Unlocked by `park_starter`. A bloom (Plantae) / butterfly or moth (`taxon_id` 47157, Lepidoptera) / bee, wasp, or ant (`taxon_id` 47201, Hymenoptera) / a new flower visitor (`not_in_dex`). `environments: ["park"]`.
+
+3. **`street_survivors.json` — Urban Survivors.** Unlocked by `street_starter`. City bird or mammal (`any_of` Aves, Mammalia) / spider (Arachnida) / a new-to-the-Dex pavement plant (`all_of` not_in_dex + Plantae). `environments: ["street"]`.
+
+4. **`school_census.json` — Schoolyard Census.** Unlocked by `school_starter`. Fungus or lichen (Fungi) / a new insect (`all_of` not_in_dex + Insecta) / a bird on the building (Aves) / a 150m radius push (`not_within_radius_of_existing`, escalating the starter's 50m). `environments: ["school"]`.
+
+5. **`anywhere_collector.json` — Nothing But New.** Unlocked by `anywhere_starter` **plus** `dex_count_at_least: 5` — the only tier-2 carrying the Dex gate, because every step demands a species new to the Dex (including a dragonfly/damselfly-or-lepidopteran step, `taxon_id` 47792/47157, and a closing new-find 100m from all prior observations). Environments: all five.

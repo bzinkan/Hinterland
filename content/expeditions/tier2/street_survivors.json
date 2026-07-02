@@ -1,0 +1,44 @@
+{
+  "id": "street_survivors",
+  "title": "Urban Survivors",
+  "subtitle": "The toughest neighbors on the block",
+  "tier": 2,
+  "duration_minutes": 35,
+  "environments": ["street"],
+  "intro": "You proved the city is alive. Now meet the specialists -- the animals and plants that out-tough the concrete every day of the year.",
+  "outro": "Urban ecologists study exactly what you just documented. Your block is on the record now -- and there's a lot more city left.",
+  "prerequisites": [
+    { "kind": "completed_expedition", "value": "street_starter" }
+  ],
+  "steps": [
+    {
+      "id": "a_city_animal",
+      "description": "Find a bird or a mammal making a living in the city",
+      "match": {
+        "kind": "any_of",
+        "matches": [
+          { "kind": "iconic_taxon", "value": "Aves" },
+          { "kind": "iconic_taxon", "value": "Mammalia" }
+        ]
+      }
+    },
+    {
+      "id": "a_spider_on_patrol",
+      "description": "Find a spider on patrol",
+      "match": { "kind": "iconic_taxon", "value": "Arachnida" },
+      "hint": "Check walls and corners near streetlights -- lights pull in bugs, and bugs pull in spiders."
+    },
+    {
+      "id": "a_new_pavement_plant",
+      "description": "Find a new-to-you plant beating the pavement",
+      "match": {
+        "kind": "all_of",
+        "matches": [
+          { "kind": "not_in_dex" },
+          { "kind": "iconic_taxon", "value": "Plantae" }
+        ]
+      },
+      "hint": "Tree pits, wall seams, gutter edges. Overlooked ground grows overlooked plants."
+    }
+  ]
+}

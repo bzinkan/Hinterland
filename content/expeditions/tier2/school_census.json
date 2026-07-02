@@ -1,0 +1,44 @@
+{
+  "id": "school_census",
+  "title": "Schoolyard Census",
+  "subtitle": "The whole grounds, corner to corner",
+  "tier": 2,
+  "duration_minutes": 45,
+  "environments": ["school"],
+  "intro": "Last time you worked the edges. This time, take the full census -- sun and shade, walls and far corners, until the map has no blank spots.",
+  "outro": "A full-grounds census is the kind of fieldwork ecologists get paid to do. Nobody knows this place better than you now.",
+  "prerequisites": [
+    { "kind": "completed_expedition", "value": "school_starter" }
+  ],
+  "steps": [
+    {
+      "id": "a_fungus_or_lichen",
+      "description": "Find a fungus or a lichen",
+      "match": { "kind": "iconic_taxon", "value": "Fungi" },
+      "hint": "Lichens look like crusty paint splotches on bricks, bark, and sidewalks. They count."
+    },
+    {
+      "id": "a_new_insect",
+      "description": "Find an insect that's new to your Dex",
+      "match": {
+        "kind": "all_of",
+        "matches": [
+          { "kind": "not_in_dex" },
+          { "kind": "iconic_taxon", "value": "Insecta" }
+        ]
+      },
+      "hint": "Fence rails, windowsills, the base of walls -- new bugs keep to the edges."
+    },
+    {
+      "id": "a_bird_using_the_building",
+      "description": "Find a bird using the building",
+      "match": { "kind": "iconic_taxon", "value": "Aves" }
+    },
+    {
+      "id": "the_far_corner",
+      "description": "Log something 150 meters from every find you've ever made",
+      "match": { "kind": "not_within_radius_of_existing", "radius_meters": 150 },
+      "hint": "Last time was 50 meters. This is the far corner of the map -- go past where anyone bothers to look."
+    }
+  ]
+}

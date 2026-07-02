@@ -1,0 +1,38 @@
+{
+  "id": "park_pollinators",
+  "title": "Pollinator Patrol",
+  "subtitle": "Follow the flowers to the workers",
+  "tier": 2,
+  "duration_minutes": 40,
+  "environments": ["park"],
+  "intro": "Every flower in the park is a landing pad. Find the blooms, then stake one out and log the crew that keeps the whole place growing.",
+  "outro": "Scientists count pollinators on every continent, and your observations just joined that count. Patrol complete -- there's more park out there.",
+  "prerequisites": [
+    { "kind": "completed_expedition", "value": "park_starter" }
+  ],
+  "steps": [
+    {
+      "id": "a_bloom",
+      "description": "Find a plant in bloom",
+      "match": { "kind": "iconic_taxon", "value": "Plantae" }
+    },
+    {
+      "id": "a_butterfly_or_moth",
+      "description": "Find a butterfly or a moth",
+      "match": { "kind": "taxon_id", "value": 47157, "include_descendants": true },
+      "hint": "Sunny flower patches are best. Move slowly and keep your shadow off them."
+    },
+    {
+      "id": "a_bee_wasp_or_ant",
+      "description": "Find a bee, wasp, or ant on the job",
+      "match": { "kind": "taxon_id", "value": 47201, "include_descendants": true },
+      "hint": "Pick one flower and watch it for a whole minute. Let the bee come to you."
+    },
+    {
+      "id": "a_new_visitor",
+      "description": "Find a flower visitor that's new to your Dex",
+      "match": { "kind": "not_in_dex" },
+      "hint": "Hoverflies look like bees but fly like helicopters. Good odds you don't have one yet."
+    }
+  ]
+}

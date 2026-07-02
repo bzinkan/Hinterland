@@ -1,0 +1,70 @@
+{
+  "id": "anywhere_collector",
+  "title": "Nothing But New",
+  "subtitle": "Zero repeats, wherever you're standing",
+  "tier": 2,
+  "duration_minutes": 60,
+  "environments": ["yard", "park", "street", "school", "other"],
+  "intro": "Five species in your Dex means you're past the easy finds. This challenge only counts species you've never logged -- four finds, zero repeats, wherever you happen to be.",
+  "outro": "Four brand-new species in a single outing -- collectors chase streaks like that for years. Your Dex isn't a beginner's Dex anymore.",
+  "prerequisites": [
+    { "kind": "completed_expedition", "value": "anywhere_starter" },
+    { "kind": "dex_count_at_least", "value": 5 }
+  ],
+  "steps": [
+    {
+      "id": "first_of_four",
+      "description": "Find a species that's new to your Dex",
+      "match": { "kind": "not_in_dex" }
+    },
+    {
+      "id": "new_and_small",
+      "description": "Find a new insect, spider, or snail",
+      "match": {
+        "kind": "all_of",
+        "matches": [
+          { "kind": "not_in_dex" },
+          {
+            "kind": "any_of",
+            "matches": [
+              { "kind": "iconic_taxon", "value": "Insecta" },
+              { "kind": "iconic_taxon", "value": "Arachnida" },
+              { "kind": "iconic_taxon", "value": "Mollusca" }
+            ]
+          }
+        ]
+      },
+      "hint": "Snails hide under damp things, spiders keep to corners. At least one of them is new to you."
+    },
+    {
+      "id": "new_wings",
+      "description": "Find a new dragonfly, damselfly, butterfly, or moth",
+      "match": {
+        "kind": "all_of",
+        "matches": [
+          { "kind": "not_in_dex" },
+          {
+            "kind": "any_of",
+            "matches": [
+              { "kind": "taxon_id", "value": 47792, "include_descendants": true },
+              { "kind": "taxon_id", "value": 47157, "include_descendants": true }
+            ]
+          }
+        ]
+      },
+      "hint": "Dragonflies patrol water and sunny clearings. Butterflies work the flowers. Moths wait near lights."
+    },
+    {
+      "id": "new_ground",
+      "description": "Find a new species 100 meters from all your old finds",
+      "match": {
+        "kind": "all_of",
+        "matches": [
+          { "kind": "not_in_dex" },
+          { "kind": "not_within_radius_of_existing", "radius_meters": 100 }
+        ]
+      },
+      "hint": "New ground grows new species. The farther from your usual spots, the easier this one gets."
+    }
+  ]
+}

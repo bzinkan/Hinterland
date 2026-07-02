@@ -1,0 +1,43 @@
+{
+  "id": "backyard_closeup",
+  "title": "Look Closer",
+  "subtitle": "Same ground, smaller worlds",
+  "tier": 2,
+  "duration_minutes": 30,
+  "environments": ["yard"],
+  "intro": "You found the easy-to-spot life last time. Now shrink your search -- the busiest hunters and builders around you are smaller than your thumb.",
+  "outro": "You just ran a survey at bug scale, and that's a real field technique. Keep logging -- new expeditions appear as your Dex grows.",
+  "prerequisites": [
+    { "kind": "completed_expedition", "value": "backyard_starter" }
+  ],
+  "steps": [
+    {
+      "id": "a_beetle",
+      "description": "Find a beetle",
+      "match": { "kind": "taxon_id", "value": 47208, "include_descendants": true },
+      "hint": "Lift a rock or a piece of bark, take the photo, then put it back the way you found it."
+    },
+    {
+      "id": "a_spider",
+      "description": "Find a spider",
+      "match": { "kind": "taxon_id", "value": 47118, "include_descendants": true },
+      "hint": "Follow the webs -- fence corners, window frames, the gaps between plant stems."
+    },
+    {
+      "id": "a_new_plant",
+      "description": "Find a plant that's new to your Dex",
+      "match": {
+        "kind": "all_of",
+        "matches": [
+          { "kind": "not_in_dex" },
+          { "kind": "iconic_taxon", "value": "Plantae" }
+        ]
+      }
+    },
+    {
+      "id": "the_smallest_thing",
+      "description": "Find the smallest living thing you can photograph clearly",
+      "match": { "kind": "any_organism" }
+    }
+  ]
+}
