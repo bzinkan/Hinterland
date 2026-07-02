@@ -44,3 +44,38 @@ export function nextIncompleteStep<T extends { completed_at: string | null }>(
 ): T | null {
   return steps.find((s) => s.completed_at === null) ?? null;
 }
+
+/**
+ * Expeditions that fit the kid's current surroundings. ``null`` means no
+ * chip is selected ("All") and everything passes. Items tagged ``other``
+ * match every environment -- an anywhere-style expedition fits whatever
+ * context the kid picked, so it never disappears behind a chip.
+ */
+export function filterByEnvironment<T extends { environments: string[] }>(
+  items: readonly T[],
+  env: string | null,
+): T[] {
+  if (env === null) {
+    return [...items];
+  }
+  return items.filter(
+    (item) =>
+      item.environments.includes(env) || item.environments.includes("other"),
+  );
+}
+
+/**
+ * Split progress items into in-progress vs completed buckets. Input order
+ * is preserved within each bucket, so the server's sort carries through
+ * to both the in-progress rows and the trophy shelf.
+ */
+export function splitProgress<T extends { completed_at: string | null }>(
+  items: readonly T[],
+): { inProgress: T[]; completed: T[] } {
+  const inProgress: T[] = [];
+  const completed: T[] = [];
+  for (const item of items) {
+    (item.completed_at === null ? inProgress : completed).push(item);
+  }
+  return { inProgress, completed };
+}

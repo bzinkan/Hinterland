@@ -29,6 +29,14 @@ export function startExpedition(expeditionId: string): Promise<StartResponse> {
   });
 }
 
+export function restartExpedition(
+  expeditionId: string,
+): Promise<StartResponse> {
+  return apiRequest<StartResponse>(`/v1/expeditions/${expeditionId}/restart`, {
+    method: "POST",
+  });
+}
+
 export type StepProgress = {
   id: string;
   description: string;

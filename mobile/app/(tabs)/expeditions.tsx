@@ -19,9 +19,21 @@ import {
   listMyExpeditions,
   startExpedition,
 } from "@/src/api/expeditions";
+import { filterByEnvironment, splitProgress } from "@/src/expeditions/logic";
+
+// "other" has no chip on purpose -- filterByEnvironment treats it as
+// matching every environment, so those expeditions show under any chip.
+const ENVIRONMENT_CHIPS: { label: string; value: string | null }[] = [
+  { label: "All", value: null },
+  { label: "Yard", value: "yard" },
+  { label: "Park", value: "park" },
+  { label: "Street", value: "street" },
+  { label: "School", value: "school" },
+];
 
 export default function ExpeditionsScreen() {
   const queryClient = useQueryClient();
+  const [env, setEnv] = useState<string | null>(null);
 
   const available = useQuery({
     queryKey: ["expeditions", "available"],
@@ -75,8 +87,8 @@ export default function ExpeditionsScreen() {
     );
   }
 
-  const inProgress = (mine.data?.items ?? []).filter((p) => p.completed_at == null);
-  const items = available.data?.items ?? [];
+  const { inProgress, completed } = splitProgress(mine.data?.items ?? []);
+  const items = filterByEnvironment(available.data?.items ?? [], env);
 
   return (
     <FlatList
@@ -84,16 +96,54 @@ export default function ExpeditionsScreen() {
       keyExtractor={(item) => item.id}
       contentContainerStyle={styles.list}
       ListHeaderComponent={
-        inProgress.length === 0 ? null : <InProgressList items={inProgress} />
+        <View style={styles.section}>
+          {inProgress.length > 0 && <InProgressList items={inProgress} />}
+          <Text style={styles.sectionLabel}>Where are you?</Text>
+          <View style={styles.chipRow}>
+            {ENVIRONMENT_CHIPS.map((chip) => (
+              <Pressable
+                key={chip.label}
+                style={[
+                  styles.chip,
+                  chip.value === env ? styles.chipSelected : styles.chipGhost,
+                ]}
+                onPress={() => setEnv(chip.value)}
+              >
+                <Text
+                  style={[
+                    styles.chipText,
+                    chip.value === env && styles.chipTextSelected,
+                  ]}
+                >
+                  {chip.label}
+                </Text>
+              </Pressable>
+            ))}
+          </View>
+          <Text style={styles.sectionLabel}>Available</Text>
+        </View>
+      }
+      ListFooterComponent={
+        completed.length === 0 ? null : <TrophyList items={completed} />
       }
       ListEmptyComponent={
-        <View style={styles.empty}>
-          <Text style={styles.heading}>No expeditions available</Text>
-          <Text style={styles.body}>
-            Either you're working on all of them already, or none have been
-            published yet.
-          </Text>
-        </View>
+        env !== null ? (
+          <View style={styles.empty}>
+            <Text style={styles.heading}>Nothing for this spot</Text>
+            <Text style={styles.body}>
+              No expeditions match this place right now — tap All to see
+              every expedition.
+            </Text>
+          </View>
+        ) : (
+          <View style={styles.empty}>
+            <Text style={styles.heading}>No expeditions available</Text>
+            <Text style={styles.body}>
+              Either you're working on all of them already, or none have been
+              published yet.
+            </Text>
+          </View>
+        )
       }
       refreshControl={
         <RefreshControl
@@ -139,7 +189,37 @@ function InProgressList({ items }: { items: ProgressItem[] }) {
         lightColor="#eee"
         darkColor="rgba(255,255,255,0.1)"
       />
-      <Text style={styles.sectionLabel}>Available</Text>
+    </View>
+  );
+}
+
+function TrophyList({ items }: { items: ProgressItem[] }) {
+  return (
+    <View style={styles.section}>
+      <View
+        style={styles.divider}
+        lightColor="#eee"
+        darkColor="rgba(255,255,255,0.1)"
+      />
+      <Text style={styles.sectionLabel}>Trophies</Text>
+      {items.map((p) => (
+        <Pressable
+          key={p.expedition_id}
+          style={styles.progressRow}
+          onPress={() => router.push(`/expedition/${p.expedition_id}`)}
+        >
+          <Text style={styles.trophyGlyph}>🏆</Text>
+          <View style={styles.progressBody}>
+            <Text style={styles.progressTitle}>{p.title}</Text>
+            <Text style={styles.progressMeta}>
+              {p.completed_at
+                ? `Completed ${new Date(p.completed_at).toLocaleDateString()}`
+                : "Completed"}
+            </Text>
+          </View>
+          <Text style={styles.progressChevron}>›</Text>
+        </Pressable>
+      ))}
     </View>
   );
 }
@@ -206,7 +286,22 @@ const styles = StyleSheet.create({
   progressTitle: { fontSize: 15, fontWeight: "500" },
   progressMeta: { fontSize: 12, opacity: 0.7, marginTop: 2 },
   progressChevron: { fontSize: 22, opacity: 0.4, marginLeft: 8 },
+  trophyGlyph: { fontSize: 14, opacity: 0.8, marginRight: 10 },
   divider: { height: 1, marginVertical: 16 },
+  chipRow: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 8 },
+  chip: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 16,
+    alignItems: "center",
+  },
+  chipSelected: { backgroundColor: "#2f6feb" },
+  chipGhost: { borderColor: "#888", borderWidth: StyleSheet.hairlineWidth },
+  // No color on the base style -- Themed Text supplies a scheme-aware
+  // color, so unselected ghost chips stay readable in light mode. The
+  // selected chip's blue fill needs white for contrast in both schemes.
+  chipText: { fontSize: 13 },
+  chipTextSelected: { color: "#fff" },
   card: {
     paddingVertical: 12,
     paddingHorizontal: 14,
