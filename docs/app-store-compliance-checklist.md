@@ -16,6 +16,10 @@ adult-supervised W1 pilot.
 - [x] `play-internal` display name is `Dragonfly Internal`.
 - [x] `play-internal` blocks `ACCESS_FINE_LOCATION`.
 - [x] `play-internal` explicitly requests `ACCESS_COARSE_LOCATION`.
+- [x] Expeditions relevance uses already-granted coarse location passively
+      (permission CHECK only, no new prompt; observe-submit stays the only
+      requester). Only an on-device geohash4 cell (roughly 20 by 40 km) is sent. See
+      risk 0007's 2026-07-02 update.
 - [ ] AAB built with EAS `play-internal` profile.
 - [ ] Generated manifest verified: no fine-location permission.
 - [ ] Play Console internal tester list created outside the repo.
@@ -42,7 +46,10 @@ Production tracks.
 ## Google Play Data Safety Draft Answers
 
 - Photos: collected for app functionality.
-- Approximate location: collected for app functionality.
+- Approximate location: collected for app functionality and app
+  personalization (observation pins; expedition suggestions are ranked from
+  an on-device geohash4 cell, roughly 20 by 40 km — raw coordinates never leave the
+  device for that feature).
 - User content/species selection: collected for app functionality.
 - Email address: adult accounts only, for account management/auth.
 - Encrypted in transit: yes.
@@ -56,8 +63,10 @@ Production tracks.
 - Category: Education primary.
 - Age rating: likely 9+.
 - Kids Category: target yes, after legal/SDK review.
-- Privacy Nutrition Label should reflect photos, approximate location, and user
-  content as app-functionality data, with lawyer review before submission.
+- Privacy Nutrition Label should reflect photos, approximate location (app
+  functionality + product personalization for expedition suggestions), and
+  user content as app-functionality data, with lawyer review before
+  submission.
 - No IAP, ads, public chat, DMs, or kid-facing external links in Phase 1.
 
 ## Ongoing Risks

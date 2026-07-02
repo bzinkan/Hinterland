@@ -1,5 +1,10 @@
 import { apiRequest } from "@/src/api/client";
 
+export type ExpeditionRelevance = {
+  level: "great_here" | "tricky_here" | "unknown";
+  reason: string | null;
+};
+
 export type ExpeditionSummary = {
   id: string;
   title: string;
@@ -8,14 +13,23 @@ export type ExpeditionSummary = {
   duration_minutes: number;
   environments: string[];
   intro: string;
+  // Optional -- older backends omit it; the card renders nothing then.
+  relevance?: ExpeditionRelevance;
 };
 
 export type AvailableListResponse = {
   items: ExpeditionSummary[];
 };
 
-export function listAvailableExpeditions(): Promise<AvailableListResponse> {
-  return apiRequest<AvailableListResponse>("/v1/expeditions/available");
+export function listAvailableExpeditions(
+  geohash4?: string | null,
+): Promise<AvailableListResponse> {
+  const params = new URLSearchParams();
+  if (geohash4) params.set("geohash4", geohash4);
+  const query = params.toString();
+  return apiRequest<AvailableListResponse>(
+    `/v1/expeditions/available${query ? `?${query}` : ""}`,
+  );
 }
 
 export type StartResponse = {

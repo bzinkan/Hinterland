@@ -20,6 +20,9 @@ kid-to-kid free text.
 
 - A photo of an organism, stored privately in Azure Blob Storage.
 - Observation location. The Play Internal pilot uses coarse location.
+- A coarse location cell (a grid square roughly 20 by 40 kilometers, computed on the device) when the
+  app suggests expeditions. Raw coordinates are not sent for this feature, and
+  the app never asks for new location permission to do it.
 - Species identification chosen by the kid, optionally suggested by iNaturalist.
 - Timestamp, display name, age band, group membership, Dex/reward/Sanctuary
   progress.
@@ -50,7 +53,8 @@ the migration.
 ## What we do with the data
 
 - **App functionality.** Show observations, Dex entries, expedition progress,
-  rewards, review queue, and Sanctuary state.
+  rewards, review queue, and Sanctuary state. Rank suggested expeditions by
+  the kid's general area using the coarse on-device location cell.
 - **Moderation.** Photos are reviewed asynchronously. The closed-beta target is
   Azure AI Content Safety; W1 Internal Testing may run with noop moderation and
   adult-supervised manual review only.

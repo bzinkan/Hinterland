@@ -13,6 +13,7 @@ import {
 import { Text, View } from "@/components/Themed";
 import { ApiError } from "@/src/api/client";
 import {
+  type ExpeditionRelevance,
   type ExpeditionSummary,
   type ProgressItem,
   listAvailableExpeditions,
@@ -20,6 +21,7 @@ import {
   startExpedition,
 } from "@/src/api/expeditions";
 import { filterByEnvironment, splitProgress } from "@/src/expeditions/logic";
+import { useCoarseGeohash } from "@/src/expeditions/useCoarseGeohash";
 
 // "other" has no chip on purpose -- filterByEnvironment treats it as
 // matching every environment, so those expeditions show under any chip.
@@ -34,10 +36,20 @@ const ENVIRONMENT_CHIPS: { label: string; value: string | null }[] = [
 export default function ExpeditionsScreen() {
   const queryClient = useQueryClient();
   const [env, setEnv] = useState<string | null>(null);
+  // Passive coarse cell (never prompts); null until/unless the kid has
+  // already granted location on observe-submit.
+  const geohash = useCoarseGeohash();
 
   const available = useQuery({
-    queryKey: ["expeditions", "available"],
-    queryFn: listAvailableExpeditions,
+    // The key includes the cell (and the hook re-checks on focus) so a
+    // grant-state change refetches with relevance; the ["expeditions"]
+    // prefix invalidations elsewhere still match this longer key.
+    queryKey: ["expeditions", "available", geohash ?? "none"],
+    queryFn: () => listAvailableExpeditions(geohash),
+    // When the cell resolves after mount the key swaps; keep showing
+    // the already-rendered list instead of flashing the full-screen
+    // spinner while the ranked response loads in.
+    placeholderData: (prev) => prev,
   });
   const mine = useQuery({
     queryKey: ["expeditions", "me"],
@@ -241,6 +253,7 @@ function ExpeditionCard({
       <Text style={styles.cardMeta}>
         {item.duration_minutes} min · {item.environments.join(", ")}
       </Text>
+      <RelevanceBadge relevance={item.relevance} />
       {expanded && <Text style={styles.cardIntro}>{item.intro}</Text>}
       <Pressable
         style={[styles.button, styles.buttonPrimary, starting && styles.buttonDisabled]}
@@ -250,6 +263,34 @@ function ExpeditionCard({
         <Text style={styles.buttonText}>{starting ? "Starting…" : "Start expedition"}</Text>
       </Pressable>
     </Pressable>
+  );
+}
+
+// Text-only relevance hint from the backend's geohash4 ranking. Absent
+// (older backend), "unknown", or any level this client doesn't know yet
+// renders nothing at all -- never mislabel a future level.
+function RelevanceBadge({ relevance }: { relevance?: ExpeditionRelevance }) {
+  if (
+    !relevance ||
+    (relevance.level !== "great_here" && relevance.level !== "tricky_here")
+  ) {
+    return null;
+  }
+  const great = relevance.level === "great_here";
+  return (
+    <>
+      <Text
+        style={[
+          styles.relevanceBadge,
+          great ? styles.relevanceGreat : styles.relevanceTricky,
+        ]}
+      >
+        {great ? "Great fit near you" : "A challenge here"}
+      </Text>
+      {relevance.reason !== null && (
+        <Text style={styles.relevanceReason}>{relevance.reason}</Text>
+      )}
+    </>
   );
 }
 
@@ -312,6 +353,11 @@ const styles = StyleSheet.create({
   cardTitle: { fontSize: 16, fontWeight: "600" },
   cardSubtitle: { fontSize: 13, opacity: 0.8, marginTop: 2 },
   cardMeta: { fontSize: 12, opacity: 0.6, marginTop: 4 },
+  // Subtle tints that read on the fixed #1a1a1a card in both schemes.
+  relevanceBadge: { fontSize: 12, fontWeight: "600", marginTop: 4 },
+  relevanceGreat: { color: "#4ade80" },
+  relevanceTricky: { color: "#fbbf24" },
+  relevanceReason: { fontSize: 12, opacity: 0.6, marginTop: 2 },
   cardIntro: { fontSize: 13, marginTop: 8, lineHeight: 18 },
   button: {
     paddingHorizontal: 14,
