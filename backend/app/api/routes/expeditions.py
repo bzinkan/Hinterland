@@ -1,7 +1,10 @@
 """Expedition listing + start endpoints.
 
 `GET /v1/expeditions/available` -- expeditions whose prerequisites the
-caller has met, that they haven't started or completed yet.
+caller has met, that they haven't started or completed yet. With the
+optional `geohash4` query param, region-aware ranking downranks (never
+hides) expeditions whose iconic taxa nobody reports nearby; without it
+the list keeps its (tier, id) order.
 
 `GET /v1/expeditions/me` -- the caller's in-progress + completed
 expeditions, newest-progress first, with per-step detail (description,
@@ -22,10 +25,10 @@ expedition_id is a stable handle forever.
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from typing import Annotated
+from typing import Annotated, Literal
 
 import structlog
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel
 from sqlalchemy import desc, select
 from sqlalchemy.exc import IntegrityError
@@ -44,6 +47,12 @@ from app.models.expedition import (
     Step,
 )
 from app.services.expedition_progress import parse_step_completion
+from app.services.expedition_ranking import (
+    GEOHASH4_RE,
+    region_iconic_taxa,
+    relevance_for,
+    required_iconic_taxa,
+)
 
 router = APIRouter(prefix="/v1/expeditions", tags=["expeditions"])
 
@@ -55,6 +64,13 @@ log = structlog.get_logger()
 # ---------------------------------------------------------------------------
 
 
+class Relevance(BaseModel):
+    """How well an expedition fits what people report near the caller."""
+
+    level: Literal["great_here", "tricky_here", "unknown"]
+    reason: str | None
+
+
 class ExpeditionSummary(BaseModel):
     id: str
     title: str
@@ -63,6 +79,8 @@ class ExpeditionSummary(BaseModel):
     duration_minutes: int
     environments: list[str]
     intro: str
+    # Additive: always present, defaults to "no regional signal".
+    relevance: Relevance = Relevance(level="unknown", reason=None)
 
 
 class AvailableListResponse(BaseModel):
@@ -183,11 +201,21 @@ async def list_available(
     current_user: CurrentUserDep,
     session: DbSessionDep,
     settings: Annotated[Settings, Depends(get_request_settings)],
+    geohash4: Annotated[str | None, Query()] = None,
 ) -> AvailableListResponse:
     user = await resolve_current_user_row(session, current_user)
     dex_count = await _user_dex_count(session, user.id)
     completed_ids = await _completed_expedition_ids(session, user.id)
     any_progress_ids = await _any_progress_expedition_ids(session, user.id)
+
+    # Validated in code rather than Query(pattern=...) on purpose: an
+    # invalid geohash4 from an old or buggy client must silently degrade
+    # to the unranked list, never 422 the whole endpoint.
+    region_hash: str | None = None
+    if geohash4 is not None:
+        candidate = geohash4.lower()
+        if GEOHASH4_RE.fullmatch(candidate):
+            region_hash = candidate
 
     rows = (
         (
@@ -201,7 +229,9 @@ async def list_available(
         .all()
     )
 
-    items: list[ExpeditionSummary] = []
+    region = await region_iconic_taxa(session, region_hash) if region_hash is not None else None
+
+    ranked: list[tuple[int, ExpeditionSummary]] = []
     for row in rows:
         if row.id in any_progress_ids:
             # Either in-progress or already done -- not "available".
@@ -213,19 +243,40 @@ async def list_available(
             continue
         if not _prerequisites_met(exp, dex_count=dex_count, completed_ids=completed_ids):
             continue
-        items.append(
-            ExpeditionSummary(
-                id=exp.id,
-                title=exp.title,
-                subtitle=exp.subtitle,
-                tier=exp.tier,
-                duration_minutes=exp.duration_minutes,
-                environments=list(exp.environments),
-                intro=exp.intro,
+        bucket, level, reason = relevance_for(required_iconic_taxa(exp), region)
+        ranked.append(
+            (
+                bucket,
+                ExpeditionSummary(
+                    id=exp.id,
+                    title=exp.title,
+                    subtitle=exp.subtitle,
+                    tier=exp.tier,
+                    duration_minutes=exp.duration_minutes,
+                    environments=list(exp.environments),
+                    intro=exp.intro,
+                    relevance=Relevance(level=level, reason=reason),
+                ),
             )
         )
 
-    return AvailableListResponse(items=items)
+    # Rows arrive (tier, id)-ordered, so this stable sort yields
+    # (bucket, tier, id). Downrank, never hide: every bucket stays
+    # listed and startable. Without a region baseline every bucket is
+    # 0 and the order is untouched.
+    ranked.sort(key=lambda entry: entry[0])
+
+    # Privacy: geohash4 is the only location-shaped value on this
+    # endpoint -- never lat/lng (none exists here anyway). Invalid
+    # input is logged as None, not echoed.
+    log.info(
+        "expeditions.available.ranked",
+        geohash4=region_hash,
+        ranked=region_hash is not None,
+        region_known=region is not None,
+    )
+
+    return AvailableListResponse(items=[summary for _, summary in ranked])
 
 
 # ---------------------------------------------------------------------------

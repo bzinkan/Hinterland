@@ -12,6 +12,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.routes import expeditions as expeditions_routes
 from app.core.config import Settings
 from app.db import models
 from app.db.session import get_db_session
@@ -89,6 +90,7 @@ def _wire_available(
     completed_ids: list[str] | None = None,
     any_progress_ids: list[str] | None = None,
     contents: list[models.ExpeditionContent] | None = None,
+    region_results: list[list[str]] | None = None,
 ) -> None:
     user_result = MagicMock()
     user_result.scalar_one_or_none = MagicMock(return_value=user)
@@ -110,6 +112,16 @@ def _wire_available(
     side_effects: list[Any] = [user_result]
     if user is not None:
         side_effects.extend([dex_result, completed_result, any_progress_result, content_result])
+        # One entry per rarity_cache DISTINCT iconic_taxon query (a
+        # geohash-4 hit issues one; the geohash-3 fallback adds a
+        # second). Tests without a geohash4 param wire none, so any
+        # unexpected region lookup exhausts the side_effect list.
+        for values in region_results or []:
+            region_result = MagicMock()
+            region_scalars = MagicMock()
+            region_scalars.all = MagicMock(return_value=values)
+            region_result.scalars = MagicMock(return_value=region_scalars)
+            side_effects.append(region_result)
 
     fake_session.execute = AsyncMock(side_effect=side_effects)
 
@@ -208,6 +220,121 @@ def test_available_filters_unmet_completed_prereq(
     for client in _build_client(fake_session):
         response = client.get("/v1/expeditions/available", headers={"Authorization": "Bearer fake"})
         assert response.json()["items"] == []
+
+
+def test_available_valid_geohash4_reorders_by_relevance(
+    monkeypatch: pytest.MonkeyPatch, fake_session: AsyncMock
+) -> None:
+    """The region reports insects but no birds, so the bucket flips the
+    (tier, id) order: "b" (insects, great_here) rises above "a" (birds,
+    tricky_here) -- but "a" stays listed (downrank, never hide)."""
+    _stub_token_verifier(monkeypatch)
+    body_a = _exp_body(exp_id="a")
+    body_a["steps"][0]["match"] = {"kind": "iconic_taxon", "value": "Aves"}
+    body_b = _exp_body(exp_id="b")
+    body_b["steps"][0]["match"] = {"kind": "iconic_taxon", "value": "Insecta"}
+    _wire_available(
+        fake_session,
+        user=_user(),
+        contents=[_content("a", body_a), _content("b", body_b)],
+        region_results=[["Insecta"]],  # geohash-4 hit, no fallback query
+    )
+    for client in _build_client(fake_session):
+        response = client.get(
+            "/v1/expeditions/available",
+            params={"geohash4": "9q5c"},
+            headers={"Authorization": "Bearer fake"},
+        )
+        assert response.status_code == 200
+        items = response.json()["items"]
+        assert [i["id"] for i in items] == ["b", "a"]
+        assert items[0]["relevance"] == {
+            "level": "great_here",
+            "reason": "People spot insects near you a lot",
+        }
+        assert items[1]["relevance"] == {
+            "level": "tricky_here",
+            "reason": "Birds are rarely reported near you -- this one is a challenge",
+        }
+
+
+def test_available_invalid_geohash4_is_silently_ignored(
+    monkeypatch: pytest.MonkeyPatch, fake_session: AsyncMock
+) -> None:
+    """A geohash4 of "ailo" fails the base32 alphabet, so an old or
+    buggy client gets exactly the unranked list -- never a 422. No
+    region query is wired, so any lookup attempt would exhaust the
+    mock."""
+    _stub_token_verifier(monkeypatch)
+    body_a = _exp_body(exp_id="a")
+    body_a["steps"][0]["match"] = {"kind": "iconic_taxon", "value": "Aves"}
+    contents = [_content("a", body_a), _content("b", _exp_body(exp_id="b"))]
+    _wire_available(fake_session, user=_user(), contents=contents)
+    for client in _build_client(fake_session):
+        response = client.get(
+            "/v1/expeditions/available",
+            params={"geohash4": "ailo"},
+            headers={"Authorization": "Bearer fake"},
+        )
+        assert response.status_code == 200
+        items = response.json()["items"]
+        assert [i["id"] for i in items] == ["a", "b"]
+        assert all(i["relevance"] == {"level": "unknown", "reason": None} for i in items)
+
+
+def test_available_without_geohash4_keeps_order_and_unknown_relevance(
+    monkeypatch: pytest.MonkeyPatch, fake_session: AsyncMock
+) -> None:
+    """No param -> exactly today's (tier, id) order, relevance additive
+    and unknown, and no region query issued."""
+    _stub_token_verifier(monkeypatch)
+    body_a = _exp_body(exp_id="a")
+    body_a["steps"][0]["match"] = {"kind": "iconic_taxon", "value": "Aves"}
+    contents = [_content("a", body_a), _content("b", _exp_body(exp_id="b"))]
+    _wire_available(fake_session, user=_user(), contents=contents)
+    for client in _build_client(fake_session):
+        response = client.get("/v1/expeditions/available", headers={"Authorization": "Bearer fake"})
+        assert response.status_code == 200
+        items = response.json()["items"]
+        assert [i["id"] for i in items] == ["a", "b"]
+        assert all(i["relevance"] == {"level": "unknown", "reason": None} for i in items)
+
+
+def test_available_ranked_log_fields_and_cold_start_keeps_order(
+    monkeypatch: pytest.MonkeyPatch, fake_session: AsyncMock
+) -> None:
+    """The ranking log carries only {geohash4, ranked, region_known} --
+    never lat/lng. Cold start (both region queries empty) keeps the
+    original order with unknown relevance; the geohash is lowercased
+    before use so the raw "9Q5C" is never logged."""
+    _stub_token_verifier(monkeypatch)
+    fake_log = MagicMock()
+    monkeypatch.setattr(expeditions_routes, "log", fake_log)
+    contents = [_content("a", _exp_body(exp_id="a")), _content("b", _exp_body(exp_id="b"))]
+    _wire_available(
+        fake_session,
+        user=_user(),
+        contents=contents,
+        region_results=[[], []],  # geohash-4 empty, geohash-3 fallback empty
+    )
+    for client in _build_client(fake_session):
+        response = client.get(
+            "/v1/expeditions/available",
+            params={"geohash4": "9Q5C"},
+            headers={"Authorization": "Bearer fake"},
+        )
+        assert response.status_code == 200
+        items = response.json()["items"]
+        assert [i["id"] for i in items] == ["a", "b"]
+        assert all(i["relevance"] == {"level": "unknown", "reason": None} for i in items)
+
+    ranked_calls = [
+        call
+        for call in fake_log.info.call_args_list
+        if call.args and call.args[0] == "expeditions.available.ranked"
+    ]
+    assert len(ranked_calls) == 1
+    assert ranked_calls[0].kwargs == {"geohash4": "9q5c", "ranked": True, "region_known": False}
 
 
 # ---------------------------------------------------------------------------
