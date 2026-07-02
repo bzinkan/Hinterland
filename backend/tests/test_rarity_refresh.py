@@ -12,6 +12,7 @@ from unittest.mock import AsyncMock, MagicMock
 import httpx
 import pytest
 import respx
+from sqlalchemy.dialects import postgresql
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import Settings
@@ -112,15 +113,15 @@ async def test_refresh_region_low_data_skips_upsert(
 async def test_refresh_region_writes_tiered_rows(
     fake_session: AsyncMock, inat_client: httpx.AsyncClient
 ) -> None:
-    """Healthy cell: tier each species by share, upsert."""
+    """Healthy cell: tier each species by share, upsert (incl. iconic_taxon)."""
     respx.get("https://api.inaturalist.org/v1/observations/species_counts").mock(
         return_value=httpx.Response(
             200,
             json={
                 "results": [
-                    {"taxon": {"id": 1}, "count": 60},  # 60% -> abundant
-                    {"taxon": {"id": 2}, "count": 30},  # 30% -> abundant
-                    {"taxon": {"id": 3}, "count": 8},  # 8%  -> common
+                    {"taxon": {"id": 1, "iconic_taxon_name": "Aves"}, "count": 60},  # abundant
+                    {"taxon": {"id": 2, "iconic_taxon_name": "Insecta"}, "count": 30},  # abundant
+                    {"taxon": {"id": 3}, "count": 8},  # 8%  -> common; no iconic taxon
                     {"taxon": {"id": 4}, "count": 2},  # 2%  -> rare
                 ]
             },
@@ -134,6 +135,39 @@ async def test_refresh_region_writes_tiered_rows(
     assert result.species_count == 4
     fake_session.execute.assert_awaited_once()
     fake_session.commit.assert_awaited_once()
+
+
+@respx.mock
+async def test_refresh_region_upsert_carries_iconic_taxon(
+    fake_session: AsyncMock, inat_client: httpx.AsyncClient
+) -> None:
+    """Upsert VALUES + on-conflict SET both include iconic_taxon."""
+    respx.get("https://api.inaturalist.org/v1/observations/species_counts").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "results": [
+                    {"taxon": {"id": 1, "iconic_taxon_name": "Aves"}, "count": 60},
+                    {"taxon": {"id": 2, "iconic_taxon_name": "Insecta"}, "count": 40},
+                ]
+            },
+        )
+    )
+    fake_session.execute = AsyncMock()
+    fake_session.commit = AsyncMock()
+
+    await refresh_region(fake_session, inat_client, "dnp1")
+
+    stmt = fake_session.execute.await_args.args[0]
+    compiled = stmt.compile(dialect=postgresql.dialect())
+    sql = str(compiled).lower()
+    # iconic_taxon is part of the INSERT ... refreshed from the excluded
+    # row on conflict so a re-run updates it.
+    assert "iconic_taxon" in sql
+    assert "iconic_taxon = excluded.iconic_taxon" in sql
+    # ... and the VALUES carry the parsed iconic taxa.
+    assert "Aves" in compiled.params.values()
+    assert "Insecta" in compiled.params.values()
 
 
 @respx.mock

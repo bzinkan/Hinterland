@@ -22,6 +22,7 @@ log = structlog.get_logger()
 class SpeciesCount:
     taxon_id: int
     count: int
+    iconic_taxon_name: str | None
 
 
 async def get_species_counts(
@@ -75,8 +76,18 @@ async def get_species_counts(
         count = item.get("count")
         if not isinstance(taxon_id, int) or not isinstance(count, int):
             continue
-        out.append(SpeciesCount(taxon_id=taxon_id, count=count))
+        out.append(
+            SpeciesCount(
+                taxon_id=taxon_id,
+                count=count,
+                iconic_taxon_name=_str_or_none(taxon.get("iconic_taxon_name")),
+            )
+        )
     return out
+
+
+def _str_or_none(value: object) -> str | None:
+    return value if isinstance(value, str) and value else None
 
 
 def _days_ago_iso(days: int) -> str:

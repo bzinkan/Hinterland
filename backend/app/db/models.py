@@ -317,6 +317,7 @@ class RarityCache(TimestampMixin, Base):
     taxon_id: Mapped[int] = mapped_column(Integer, nullable=False)
     tier: Mapped[str] = mapped_column(String(24), nullable=False)
     observation_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    iconic_taxon: Mapped[str | None] = mapped_column(String(32))
     refreshed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 

@@ -106,6 +106,7 @@ async def refresh_region(
             "taxon_id": c.taxon_id,
             "tier": tier_for_share(c.count / n_total),
             "observation_count": c.count,
+            "iconic_taxon": c.iconic_taxon_name,
             "refreshed_at": now,
         }
         for c in counts
@@ -118,6 +119,7 @@ async def refresh_region(
             set_={
                 "tier": stmt.excluded.tier,
                 "observation_count": stmt.excluded.observation_count,
+                "iconic_taxon": stmt.excluded.iconic_taxon,
                 "refreshed_at": stmt.excluded.refreshed_at,
             },
         )
