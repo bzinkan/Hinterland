@@ -452,3 +452,74 @@ async def test_handler_failure_returns_empty_result_not_raise(
 
     assert result.rewards == []
     assert result.state.get(WorldHandler.STATE_ERROR) is True
+
+
+# ---------------------------------------------------------------------------
+# 9. Taxonless observation skips entirely -- no DB touch, no contribution.
+#    Sanctuary participation begins at identification (2026-07-03).
+# ---------------------------------------------------------------------------
+
+
+async def test_taxonless_observation_skips_without_touching_db(
+    fake_session: AsyncMock,
+) -> None:
+    """The live mobile flow creates observations with no taxon; the old
+    behavior claimed the per-observation replay gate with zone
+    'elsewhere', permanently blocking the taxon-time re-dispatch."""
+    fake_session.execute = AsyncMock()
+    fake_session.commit = AsyncMock()
+
+    handler = WorldHandler()
+    ctx = _ctx(fake_session, taxon_id=None, species_name=None, is_first_find=False)
+
+    result = await handler.handle(ctx)
+
+    assert result.rewards == []
+    assert result.state[WorldHandler.STATE_SKIPPED_NO_TAXON] is True
+    assert result.state[WorldHandler.STATE_REPLAY] is False
+    assert result.state[WorldHandler.STATE_CONTRIBUTION_ID] is None
+    # No reads, no writes, no commit: the observation left no Sanctuary
+    # footprint to collide with later.
+    fake_session.execute.assert_not_awaited()
+    fake_session.commit.assert_not_awaited()
+
+
+# ---------------------------------------------------------------------------
+# 10. The taxon-time re-dispatch after a taxonless create contributes
+#     fresh -- the full unlock fires because no row was claimed at create.
+# ---------------------------------------------------------------------------
+
+
+async def test_redispatch_after_taxonless_create_contributes_fresh(
+    fake_session: AsyncMock,
+) -> None:
+    handler = WorldHandler()
+
+    # Create-time dispatch: taxonless -> skip, zero DB calls.
+    create_ctx = _ctx(fake_session, taxon_id=None, species_name=None, is_first_find=False)
+    fake_session.execute = AsyncMock()
+    fake_session.commit = AsyncMock()
+    create_result = await handler.handle(create_ctx)
+    assert create_result.state[WorldHandler.STATE_SKIPPED_NO_TAXON] is True
+    fake_session.execute.assert_not_awaited()
+
+    # Taxon-time re-dispatch: same observation id, taxon now present and
+    # DexHandler just minted the first find. The contribution INSERT
+    # succeeds (no create-time row to conflict with) and the coarse
+    # unlock fires exactly as for a created-with-taxon observation.
+    _wire_session(
+        fake_session,
+        iconic_taxon="Plantae",
+        contribution_id=_OBS_ID,
+        element_inserts=[_MEADOW_COARSE_PLANTAE],
+        extra_executes=1,
+    )
+    redispatch_ctx = _ctx(fake_session, taxon_id=12345, species_name="A plant", is_first_find=True)
+
+    result = await handler.handle(redispatch_ctx)
+
+    assert len(result.rewards) == 1
+    assert result.rewards[0].type == "world_unlock"
+    assert result.rewards[0].payload["zone"] == "meadow"
+    assert result.state[WorldHandler.STATE_REPLAY] is False
+    assert result.state.get(WorldHandler.STATE_SKIPPED_NO_TAXON) is None

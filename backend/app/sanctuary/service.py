@@ -266,8 +266,10 @@ def _resolve_contribution_zone(
     Rules from the brief:
       1. ``iconic_taxon`` set -> route via ``content.coarse_by_iconic_taxon``.
       2. ``iconic_taxon`` unset / unmapped but ``taxon_id`` set -> elsewhere.
-      3. ``taxon_id`` also unset -> elsewhere (with the elsewhere mystery cue
-         carrying the kid-facing language elsewhere in the UI).
+      3. ``taxon_id`` also unset -> elsewhere. In practice unreachable
+         since 2026-07-03: ``WorldHandler`` skips taxonless observations
+         before the planner runs (contributions start at identification).
+         Kept so the pure function stays total.
     """
     if obs.iconic_taxon is not None:
         coarse = content.coarse_by_iconic_taxon.get(obs.iconic_taxon)

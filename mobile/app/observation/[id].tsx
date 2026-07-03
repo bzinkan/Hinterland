@@ -100,9 +100,11 @@ export default function ObservationDetailScreen() {
   ) {
     setIdentified({ taxonId, speciesName, rewards });
     // The PATCH-time dispatch may have minted first-find / advanced an
-    // expedition; freshen both surfaces.
+    // expedition -- and since Sanctuary contributions happen at
+    // identification, the Sanctuary is exactly what just changed.
     void queryClient.invalidateQueries({ queryKey: ["observations", "me"] });
     void queryClient.invalidateQueries({ queryKey: ["expeditions"] });
+    void queryClient.invalidateQueries({ queryKey: ["sanctuary", "me"] });
   }
 
   return (

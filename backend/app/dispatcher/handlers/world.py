@@ -21,6 +21,11 @@ and before ``ExpeditionHandler``. Reads
 and MAY read ``ctx.results["rarity"].state["tier"]`` for payload enrichment
 only -- the planner does NOT branch on tier.
 
+Taxonless observations are SKIPPED entirely (no contribution row, no zone
+counts): Sanctuary participation begins at identification, when the PATCH
+re-dispatch runs this handler with a real taxon. See docs/sanctuary.md
+"When contributions happen".
+
 Per AGENTS.md non-negotiables:
 
 - First-fire uses an atomic conditional write (``INSERT ... ON CONFLICT
@@ -82,6 +87,7 @@ class WorldHandler:
     STATE_CROSSED_THRESHOLDS = "crossed_thresholds"
     STATE_TIER_HINT = "tier_hint"
     STATE_REPLAY = "replay"
+    STATE_SKIPPED_NO_TAXON = "skipped_no_taxon"
     STATE_ERROR = "error"
 
     async def handle(self, ctx: Context) -> HandlerResult:
@@ -100,6 +106,29 @@ class WorldHandler:
 
     async def _handle_inner(self, ctx: Context) -> HandlerResult:
         obs = ctx.observation
+
+        # Sanctuary contributions start at identification (owner decision
+        # 2026-07-03, mirrors DexHandler's taxonless skip). The live flow
+        # creates observations without a taxon and assigns one via PATCH,
+        # which re-dispatches -- THAT dispatch inserts the contribution
+        # with the real zone and first-find state. Claiming the
+        # per-observation replay gate here with taxon NULL would route
+        # the row to "elsewhere" forever and block the re-dispatch on
+        # the PK. No DB reads or writes happen on this path.
+        if obs.taxon_id is None:
+            log.info(
+                "dispatcher.world.skipped_no_taxon",
+                observation_id=obs.id,
+                user_id=ctx.user.id,
+            )
+            return HandlerResult(
+                rewards=[],
+                state={
+                    self.STATE_CONTRIBUTION_ID: None,
+                    self.STATE_REPLAY: False,
+                    self.STATE_SKIPPED_NO_TAXON: True,
+                },
+            )
 
         is_first_find = self._read_is_first_find(ctx)
         tier_hint = self._read_rarity_tier(ctx)

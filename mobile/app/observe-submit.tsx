@@ -208,9 +208,12 @@ export default function ObserveSubmitScreen() {
     // never see the Sanctuary reveal, and the expedition step counts
     // on the tab are stale the moment a step completes. The Home list
     // caches for 30s; without its invalidation the fresh observation
-    // doesn't show up until a pull-to-refresh.
+    // doesn't show up until a pull-to-refresh. Sanctuary contributions
+    // happen at identification (the pick that just landed), so its
+    // zone counts changed even when no reveal-worthy reward fired.
     void queryClient.invalidateQueries({ queryKey: ["expeditions"] });
     void queryClient.invalidateQueries({ queryKey: ["observations", "me"] });
+    void queryClient.invalidateQueries({ queryKey: ["sanctuary", "me"] });
     setPhase({ kind: "done", observationId });
   }
 
