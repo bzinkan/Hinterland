@@ -267,6 +267,15 @@ async def consume(
         log.warning("inat.consumer.not_configured")
         return 0
 
+    # COPPA posture (Option B): when the flag is off, queued messages must
+    # NOT be submitted -- previously only the producers checked the flag,
+    # so messages already in the queue would still push to iNat after a
+    # flip-off. The flag is env-driven (a flip restarts the worker), so a
+    # startup guard fully covers it.
+    if not settings.inat_submit_enabled:
+        log.warning("inat.consumer.disabled_by_flag")
+        return 0
+
     from azure.identity.aio import DefaultAzureCredential
     from azure.servicebus.aio import ServiceBusClient
 

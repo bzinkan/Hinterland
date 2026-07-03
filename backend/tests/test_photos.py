@@ -126,12 +126,12 @@ def photos_client(
     yield from _build_client(fake_session, signer=stub_signer)
 
 
-def _user_row() -> models.User:
+def _user_row(role: str = "kid") -> models.User:
     return models.User(
         id=_USER_ID,
         firebase_uid=_FIREBASE_UID,
-        role="kid",
-        display_name="Kid Name",
+        role=role,
+        display_name="Kid Name" if role == "kid" else "Adult Name",
     )
 
 

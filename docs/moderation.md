@@ -47,9 +47,9 @@ The moderation Cloud Run service is the only component that writes to `observati
 
 **iNat submit waits for moderation.** We do not want to push an unmoderated photo to iNaturalist. The Cloud Tasks task that `inat_submit` consumes is enqueued by the moderation Cloud Run service on the clean path, not by the API service at submission time. If moderation takes 2 seconds, iNat submit starts 2 seconds later. If moderation flags the photo, no Cloud Tasks task is ever enqueued and iNat never sees it.
 
-**Quarantine moves, it doesn't delete.** Flagged photos are copied to `quarantine/`, not deleted from Cloud Storage. A human (teacher) review path can recover a false positive. The Cloud Storage lifecycle rule on the photos bucket (configured in `infra-gcp/main.tf`) deletes `quarantine/` objects after 90 days; by that point the review has either closed or been auto-rejected (see `runbook.md`).
+**Quarantine moves, it doesn't delete.** Flagged photos are copied to `quarantine/`, not deleted from storage. A human (teacher) review path can recover a false positive. The storage lifecycle rule on the photos account (Azure Storage management policy, applied by `infra-azure/phase-3b-blob-lifecycle.sh`; the GCS-era equivalent lived in `infra-gcp/main.tf`) deletes `quarantine/` objects after 90 days; by that point the review has either closed or been auto-rejected (see `runbook.md`). NOTE: the policy is applied by an operator running the phase-3b script — verify it is active on the target account before relying on the sweep.
 
-**Failed moderation does not default-allow.** If the moderation provider errors (throttle, service outage, transient 5xx), the photo stays in `pending/` and the Cloud Run service raises so Eventarc can retry per its policy. The Cloud Storage lifecycle rule clears abandoned `pending/` objects after 24 hours; if moderation hasn't succeeded by then, the photo is gone and the observation's `photo_key` points nowhere — the mobile app treats this as a failed observation and surfaces it in the kid's "retry" list. This is intentional. Defaulting to "allow" on moderation failure means every moderation-provider outage becomes a content-safety incident.
+**Failed moderation does not default-allow.** If the moderation provider errors (throttle, service outage, transient 5xx), the photo stays in `pending/` and the worker raises so the queue can retry per its policy. The storage lifecycle rule (phase-3b management policy) clears abandoned `pending/` objects after 1 day; if moderation hasn't succeeded by then, the photo is gone and the observation's `photo_key` points nowhere — the mobile app treats this as a failed observation and surfaces it in the kid's "retry" list. This is intentional. Defaulting to "allow" on moderation failure means every moderation-provider outage becomes a content-safety incident.
 
 ## Moderation provider configuration
 
@@ -87,14 +87,14 @@ On the error path (provider 5xx, network fault):
 1. No GCS moves.
 2. The Cloud Run service raises a non-2xx; Eventarc retries the trigger per its retry policy (configurable on the trigger resource).
 3. After exhausting retries, Eventarc routes to a dead-letter Pub/Sub topic if configured; `runbook.md` covers the response.
-4. The lifecycle rule on `pending/` eventually cleans the stuck photo after 24 hours.
+4. The lifecycle rule on `pending/` (phase-3b management policy) eventually cleans the stuck photo after 1 day.
 
 ## Teacher review lifecycle
 
 Quarantined photos are resolved by a teacher approving or rejecting the `review_queue` row from the mobile app (Week 11 in `roadmap.md`).
 
 - **Approve.** Move photo from `quarantine/` to `observations/`, update the observations row (`moderation_status = 'approved_on_review'`, clear the quarantine flag), enqueue the delayed iNat submit (Cloud Tasks), mark the `review_queue` row as `approved` with reviewer id and timestamp.
-- **Reject.** Delete the observations row and its `dex_entries` row (if any), decrement the user's membership counters, mark the `review_queue` row as `rejected`. The photo in `quarantine/` is left for the 90-day Cloud Storage lifecycle to sweep — we keep it briefly for audit and appeal.
+- **Reject.** Delete the observations row and its `dex_entries` row (if any), decrement the user's membership counters, mark the `review_queue` row as `rejected`. The photo in `quarantine/` is left for the 90-day storage lifecycle policy (phase-3b) to sweep — we keep it briefly for audit and appeal.
 - **Stale (no decision in 30 days).** The nightly sweep (`scripts/sweep_stale_reviews.py`) auto-rejects the review and runs the rejection path. See `runbook.md`.
 
 Counters stay correct across all three paths because approve-on-review is an idempotent no-op on the counters (they were never bumped at submission, because on the flag path we don't bump) — wait, that's wrong. Let me be precise: `observation_count` *is* bumped at submission (by the submission transaction, before moderation has run). A flagged observation's `observation_count` stays bumped until the teacher reviews. On approve, nothing changes. On reject, the counter decrements. This is the correct semantic: the kid's observation count is what they've *submitted*, not what's been approved; the Dex (which is only written by `DexHandler` after moderation, per ADR 0004) is what's been *earned*.

@@ -61,6 +61,9 @@ the migration.
 - **Scientific contribution.** iNaturalist public submission is off for W1
   Internal Testing. For closed beta and later, approved observations may be
   submitted through the Dragonfly project account, not under the kid's name.
+  Any such submission uses iNaturalist's "obscured" geoprivacy setting and
+  coordinates rounded to roughly 1 kilometer — the precise location never
+  leaves our systems.
 - **Operations.** Structured logs help debug failures. Photo bytes are never
   logged.
 

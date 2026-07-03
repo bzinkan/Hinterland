@@ -127,26 +127,43 @@ class PhotoUrlResponse(BaseModel):
     expires_at: datetime
 
 
-async def _intersecting_groups(
-    session: AsyncSession, *, caller_user_id: str, photo_owner_id: str
+# Same trust model as the review queue: parent/teacher memberships are
+# the adult review boundary.
+_ADULT_ROLES = frozenset({"parent", "teacher"})
+
+
+async def _shares_group(
+    session: AsyncSession,
+    *,
+    caller_user_id: str,
+    photo_owner_id: str,
+    caller_adult_membership_only: bool,
 ) -> bool:
-    """True if caller and photo owner share any group. Authorization
-    boundary for the signed-GET endpoint -- adults reviewing quarantined
-    photos and kids viewing their own both qualify (a kid is in their own
-    group; the photo owner == them when it's their photo)."""
-    if caller_user_id == photo_owner_id:
-        return True
+    """True if caller and photo owner share a group.
+
+    With ``caller_adult_membership_only`` the caller's side only counts
+    groups where THEIR membership role is parent/teacher -- the
+    review-queue trust model (a kid group-mate must never unlock another
+    kid's unmoderated or quarantined photo)."""
     rows = (
         await session.execute(
-            select(models.Membership.user_id, models.Membership.group_id).where(
-                models.Membership.user_id.in_([caller_user_id, photo_owner_id])
-            )
+            select(
+                models.Membership.user_id,
+                models.Membership.group_id,
+                models.Membership.role,
+            ).where(models.Membership.user_id.in_([caller_user_id, photo_owner_id]))
         )
     ).all()
-    seen: dict[str, set[str]] = {caller_user_id: set(), photo_owner_id: set()}
-    for uid, gid in rows:
-        seen[uid].add(gid)
-    return bool(seen[caller_user_id] & seen[photo_owner_id])
+    caller_groups: set[str] = set()
+    owner_groups: set[str] = set()
+    for uid, gid, role in rows:
+        if uid == photo_owner_id:
+            owner_groups.add(gid)
+        if uid == caller_user_id:
+            if caller_adult_membership_only and role not in _ADULT_ROLES:
+                continue
+            caller_groups.add(gid)
+    return bool(caller_groups & owner_groups)
 
 
 @router.get("/{photo_id}/url", response_model=PhotoUrlResponse)
@@ -171,12 +188,24 @@ async def photo_get_url(
         # for them. 404 like missing.
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Photo not found")
 
-    if not await _intersecting_groups(
-        session, caller_user_id=user_row.id, photo_owner_id=photo.user_id
-    ):
-        # Caller has no group overlap with the photo owner -- 404 like
-        # missing, no enumeration leak.
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Photo not found")
+    if user_row.id != photo.user_id:
+        # Non-owner access. Moderation-passed (`clean`) photos are
+        # group-shared; anything NOT clean (unmoderated `pending`,
+        # flagged `quarantine`) is adult-review material: the caller
+        # must be a parent/teacher AND hold an adult-role membership in
+        # a group shared with the owner. Kids always see their OWN
+        # photos (any non-deleted status) via the owner check above.
+        # All failures 404 like missing -- no enumeration leak.
+        adult_only = photo.status != "clean"
+        if adult_only and user_row.role not in _ADULT_ROLES:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Photo not found")
+        if not await _shares_group(
+            session,
+            caller_user_id=user_row.id,
+            photo_owner_id=photo.user_id,
+            caller_adult_membership_only=adult_only,
+        ):
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Photo not found")
 
     url, expires_at = signer.generate_get_url(
         bucket=photo.bucket,

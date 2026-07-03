@@ -28,12 +28,14 @@ local dev and the route's only callers are operator-driven.
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from typing import Annotated
 
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 
+from app.core.config import Settings, get_request_settings
 from app.core.internal_auth import require_internal_oidc
 from app.core.storage import SignedUrlGeneratorDep
 from app.db import models
@@ -66,7 +68,17 @@ async def submit(
     session: DbSessionDep,
     inat_client: InatClientDep,
     storage: SignedUrlGeneratorDep,
+    settings: Annotated[Settings, Depends(get_request_settings)],
 ) -> SubmitResponse:
+    # COPPA posture (Option B): while the flag is off, NO path may push
+    # kid observations to iNat -- including this manual/admin retry
+    # route, which previously bypassed the gate entirely.
+    if not settings.inat_submit_enabled:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="iNat submission is disabled (inat_submit_enabled=false)",
+        )
+
     obs = (
         await session.execute(
             select(models.Observation).where(models.Observation.id == payload.observation_id)
@@ -76,6 +88,22 @@ async def submit(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Observation not found",
+        )
+
+    # Mirror the Service Bus consumer's gate: only observations whose
+    # moderation outcome is `clean` may ever reach iNat. The photo.status
+    # check below is necessary but not sufficient (an operator retry on a
+    # quarantined observation with an approved photo must still skip).
+    if obs.moderation_status != "clean":
+        log.info(
+            "inat.submit.skipped_non_clean_observation",
+            observation_id=obs.id,
+            moderation_status=obs.moderation_status,
+        )
+        return SubmitResponse(
+            observation_id=obs.id,
+            inat_observation_id=None,
+            skipped=True,
         )
 
     # Idempotency: already submitted -> short-circuit. Cloud Tasks

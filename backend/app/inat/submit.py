@@ -31,6 +31,21 @@ class InatSubmitResult:
     inat_uuid: str
 
 
+# Child-location privacy posture (owner decision 2026-07-03) -- hardcoded
+# on purpose: a config knob whose misconfiguration leaks kid coordinates
+# is pure downside, and `inat_submit_enabled` already gates whether
+# submission happens at all.
+#
+# Two independent layers:
+# - geoprivacy "obscured": iNat scrambles the PUBLIC display point within
+#   a ~0.2-degree cell. Trusted users / curators can still see submitted
+#   coordinates, which is why we ALSO...
+# - round the submitted coordinates to 2 decimal places (~1.1 km): the
+#   true point never leaves our system at full precision.
+_GEOPRIVACY = "obscured"
+_COORD_DECIMAL_PLACES = 2
+
+
 async def submit_observation_to_inat(
     inat_client: httpx.AsyncClient,
     *,
@@ -48,8 +63,9 @@ async def submit_observation_to_inat(
     obs_payload: dict[str, object] = {
         "observation": {
             "uuid": dragonfly_observation_id,
-            "latitude": latitude,
-            "longitude": longitude,
+            "latitude": round(latitude, _COORD_DECIMAL_PLACES),
+            "longitude": round(longitude, _COORD_DECIMAL_PLACES),
+            "geoprivacy": _GEOPRIVACY,
             "observed_on_string": observed_on.isoformat(),
         }
     }
