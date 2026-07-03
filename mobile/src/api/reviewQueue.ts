@@ -37,12 +37,6 @@ export function rejectReview(id: string): Promise<ResolveResponse> {
   });
 }
 
-export type PhotoUrlResponse = {
-  photo_id: string;
-  url: string;
-  expires_at: string;
-};
-
-export function getPhotoUrl(photoId: string): Promise<PhotoUrlResponse> {
-  return apiRequest<PhotoUrlResponse>(`/v1/photos/${photoId}/url`);
-}
+// Photo URL fetching moved to the shared module (the kid gallery uses it
+// too); re-exported here so review-queue call sites keep working.
+export { getPhotoUrl, type PhotoUrlResponse } from "@/src/api/photos";

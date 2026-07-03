@@ -1,7 +1,9 @@
+import { router } from "expo-router";
 import { useCallback } from "react";
 import {
   ActivityIndicator,
   FlatList,
+  Image,
   Pressable,
   RefreshControl,
   StyleSheet,
@@ -11,7 +13,13 @@ import DesktopContainer from "@/components/DesktopContainer";
 import { Text, View } from "@/components/Themed";
 import { ApiError } from "@/src/api/client";
 import type { ObservationListItem } from "@/src/api/observations";
+import {
+  galleryCaption,
+  isAwaitingModeration,
+  photoDisplayMode,
+} from "@/src/observation/galleryLogic";
 import { useMyObservations } from "@/src/observation/useMyObservations";
+import { usePhotoUrl } from "@/src/observation/usePhotoUrl";
 
 export default function HomeScreen() {
   const query = useMyObservations();
@@ -72,11 +80,13 @@ export default function HomeScreen() {
       <FlatList
         data={items}
         keyExtractor={(item) => item.id}
+        numColumns={2}
+        columnWrapperStyle={styles.gridRow}
         contentContainerStyle={styles.list}
         refreshControl={
           <RefreshControl refreshing={query.isRefetching} onRefresh={onRefresh} />
         }
-        renderItem={({ item }) => <ObservationRow item={item} />}
+        renderItem={({ item }) => <GalleryCard item={item} />}
         ListFooterComponent={
           query.hasNextPage ? (
             <Pressable
@@ -95,25 +105,92 @@ export default function HomeScreen() {
   );
 }
 
-function ObservationRow({ item }: { item: ObservationListItem }) {
+function GalleryCard({ item }: { item: ObservationListItem }) {
+  const mode = photoDisplayMode(item.photo_status);
   const ts = new Date(item.created_at);
+
   return (
-    <View style={styles.row}>
-      <Text style={styles.species}>{item.species_name ?? "Unknown species"}</Text>
-      <Text style={styles.meta}>
-        {ts.toLocaleString()} · {item.photo_status}
+    <Pressable
+      style={styles.card}
+      onPress={() => router.push(`/observation/${item.id}`)}
+    >
+      {mode === "image" ? (
+        <GalleryThumb
+          photoId={item.photo_id}
+          checking={isAwaitingModeration(item.photo_status)}
+        />
+      ) : (
+        <View style={styles.thumbPlaceholder}>
+          <Text style={styles.placeholderGlyph}>
+            {mode === "reviewing" ? "🔍" : "🚫"}
+          </Text>
+          <Text style={styles.placeholderText}>
+            {mode === "reviewing"
+              ? "An adult is checking this photo"
+              : "Photo removed"}
+          </Text>
+        </View>
+      )}
+      <Text style={styles.species} numberOfLines={1}>
+        {galleryCaption(item.species_name)}
       </Text>
-      <Text style={styles.meta}>
-        {item.latitude.toFixed(4)}, {item.longitude.toFixed(4)}
-        {item.geohash4 ? ` · ${item.geohash4}` : ""}
+      <Text style={styles.meta} numberOfLines={1}>
+        {ts.toLocaleDateString()}
+        {item.place_name ? ` · ${item.place_name}` : ""}
       </Text>
+    </Pressable>
+  );
+}
+
+function GalleryThumb({
+  photoId,
+  checking,
+}: {
+  photoId: string;
+  checking: boolean;
+}) {
+  const urlQuery = usePhotoUrl(photoId, true);
+
+  if (urlQuery.isPending) {
+    return (
+      <View style={styles.thumbPlaceholder}>
+        <ActivityIndicator />
+      </View>
+    );
+  }
+
+  if (urlQuery.isError || !urlQuery.data) {
+    // URL mint failed (offline, blob missing). Placeholder, not an error
+    // banner -- pull-to-refresh retries the whole grid.
+    return (
+      <View style={styles.thumbPlaceholder}>
+        <Text style={styles.placeholderGlyph}>🌿</Text>
+      </View>
+    );
+  }
+
+  return (
+    <View style={styles.thumbWrap}>
+      <Image
+        source={{ uri: urlQuery.data.url }}
+        style={styles.thumb}
+        resizeMode="cover"
+      />
+      {checking && (
+        <View style={styles.checkingBadge}>
+          <Text style={styles.checkingBadgeText}>checking…</Text>
+        </View>
+      )}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   list: {
-    padding: 16,
+    padding: 12,
+  },
+  gridRow: {
+    gap: 12,
   },
   center: {
     flex: 1,
@@ -132,17 +209,57 @@ const styles = StyleSheet.create({
     textAlign: "center",
     marginBottom: 16,
   },
-  row: {
-    paddingVertical: 12,
-    borderBottomColor: "rgba(255,255,255,0.1)",
-    borderBottomWidth: StyleSheet.hairlineWidth,
+  card: {
+    flex: 1,
+    marginBottom: 16,
+  },
+  thumbWrap: {
+    position: "relative",
+  },
+  thumb: {
+    width: "100%",
+    aspectRatio: 1,
+    borderRadius: 8,
+    backgroundColor: "#1a1a1a",
+  },
+  thumbPlaceholder: {
+    width: "100%",
+    aspectRatio: 1,
+    borderRadius: 8,
+    backgroundColor: "#1a1a1a",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: 12,
+  },
+  placeholderGlyph: {
+    fontSize: 28,
+    marginBottom: 6,
+  },
+  placeholderText: {
+    fontSize: 12,
+    opacity: 0.7,
+    textAlign: "center",
+  },
+  checkingBadge: {
+    position: "absolute",
+    top: 6,
+    right: 6,
+    backgroundColor: "rgba(0,0,0,0.65)",
+    borderRadius: 4,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+  },
+  checkingBadgeText: {
+    fontSize: 10,
+    color: "#fff",
   },
   species: {
-    fontSize: 16,
+    fontSize: 14,
     fontWeight: "500",
+    marginTop: 6,
   },
   meta: {
-    fontSize: 12,
+    fontSize: 11,
     opacity: 0.6,
     marginTop: 2,
   },
@@ -161,7 +278,7 @@ const styles = StyleSheet.create({
     color: "#fff",
   },
   loadMore: {
-    marginTop: 16,
+    marginTop: 4,
     marginHorizontal: 16,
   },
 });
