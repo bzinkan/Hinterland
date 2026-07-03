@@ -36,6 +36,16 @@ class SignedUrlGenerator(Protocol):
         """
         ...
 
+    def put_required_headers(self, *, content_type: str) -> dict[str, str]:
+        """Headers the client MUST send on the PUT to the signed URL.
+
+        Backend-specific: Azure Put Blob rejects requests without
+        `x-ms-blob-type`. Returned to clients in the presign response so
+        the upload contract is explicit instead of implied by whichever
+        storage backend happens to be configured.
+        """
+        ...
+
     def fetch_object_bytes(self, *, bucket: str, object_name: str) -> bytes:
         """Read a photo's raw bytes server-side.
 
@@ -135,6 +145,16 @@ class BlobSignedUrlGenerator:
         )
         url = f"{self._account_endpoint.rstrip('/')}/{bucket}/{object_name}?{sas}"
         return url, expires_at
+
+    def put_required_headers(self, *, content_type: str) -> dict[str, str]:
+        # Azure Put Blob fails with 400 MissingRequiredHeader without
+        # x-ms-blob-type. The SAS's content_type binding only shapes GET
+        # responses (rsct), so Content-Type here is convention, not
+        # enforcement.
+        return {
+            "Content-Type": content_type,
+            "x-ms-blob-type": "BlockBlob",
+        }
 
     def fetch_object_bytes(self, *, bucket: str, object_name: str) -> bytes:
         blob = self._service.get_blob_client(container=bucket, blob=object_name)

@@ -113,6 +113,11 @@ class Observation(TimestampMixin, Base):
         Index("ix_observations_user_created", "user_id", "created_at"),
         Index("ix_observations_group_created", "group_id", "created_at"),
         Index("ix_observations_taxon", "taxon_id"),
+        # One observation per photo. Create-time the photo must still be
+        # `pending`, but that check alone allows a double-submit race; the
+        # moderation worker assumes exactly one observation per photo
+        # (scalar_one_or_none) and crash-loops on duplicates.
+        UniqueConstraint("photo_id", name="uq_observations_photo_id"),
     )
 
     id: Mapped[str] = mapped_column(String(26), primary_key=True)

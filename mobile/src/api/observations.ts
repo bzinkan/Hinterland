@@ -43,6 +43,10 @@ export type PhotoPresignResponse = {
   bucket: string;
   content_type: string;
   expires_at: string;
+  // Headers to send verbatim on the PUT to upload_url (e.g. Azure's
+  // x-ms-blob-type). Optional because deployed API builds may predate
+  // this field; callers fall back to legacyPutHeaders().
+  required_headers?: Record<string, string>;
 };
 
 export function presignPhoto(): Promise<PhotoPresignResponse> {

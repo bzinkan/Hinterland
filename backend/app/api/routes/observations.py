@@ -30,6 +30,8 @@ import structlog
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
 from sqlalchemy import desc, func, select, update
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.ext.asyncio import AsyncSession
 from ulid import ULID
 
 from app.core.auth import CurrentUserDep, resolve_current_user_row
@@ -118,6 +120,20 @@ class ObservationResponse(BaseModel):
         )
 
 
+async def _observation_for_photo(session: AsyncSession, photo_id: str) -> models.Observation | None:
+    """The observation already attached to `photo_id`, if any.
+
+    Used for idempotent create replay. Caller has already proven photo
+    ownership, and an observation can only be created by its photo's
+    owner, so no extra user filter is needed here.
+    """
+    return (
+        await session.execute(
+            select(models.Observation).where(models.Observation.photo_id == photo_id)
+        )
+    ).scalar_one_or_none()
+
+
 @router.post(
     "",
     response_model=ObservationResponse,
@@ -152,6 +168,18 @@ async def create_observation(
     if photo is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Photo not found")
     if photo.status != "pending":
+        # The photo may be non-pending because moderation already processed
+        # the observation this client created but never heard back about
+        # (lost 201). Replay idempotently instead of stranding the retry.
+        existing = await _observation_for_photo(session, payload.photo_id)
+        if existing is not None:
+            log.info(
+                "observations.create.idempotent_replay",
+                observation_id=existing.id,
+                photo_id=payload.photo_id,
+                photo_status=photo.status,
+            )
+            return ObservationResponse.from_model(existing)
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=f"Photo is in status {photo.status}, not pending",
@@ -193,7 +221,32 @@ async def create_observation(
         place_name=payload.place_name,
     )
     session.add(observation)
-    await session.commit()
+    try:
+        await session.commit()
+    except IntegrityError:
+        # uq_observations_photo_id: this photo already has an observation.
+        # Rollback also undoes the membership counter bump above (the
+        # original create already counted it). The common cause is a retry
+        # after a lost create response, so replay the existing row rather
+        # than 409ing the client into a dead end.
+        await session.rollback()
+        existing = await _observation_for_photo(session, payload.photo_id)
+        if existing is not None:
+            log.info(
+                "observations.create.idempotent_replay",
+                observation_id=existing.id,
+                photo_id=payload.photo_id,
+                # NOT photo.status: the rollback expired the `photo`
+                # instance and attribute access would raise MissingGreenlet
+                # on AsyncSession. This branch only runs when the photo was
+                # still pending at the check above.
+                photo_status="pending",
+            )
+            return ObservationResponse.from_model(existing)
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Photo is already attached to an observation",
+        ) from None
     await session.refresh(observation)
 
     log.info(

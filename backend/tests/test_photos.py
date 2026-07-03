@@ -45,6 +45,11 @@ class _StubSignedUrlGenerator:
             datetime(2026, 5, 9, 23, 30, 0, tzinfo=UTC),
         )
 
+    def put_required_headers(self, *, content_type: str) -> dict[str, str]:
+        # Mirrors the Azure Blob contract so the presign test pins the
+        # exact headers the mobile uploader must send.
+        return {"Content-Type": content_type, "x-ms-blob-type": "BlockBlob"}
+
     def fetch_object_bytes(self, *, bucket: str, object_name: str) -> bytes:
         # Not exercised by the presign tests; other tests use their own stub.
         raise NotImplementedError
@@ -185,6 +190,11 @@ def test_presign_returns_signed_url_and_inserts_photo_row(
     assert body["content_type"] == "image/jpeg"
     assert body["upload_url"].startswith("https://storage.googleapis.com/")
     assert body["expires_at"]  # ISO timestamp present
+    # The upload contract is explicit: the client sends these verbatim.
+    assert body["required_headers"] == {
+        "Content-Type": "image/jpeg",
+        "x-ms-blob-type": "BlockBlob",
+    }
 
     # Signer was called with a 15-minute TTL and matching object_name.
     assert len(stub_signer.calls) == 1

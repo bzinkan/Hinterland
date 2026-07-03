@@ -1,6 +1,6 @@
 import { router, Stack } from "expo-router";
 import * as Location from "expo-location";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Image,
@@ -14,14 +14,20 @@ import { ApiError } from "@/src/api/client";
 import { reverseGeocode } from "@/src/api/geocode";
 import {
   type CvSuggestion,
+  type ObservationPatch,
   type ObservationReward,
+  type PhotoPresignResponse,
   createObservation,
   identifyObservation,
   patchObservation,
   presignPhoto,
 } from "@/src/api/observations";
 import { queryClient } from "@/src/api/queryClient";
-import { putPhotoToSignedUrl } from "@/src/api/upload";
+import {
+  UploadHttpError,
+  legacyPutHeaders,
+  putPhotoToSignedUrl,
+} from "@/src/api/upload";
 import {
   selectExpeditionRewards,
   selectSanctuaryRewards,
@@ -42,6 +48,25 @@ type Phase =
   | { kind: "patching"; observationId: string }
   | { kind: "done"; observationId: string }
   | { kind: "error"; message: string };
+
+/**
+ * Server-side progress that survives a failed leg. The phase machine above
+ * is what the kid sees; this is what lets "Try again" resume from the
+ * failed leg instead of re-running presign + create -- which would attach
+ * a second observation to a fresh photo row and orphan the first one.
+ */
+type SubmitProgress = {
+  presigned: PhotoPresignResponse | null;
+  uploaded: boolean;
+  observationId: string | null;
+  identify: { suggestions: CvSuggestion[]; cvUnavailable: boolean } | null;
+  pendingPatch: ObservationPatch | null;
+};
+
+function presignExpired(presigned: PhotoPresignResponse): boolean {
+  // 30s safety margin: a PUT started on the edge of SAS expiry fails.
+  return Date.parse(presigned.expires_at) - 30_000 < Date.now();
+}
 
 export default function ObserveSubmitScreen() {
   const photo = useDraftStore((s) => s.photo);
@@ -71,6 +96,15 @@ export default function ObserveSubmitScreen() {
   const [sanctuaryRewards, setSanctuaryRewards] = useState<ObservationReward[]>([]);
   const [expeditionRewards, setExpeditionRewards] = useState<ObservationReward[]>([]);
   const [revealVisible, setRevealVisible] = useState(false);
+  // Not state: progress is only read inside runSubmit/sendPatch, and a
+  // re-render mid-pipeline must not reset it.
+  const progressRef = useRef<SubmitProgress>({
+    presigned: null,
+    uploaded: false,
+    observationId: null,
+    identify: null,
+    pendingPatch: null,
+  });
 
   // Fold dispatcher rewards from a create/patch response into local state.
   // Accumulates -- the create and the eventual PATCH can each dispatch.
@@ -161,70 +195,177 @@ export default function ObserveSubmitScreen() {
     );
   }
 
-  const submittable =
-    phase.kind === "idle" && locStatus === "ready" && coords !== null;
+  // Submit starts the pipeline; Try again resumes it after an error.
+  const canSubmit =
+    (phase.kind === "idle" || phase.kind === "error") &&
+    locStatus === "ready" &&
+    coords !== null;
 
-  async function pickSuggestion(s: CvSuggestion) {
-    if (phase.kind !== "picking") return;
-    const obsId = phase.observationId;
+  function finishDone(observationId: string) {
+    progressRef.current.pendingPatch = null;
+    clearDraft();
+    // Invalidate here (not just in the modal handlers) -- most kids
+    // never see the Sanctuary reveal, and the expedition step counts
+    // on the tab are stale the moment a step completes. The Home list
+    // caches for 30s; without its invalidation the fresh observation
+    // doesn't show up until a pull-to-refresh.
+    void queryClient.invalidateQueries({ queryKey: ["expeditions"] });
+    void queryClient.invalidateQueries({ queryKey: ["observations", "me"] });
+    setPhase({ kind: "done", observationId });
+  }
+
+  async function sendPatch(obsId: string, payload: ObservationPatch) {
+    // Stashed before the request so a failure can re-send it verbatim
+    // from the Try again button.
+    progressRef.current.pendingPatch = payload;
     setPhase({ kind: "patching", observationId: obsId });
     try {
-      const obs = await patchObservation(obsId, {
-        taxon_id: s.taxon_id,
-        // Server auto-fills species_name from species_cache when only
-        // taxon_id is sent (PR #40).
-        place_name: placeName,
-      });
+      const obs = await patchObservation(obsId, payload);
       collectRewards(obs.rewards);
-      clearDraft();
-      // Invalidate here (not just in the modal handlers) -- most kids
-      // never see the Sanctuary reveal, and the expedition step counts
-      // on the tab are stale the moment a step completes.
-      void queryClient.invalidateQueries({ queryKey: ["expeditions"] });
-      setPhase({ kind: "done", observationId: obsId });
+      finishDone(obsId);
     } catch (err) {
       setPhase({ kind: "error", message: errorMessage(err) });
     }
+  }
+
+  async function pickSuggestion(s: CvSuggestion) {
+    if (phase.kind !== "picking") return;
+    // Server auto-fills species_name from species_cache when only
+    // taxon_id is sent (PR #40).
+    await sendPatch(phase.observationId, {
+      taxon_id: s.taxon_id,
+      place_name: placeName,
+    });
   }
 
   async function pickManual() {
     if (phase.kind !== "picking") return;
-    const obsId = phase.observationId;
     const trimmed = manualSpecies.trim();
     if (!trimmed) return;
-    setPhase({ kind: "patching", observationId: obsId });
-    try {
-      const obs = await patchObservation(obsId, {
-        species_name: trimmed,
-        place_name: placeName,
-      });
-      collectRewards(obs.rewards);
-      clearDraft();
-      void queryClient.invalidateQueries({ queryKey: ["expeditions"] });
-      setPhase({ kind: "done", observationId: obsId });
-    } catch (err) {
-      setPhase({ kind: "error", message: errorMessage(err) });
-    }
+    await sendPatch(phase.observationId, {
+      species_name: trimmed,
+      place_name: placeName,
+    });
   }
 
   async function pickSkip() {
     if (phase.kind !== "picking") return;
-    const obsId = phase.observationId;
     if (!placeName) {
       // Nothing to PATCH; skip straight to done. No response to harvest
       // rewards from, but the create may have advanced an expedition.
-      clearDraft();
-      void queryClient.invalidateQueries({ queryKey: ["expeditions"] });
-      setPhase({ kind: "done", observationId: obsId });
+      finishDone(phase.observationId);
       return;
     }
-    setPhase({ kind: "patching", observationId: obsId });
+    await sendPatch(phase.observationId, { place_name: placeName });
+  }
+
+  /**
+   * Run (or resume) the submit pipeline. Completed legs are recorded in
+   * progressRef, so a retry picks up at the failed leg: a created
+   * observation is never re-created, an uploaded photo is never
+   * re-presigned (unless the SAS expired), and a failed species PATCH is
+   * re-sent as-is.
+   */
+  async function runSubmit() {
+    if (!coords || !displayPhoto) return;
+    const p = progressRef.current;
     try {
-      const obs = await patchObservation(obsId, { place_name: placeName });
-      collectRewards(obs.rewards);
-      clearDraft();
-      void queryClient.invalidateQueries({ queryKey: ["expeditions"] });
-      setPhase({ kind: "done", observationId: obsId });
+      // A species pick failed mid-PATCH: re-send it and finish.
+      if (p.observationId && p.pendingPatch) {
+        const payload = p.pendingPatch;
+        setPhase({ kind: "patching", observationId: p.observationId });
+        const obs = await patchObservation(p.observationId, payload);
+        collectRewards(obs.rewards);
+        finishDone(p.observationId);
+        return;
+      }
+
+      // Identify already completed: drop straight back into picking.
+      if (p.observationId && p.identify) {
+        setPhase({
+          kind: "picking",
+          observationId: p.observationId,
+          suggestions: p.identify.suggestions,
+          cvUnavailable: p.identify.cvUnavailable,
+        });
+        return;
+      }
+
+      let observationId = p.observationId;
+      if (observationId === null) {
+        // Snapshot the photo so the done UI survives clearDraft().
+        setSubmittedPhoto(displayPhoto);
+
+        let presigned = p.presigned;
+        // Presign fresh, or re-presign when the SAS sat in an error state
+        // past expiry. A superseded pending photo row never gets an
+        // observation and is cleaned up with other upload orphans.
+        if (!presigned || presignExpired(presigned)) {
+          setPhase({ kind: "uploading", step: "presign" });
+          presigned = await presignPhoto();
+          p.presigned = presigned;
+          p.uploaded = false;
+        }
+
+        if (!p.uploaded) {
+          setPhase({ kind: "uploading", step: "put" });
+          try {
+            await putPhotoToSignedUrl(
+              presigned.upload_url,
+              displayPhoto.localUri,
+              presigned.required_headers ?? legacyPutHeaders(presigned.content_type),
+            );
+          } catch (err) {
+            // 403 = storage rejected the SAS (expired server-side, or a
+            // slow device clock fooled presignExpired). Forget this
+            // presign so the next Try again mints a fresh one instead of
+            // looping on the same dead URL.
+            if (err instanceof UploadHttpError && err.status === 403) {
+              p.presigned = null;
+              p.uploaded = false;
+            }
+            throw err;
+          }
+          p.uploaded = true;
+        }
+
+        setPhase({ kind: "uploading", step: "create" });
+        const obs = await createObservation({
+          photo_id: presigned.photo_id,
+          latitude: coords.lat,
+          longitude: coords.lng,
+        });
+        observationId = obs.id;
+        p.observationId = observationId;
+
+        // Stash dispatcher rewards so the reveal modal and the
+        // expedition celebration can render when we transition to
+        // ``done``. ``rewards`` is optional on the wire (empty
+        // list when the dispatcher emitted nothing); the helpers
+        // handle the missing-field case.
+        collectRewards(obs.rewards);
+
+        // Fire geocode in parallel; result folded into the
+        // eventual PATCH. Failure is non-fatal.
+        void reverseGeocode(coords.lat, coords.lng)
+          .then((r) => setPlaceName(r.place_name))
+          .catch(() => {
+            /* ignore */
+          });
+      }
+
+      setPhase({ kind: "identifying", observationId });
+      const ident = await identifyObservation(observationId);
+      p.identify = {
+        suggestions: ident.suggestions,
+        cvUnavailable: ident.cv_unavailable,
+      };
+      setPhase({
+        kind: "picking",
+        observationId,
+        suggestions: ident.suggestions,
+        cvUnavailable: ident.cv_unavailable,
+      });
     } catch (err) {
       setPhase({ kind: "error", message: errorMessage(err) });
     }
@@ -387,60 +528,14 @@ export default function ObserveSubmitScreen() {
             style={[
               styles.button,
               styles.buttonPrimary,
-              !submittable && styles.buttonDisabled,
+              !canSubmit && styles.buttonDisabled,
             ]}
-            disabled={!submittable}
-            onPress={async () => {
-              if (!coords) return;
-              try {
-                // Snapshot the photo so the done UI survives clearDraft().
-                setSubmittedPhoto(displayPhoto);
-
-                setPhase({ kind: "uploading", step: "presign" });
-                const presigned = await presignPhoto();
-
-                setPhase({ kind: "uploading", step: "put" });
-                await putPhotoToSignedUrl(
-                  presigned.upload_url,
-                  displayPhoto.localUri,
-                );
-
-                setPhase({ kind: "uploading", step: "create" });
-                const obs = await createObservation({
-                  photo_id: presigned.photo_id,
-                  latitude: coords.lat,
-                  longitude: coords.lng,
-                });
-
-                // Stash dispatcher rewards so the reveal modal and the
-                // expedition celebration can render when we transition to
-                // ``done``. ``rewards`` is optional on the wire (empty
-                // list when the dispatcher emitted nothing); the helpers
-                // handle the missing-field case.
-                collectRewards(obs.rewards);
-
-                // Fire geocode in parallel; result folded into the
-                // eventual PATCH. Failure is non-fatal.
-                void reverseGeocode(coords.lat, coords.lng)
-                  .then((r) => setPlaceName(r.place_name))
-                  .catch(() => {
-                    /* ignore */
-                  });
-
-                setPhase({ kind: "identifying", observationId: obs.id });
-                const ident = await identifyObservation(obs.id);
-                setPhase({
-                  kind: "picking",
-                  observationId: obs.id,
-                  suggestions: ident.suggestions,
-                  cvUnavailable: ident.cv_unavailable,
-                });
-              } catch (err) {
-                setPhase({ kind: "error", message: errorMessage(err) });
-              }
-            }}
+            disabled={!canSubmit}
+            onPress={() => void runSubmit()}
           >
-            <Text style={styles.buttonText}>Submit</Text>
+            <Text style={styles.buttonText}>
+              {phase.kind === "error" ? "Try again" : "Submit"}
+            </Text>
           </Pressable>
         )}
       </View>
