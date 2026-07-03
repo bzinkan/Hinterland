@@ -49,7 +49,7 @@ Preserve these through every phase:
 - iNaturalist submission is asynchronous. A kid can see success before iNat receives the observation.
 - Expedition JSON/content is source of truth. The database is a materialized view.
 - Leaderboard counters live on membership rows. Do not aggregate observations at read time for normal leaderboard reads.
-- No ads, marketing pushes, public chat, DMs, or kid-to-kid free text in Phase 1.
+- No ads, marketing pushes, public chat, DMs, or kid-to-kid free text in Phase 1. The Field Journal (the observation list tab) is read-only for kids: adding kid-authored journal notes requires an ADR first.
 - Ingest jobs must be idempotent, replayable, and auditable.
 - CrewAI or multi-agent tooling is internal/adult-only. Do not import it from `backend/app` or put it on a kid-facing request path.
 
@@ -67,6 +67,13 @@ Preserve these through every phase:
 ## Repository Reality Check
 
 `mobile/`, `content/`, and `scripts/` exist. Old notes that list them as planned are stale and should be corrected when touched.
+
+Kid-facing naming (2026-07-04): the observation list tab is the **Field
+Journal** (tab label "Journal", route `mobile/app/(tabs)/index.tsx`;
+logic in `mobile/src/observation/journalLogic.ts`). The Sanctuary's
+event-timeline panel is labeled **"Story"** in the UI — its API field
+stays `journal[]` (wire contract; do not rename). Historical phase logs
+below still say "Home tab" / "gallery"; leave them as history.
 
 Current backend baseline:
 
