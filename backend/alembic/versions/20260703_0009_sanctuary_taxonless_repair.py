@@ -37,16 +37,18 @@ down_revision = "20260702_0008"
 branch_labels = None
 depends_on = None
 
-# Tier thresholds mirror app/sanctuary/types.py THRESHOLDS (1,3,5,10,20,50).
+# depth_tier stores the highest threshold VALUE reached (1/3/5/10/20/50),
+# not an ordinal -- see service.py _build_zone_transition (after_tier =
+# max(crossed)) and the mobile pip rendering (tier <= depth_tier).
 _RECOMPUTE_ZONE_STATE = """
 UPDATE sanctuary_zone_state z
 SET observation_count = sub.cnt,
     depth_tier = CASE
-        WHEN sub.cnt >= 50 THEN 6
-        WHEN sub.cnt >= 20 THEN 5
-        WHEN sub.cnt >= 10 THEN 4
-        WHEN sub.cnt >= 5 THEN 3
-        WHEN sub.cnt >= 3 THEN 2
+        WHEN sub.cnt >= 50 THEN 50
+        WHEN sub.cnt >= 20 THEN 20
+        WHEN sub.cnt >= 10 THEN 10
+        WHEN sub.cnt >= 5 THEN 5
+        WHEN sub.cnt >= 3 THEN 3
         WHEN sub.cnt >= 1 THEN 1
         ELSE 0
     END
