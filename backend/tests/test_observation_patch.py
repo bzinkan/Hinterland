@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import AsyncIterator, Iterator
+from datetime import UTC, datetime
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
@@ -14,7 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import Settings
 from app.db import models
 from app.db.session import get_db_session
-from app.dispatcher.types import Reward
+from app.dispatcher.types import HandlerResult, Reward
 from app.main import create_app
 from app.services.species_cache import CachedSpecies
 from tests.helpers.auth import stub_token_verifier
@@ -60,7 +61,12 @@ def _user_row() -> models.User:
     )
 
 
-def _obs_row(*, taxon_id: int | None = None) -> models.Observation:
+def _obs_row(
+    *,
+    taxon_id: int | None = None,
+    taxon_first_assigned_at: datetime | None = None,
+    dispatched_at: datetime | None = None,
+) -> models.Observation:
     obs = models.Observation(
         id=_OBS_ID,
         user_id=_USER_ID,
@@ -71,6 +77,8 @@ def _obs_row(*, taxon_id: int | None = None) -> models.Observation:
         taxon_id=taxon_id,
         species_name=None,
         place_name=None,
+        taxon_first_assigned_at=taxon_first_assigned_at,
+        dispatched_at=dispatched_at,
     )
     return obs
 
@@ -127,6 +135,13 @@ def _wire_session(
     side_effects: list[Any] = [user_result]
     if user is not None:
         side_effects.append(obs_result)
+        if dispatch_photo is not None or dispatch_minted_dex_id is not None:
+            # The dex-mint probe runs FIRST on a first taxon assignment,
+            # before any state is written -- a probe-blocked assignment
+            # must not clear dispatched_at for the replay job.
+            probe_result = MagicMock()
+            probe_result.scalar_one_or_none = MagicMock(return_value=dispatch_minted_dex_id)
+            side_effects.append(probe_result)
         if obs is not None and species_cache_hit is not None:
             # Species cache lookup happens when taxon_id is set without
             # an explicit species_name, or on any first taxon assignment
@@ -134,10 +149,6 @@ def _wire_session(
             # this path -- or that patch get_or_fill directly -- don't
             # pre-stage a species result.
             side_effects.append(species_result)
-        if dispatch_photo is not None or dispatch_minted_dex_id is not None:
-            probe_result = MagicMock()
-            probe_result.scalar_one_or_none = MagicMock(return_value=dispatch_minted_dex_id)
-            side_effects.append(probe_result)
         if dispatch_photo is not None:
             photo_result = MagicMock()
             photo_result.scalar_one = MagicMock(return_value=dispatch_photo)
@@ -345,7 +356,17 @@ def test_patch_new_taxon_dispatches_and_returns_rewards(
         weight=40,
         payload={"expedition_id": "backyard_starter", "step_id": "bird"},
     )
-    dispatch_mock = AsyncMock(return_value=[reward])
+
+    # The route only re-stamps dispatched_at when WorldHandler reported
+    # health, so the fake dispatch must populate world state the way the
+    # real dispatcher does.
+    async def fake_dispatch(ctx: Any, handlers: Any) -> list[Reward]:
+        ctx.results["world"] = HandlerResult(
+            rewards=[], state={"contribution_id": _OBS_ID, "replay": False}
+        )
+        return [reward]
+
+    dispatch_mock = AsyncMock(side_effect=fake_dispatch)
     monkeypatch.setattr("app.api.routes.observations.dispatch", dispatch_mock)
 
     response = patch_client.patch(
@@ -361,8 +382,54 @@ def test_patch_new_taxon_dispatches_and_returns_rewards(
     ctx = dispatch_mock.await_args.args[0]
     assert ctx.observation is obs
     assert obs.dispatched_at is not None
+    # The write-once marker rode the same commit as the taxon itself.
+    assert obs.taxon_first_assigned_at is not None
     # Two commits: the field patch, then the dispatched_at stamp.
     assert fake_session.commit.await_count == 2
+
+
+def test_patch_clear_then_repick_does_not_dispatch_again(
+    monkeypatch: pytest.MonkeyPatch,
+    patch_client: TestClient,
+    fake_session: AsyncMock,
+) -> None:
+    """The write-once marker closes the clear-and-repick loophole: a
+    taxonless observation that HAS dispatched before (taxon assigned,
+    then cleared via raw API) must not dispatch a second time with a
+    different taxon -- one photo earns one round of rewards."""
+    _stub_token_verifier(monkeypatch)
+    marker = datetime(2026, 7, 1, 12, 0, 0, tzinfo=UTC)
+    stamp = datetime(2026, 7, 1, 12, 0, 5, tzinfo=UTC)
+    obs = _obs_row(
+        taxon_id=None,
+        taxon_first_assigned_at=marker,
+        dispatched_at=stamp,
+    )
+    _wire_session(
+        fake_session,
+        user=_user_row(),
+        obs=obs,
+        species_cache_hit=_cached_species(),
+    )
+    dispatch_mock = AsyncMock(return_value=[])
+    monkeypatch.setattr("app.api.routes.observations.dispatch", dispatch_mock)
+
+    response = patch_client.patch(
+        f"/v1/observations/{_OBS_ID}",
+        json={"taxon_id": 99999},
+        headers={"Authorization": "Bearer fake"},
+    )
+    assert response.status_code == 200
+    assert response.json()["rewards"] == []
+    dispatch_mock.assert_not_awaited()
+    # Mutation-proofing: if the marker gate were dropped, the route would
+    # re-stamp the marker, clear dispatched_at (queueing a probe-less
+    # replay dispatch), and take the error path's extra commits. Pin all
+    # three so removing the gate fails loudly.
+    assert obs.taxon_first_assigned_at == marker
+    assert obs.dispatched_at == stamp
+    fake_session.commit.assert_awaited_once()
+    fake_session.rollback.assert_not_awaited()
 
 
 def test_patch_same_taxon_id_does_not_dispatch(
@@ -427,13 +494,17 @@ def test_patch_redispatch_skipped_when_dex_already_minted(
     fake_session: AsyncMock,
 ) -> None:
     """One observation never mints two first finds: if a dex entry with
-    first_observation_id == obs.id exists (kid cleared the taxon and
-    picked again), the re-dispatch is skipped entirely."""
+    first_observation_id == obs.id exists (pre-migration
+    assigned-then-cleared residual), the re-dispatch is skipped entirely
+    -- and critically, dispatched_at is NOT cleared, or the probe-less
+    nightly replay would run the very dispatch the probe blocked."""
     _stub_token_verifier(monkeypatch)
+    stamp = datetime(2026, 7, 1, 12, 0, 5, tzinfo=UTC)
+    obs = _obs_row(dispatched_at=stamp)
     _wire_session(
         fake_session,
         user=_user_row(),
-        obs=_obs_row(),
+        obs=obs,
         species_cache_hit=_cached_species(),
         dispatch_minted_dex_id="01JDEXROW00000000000000ULID",
     )
@@ -450,6 +521,51 @@ def test_patch_redispatch_skipped_when_dex_already_minted(
     dispatch_mock.assert_not_awaited()
     # Only the field-patch commit -- no dispatched_at stamp.
     fake_session.commit.assert_awaited_once()
+    # The stamp survives (replay stays skipped) while the marker closes
+    # any future repick.
+    assert obs.dispatched_at == stamp
+    assert obs.taxon_first_assigned_at is not None
+
+
+def test_patch_world_failure_leaves_dispatched_at_null_for_replay(
+    monkeypatch: pytest.MonkeyPatch,
+    patch_client: TestClient,
+    fake_session: AsyncMock,
+) -> None:
+    """The taxon-time dispatch is the ONLY chance the Sanctuary
+    contribution gets (WorldHandler skips taxonless creates) and
+    WorldHandler swallows its own errors -- so when it reports failure,
+    dispatched_at must stay NULL for the replay job to retry."""
+    _stub_token_verifier(monkeypatch)
+    obs = _obs_row()
+    _wire_session(
+        fake_session,
+        user=_user_row(),
+        obs=obs,
+        species_cache_hit=_cached_species(),
+        dispatch_photo=_photo_row(),
+        dispatch_group=_group_row(),
+    )
+
+    async def fake_dispatch(ctx: Any, handlers: Any) -> list[Reward]:
+        ctx.results["world"] = HandlerResult(rewards=[], state={"error": True})
+        return []
+
+    dispatch_mock = AsyncMock(side_effect=fake_dispatch)
+    monkeypatch.setattr("app.api.routes.observations.dispatch", dispatch_mock)
+
+    response = patch_client.patch(
+        f"/v1/observations/{_OBS_ID}",
+        json={"taxon_id": 12345},
+        headers={"Authorization": "Bearer fake"},
+    )
+    assert response.status_code == 200
+    dispatch_mock.assert_awaited_once()
+    # No re-stamp: the replay's `dispatched_at IS NULL` filter keeps the
+    # observation eligible until a healthy dispatch lands.
+    assert obs.dispatched_at is None
+    assert obs.taxon_first_assigned_at is not None
+    assert fake_session.commit.await_count == 2
 
 
 def test_patch_taxon_null_does_not_dispatch(

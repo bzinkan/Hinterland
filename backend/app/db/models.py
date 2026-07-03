@@ -133,6 +133,13 @@ class Observation(TimestampMixin, Base):
     inat_observation_id: Mapped[int | None] = mapped_column(Integer)
     submitted_to_inat_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     dispatched_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # Write-once marker: when a taxon FIRST landed on this observation
+    # (at create when submitted with one, else at the first PATCH
+    # assignment). The taxon-time re-dispatch gates on this being NULL,
+    # so a clear-and-repick can never earn a second round of rewards.
+    # Distinct from dispatched_at, which tracks the last successful
+    # dispatch and is reset for replay recovery.
+    taxon_first_assigned_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     rewards: Mapped[list[JsonDict]] = mapped_column(JSONB, nullable=False, default=list)
     # Azure Content Safety lifecycle state for this observation's photo.
     # CHECK constraint pins the vocabulary to {pending, clean, quarantine,

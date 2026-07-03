@@ -50,6 +50,11 @@ router = APIRouter(prefix="/v1/observations", tags=["observations"])
 
 log = structlog.get_logger()
 
+# WorldHandler's published error state key (bare string to avoid a
+# route -> handler import; same convention world.py uses for the dex
+# state key).
+_WORLD_STATE_ERROR = "error"
+
 
 class ObservationCreateRequest(BaseModel):
     photo_id: str = Field(..., min_length=1, max_length=26)
@@ -219,6 +224,10 @@ async def create_observation(
         taxon_id=payload.taxon_id,
         species_name=payload.species_name,
         place_name=payload.place_name,
+        # Created-with-taxon counts as the first assignment: the
+        # create-time dispatch runs with this taxon, so a later
+        # clear-and-repick must not dispatch again.
+        taxon_first_assigned_at=(datetime.now(UTC) if payload.taxon_id is not None else None),
     )
     session.add(observation)
     try:
@@ -535,17 +544,47 @@ async def patch_observation(
     if obs is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Observation not found")
 
-    # Detect the kid's FIRST species pick BEFORE applying fields -- this
-    # is what triggers the re-dispatch below. Only the None -> taxon
+    # Detect the kid's FIRST-EVER species pick BEFORE applying fields --
+    # this is what triggers the re-dispatch below. Only the None -> taxon
     # transition counts: corrections (A -> B) deliberately do NOT
     # re-dispatch, because DexHandler's first-find gate is per
     # (user, taxon), not per observation -- re-dispatching on every
     # transition would let one photo mint first_find / dex_count credit
     # for arbitrarily many species. Clearing the taxon (explicit null)
-    # is not a transition either.
+    # is not a transition either, and the write-once
+    # taxon_first_assigned_at marker means a clear-and-repick (null,
+    # then a new taxon -- raw-API only, the shipped UI has no such
+    # affordance) can never dispatch a second time.
     taxon_assigned = (
-        "taxon_id" in fields and fields["taxon_id"] is not None and obs.taxon_id is None
+        "taxon_id" in fields
+        and fields["taxon_id"] is not None
+        and obs.taxon_id is None
+        and obs.taxon_first_assigned_at is None
     )
+
+    # Belt-and-braces dex probe, run BEFORE any state is written: if this
+    # observation already minted a DexEntry (pre-migration
+    # assigned-then-cleared residual, or a concurrent first-assign racing
+    # this request), the dispatch must not run -- and critically,
+    # dispatched_at must NOT be cleared below, or the nightly replay
+    # (which has no probe) would run the very dispatch the probe blocked.
+    # One observation never mints two first finds.
+    should_dispatch = False
+    if taxon_assigned:
+        already_minted = (
+            await session.execute(
+                select(models.DexEntry.id)
+                .where(models.DexEntry.first_observation_id == obs.id)
+                .limit(1)
+            )
+        ).scalar_one_or_none()
+        if already_minted is None:
+            should_dispatch = True
+        else:
+            log.info(
+                "observations.patch.redispatch_skipped_already_minted",
+                observation_id=observation_id,
+            )
 
     # Warm the species cache whenever it's needed: for the species_name
     # autofill, and -- on a first taxon assignment -- for the re-dispatch
@@ -578,6 +617,20 @@ async def patch_observation(
     for key, value in fields.items():
         setattr(obs, key, value)
 
+    if taxon_assigned:
+        # Stamp the write-once marker in the SAME commit as the taxon
+        # itself. Probe-blocked assignments stamp the marker too (the
+        # observation had its dispatch; future repicks stay gated) but
+        # keep their dispatched_at intact.
+        obs.taxon_first_assigned_at = datetime.now(UTC)
+    if should_dispatch:
+        # Clear dispatched_at (still stamped by the create-time dispatch)
+        # in the same commit: if the process dies before the re-dispatch
+        # below runs, the nightly replay (dispatched_at IS NULL) recovers
+        # the kid's credit instead of it being lost forever behind the
+        # marker. A successful dispatch re-stamps it immediately.
+        obs.dispatched_at = None
+
     await session.commit()
     await session.refresh(obs)
 
@@ -609,42 +662,39 @@ async def patch_observation(
     # The response is snapshotted before dispatching: a failure path below
     # rolls the session back, which expires `obs`.
     response = ObservationResponse.from_model(obs)
-    if taxon_assigned:
+    if should_dispatch:
         try:
-            already_minted = (
-                await session.execute(
-                    select(models.DexEntry.id)
-                    .where(models.DexEntry.first_observation_id == obs.id)
-                    .limit(1)
-                )
+            photo = (
+                await session.execute(select(models.Photo).where(models.Photo.id == obs.photo_id))
+            ).scalar_one()
+            group = (
+                await session.execute(select(models.Group).where(models.Group.id == obs.group_id))
             ).scalar_one_or_none()
-            if already_minted is None:
-                photo = (
-                    await session.execute(
-                        select(models.Photo).where(models.Photo.id == obs.photo_id)
-                    )
-                ).scalar_one()
-                group = (
-                    await session.execute(
-                        select(models.Group).where(models.Group.id == obs.group_id)
-                    )
-                ).scalar_one_or_none()
-                ctx = Context(
-                    db=session,
-                    user=user_row,
-                    group=group,
-                    observation=obs,
-                    photo=photo,
-                )
-                rewards = await dispatch(ctx, HANDLERS)
-                obs.dispatched_at = datetime.now(UTC)
-                await session.commit()
-                response.rewards = [RewardDTO.from_reward(r) for r in rewards]
-            else:
-                log.info(
-                    "observations.patch.redispatch_skipped_already_minted",
+            ctx = Context(
+                db=session,
+                user=user_row,
+                group=group,
+                observation=obs,
+                photo=photo,
+            )
+            rewards = await dispatch(ctx, HANDLERS)
+            # This taxon-time dispatch is the ONLY chance the Sanctuary
+            # contribution gets (WorldHandler skips taxonless creates),
+            # and WorldHandler swallows its own errors rather than
+            # raising. If it reported failure, leave dispatched_at NULL
+            # so the replay job retries the full (idempotent) dispatch
+            # instead of the contribution being silently lost forever.
+            world_result = ctx.results.get("world")
+            world_failed = world_result is None or bool(world_result.state.get(_WORLD_STATE_ERROR))
+            if world_failed:
+                log.warning(
+                    "observations.patch.world_failed_replay_pending",
                     observation_id=observation_id,
                 )
+            else:
+                obs.dispatched_at = datetime.now(UTC)
+            await session.commit()
+            response.rewards = [RewardDTO.from_reward(r) for r in rewards]
         except Exception:
             log.exception(
                 "observations.patch.dispatch_failed",

@@ -321,7 +321,47 @@ def test_create_happy_path(
     # dispatched_at stamped on dispatcher success, persisted by the second
     # commit (first = observation row, second = dispatched_at).
     assert obs.dispatched_at is not None
+    # Created WITH a taxon: the write-once first-assignment marker is set
+    # at insert time, so a later clear-and-repick can never re-dispatch.
+    assert obs.taxon_first_assigned_at is not None
     assert fake_session.commit.await_count == 2
+
+
+def test_create_without_taxon_leaves_first_assignment_marker_null(
+    monkeypatch: pytest.MonkeyPatch,
+    observations_client: TestClient,
+    fake_session: AsyncMock,
+) -> None:
+    """The live mobile flow creates taxonless; the marker stays NULL so
+    the first species pick via PATCH dispatches."""
+    _stub_token_verifier(monkeypatch)
+    _wire_session(
+        fake_session,
+        user=_user_row(),
+        photo=_photo_row(),
+        membership_id="01J0MEMBERID0000000000ULID",
+    )
+
+    async def fake_dispatch(ctx: object, handlers: object) -> list[Reward]:
+        return []
+
+    monkeypatch.setattr(observations_routes, "dispatch", fake_dispatch)
+
+    payload = {
+        "photo_id": _PHOTO_ID,
+        "latitude": 39.1031,
+        "longitude": -84.5120,
+    }
+    response = observations_client.post(
+        "/v1/observations",
+        json=payload,
+        headers={"Authorization": "Bearer fake"},
+    )
+    assert response.status_code == 201
+
+    obs: models.Observation = fake_session.add.call_args.args[0]
+    assert obs.taxon_id is None
+    assert obs.taxon_first_assigned_at is None
 
 
 def test_create_201_with_empty_rewards_when_dispatch_fails(

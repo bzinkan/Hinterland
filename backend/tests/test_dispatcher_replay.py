@@ -90,6 +90,50 @@ async def test_replay_stamps_dispatched_at_on_success(fake_session: AsyncMock) -
     fake_session.commit.assert_awaited_once()
 
 
+async def test_replay_keeps_identified_row_eligible_when_world_fails(
+    fake_session: AsyncMock,
+) -> None:
+    """dispatch() never raises for handler failures, so an unconditional
+    stamp would end retries for an observation whose Sanctuary write
+    failed -- and replay is the only delivery path for contributions
+    repaired by migration 20260703_0009. With HANDLERS stubbed empty,
+    ctx.results has no world entry, which the guard treats as failure
+    for identified observations."""
+    obs = _obs()
+    obs.taxon_id = 12345
+    _wire(fake_session, rows=[(obs, _user(), _group(), _photo())])
+
+    count = await replay(fake_session)
+    assert count == 0
+    assert obs.dispatched_at is None
+    # The row's transaction still commits (handler side effects persist).
+    fake_session.commit.assert_awaited_once()
+
+
+async def test_replay_stamps_identified_row_when_world_healthy(
+    fake_session: AsyncMock,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import admin.dispatcher_replay as mod
+    from app.dispatcher.types import HandlerResult
+
+    async def fake_dispatch(ctx: Any, handlers: Any) -> list[Any]:
+        ctx.results["world"] = HandlerResult(
+            rewards=[], state={"contribution_id": "o1", "replay": False}
+        )
+        return []
+
+    monkeypatch.setattr(mod, "dispatch", fake_dispatch)
+
+    obs = _obs()
+    obs.taxon_id = 12345
+    _wire(fake_session, rows=[(obs, _user(), _group(), _photo())])
+
+    count = await replay(fake_session)
+    assert count == 1
+    assert obs.dispatched_at is not None
+
+
 async def test_replay_handles_dispatch_failure_per_row(fake_session: AsyncMock) -> None:
     """If commit raises (simulating handler chaos), rollback is issued
     per row and the replay count stays at 0. The in-memory model may
