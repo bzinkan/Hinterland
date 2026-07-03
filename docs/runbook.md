@@ -175,6 +175,15 @@ Closed-beta target:
 - retries with DLQ/dead-letter visibility
 - terminal failures alert but never affect the kid submission response
 
+**Flipping `DRAGONFLY_INAT_SUBMIT_ENABLED` OFF while messages are queued:**
+producers stop writing outbox rows and the consumer's startup guard refuses
+to submit, but already-queued `inat-submit` messages just sit there — the
+queue has no message TTL, KEDA keeps spawning no-op worker executions, and
+the matching `inat_submit_outbox` rows stay `pending`/`enqueued` with no
+alert. After a deliberate flip-off, drain the queue explicitly (dead-letter
+or purge via `az servicebus queue`) and reconcile the outbox rows so the
+state is visible instead of silently stranded.
+
 ## Dispatcher Replay And p95
 
 Dispatcher logs `dispatcher.complete` with `duration_ms`. Use Log Analytics to

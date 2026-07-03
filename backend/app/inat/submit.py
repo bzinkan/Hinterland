@@ -42,6 +42,13 @@ class InatSubmitResult:
 #   coordinates, which is why we ALSO...
 # - round the submitted coordinates to 2 decimal places (~1.1 km): the
 #   true point never leaves our system at full precision.
+#
+# KNOWN GAP (close before flipping inat_submit_enabled): the photo BYTES
+# are posted verbatim, and nothing server-side strips EXIF GPS tags. The
+# guarantee currently rests on the mobile capture path re-encoding every
+# shot through expo-image-manipulator (which drops EXIF). Any future
+# upload surface (gallery picker, web) needs a server-side re-encode
+# (Pillow) here or at moderation ingest first.
 _GEOPRIVACY = "obscured"
 _COORD_DECIMAL_PLACES = 2
 

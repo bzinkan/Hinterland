@@ -454,3 +454,53 @@ def test_photo_url_owner_sees_own_quarantined_photo(
     )
     response = photos_client.get("/v1/photos/x/url", headers={"Authorization": "Bearer fake"})
     assert response.status_code == 200
+
+
+@pytest.mark.parametrize("photo_status", ["pending", "quarantine"])
+def test_photo_url_adult_membership_elsewhere_does_not_unlock_shared_group(
+    monkeypatch: pytest.MonkeyPatch,
+    photos_client: TestClient,
+    fake_session: AsyncMock,
+    photo_status: str,
+) -> None:
+    """Mutation-proofing the per-group binding: an adult-role membership
+    in an UNRELATED group must not unlock non-clean photos in a group
+    the caller only joined as a kid-role member. A regressed 'any adult
+    membership anywhere + any shared group' check passes every other
+    test in this file; this one pins the binding."""
+    _stub_token_verifier(monkeypatch)
+    _wire_photo_url(
+        fake_session,
+        user=_user_row(role="parent"),
+        photo=_photo_row(owner="someone-else", status=photo_status),
+        membership_rows=[
+            (_USER_ID, "other-group", "parent"),
+            (_USER_ID, "shared", "kid"),
+            ("someone-else", "shared", "kid"),
+        ],
+    )
+    response = photos_client.get("/v1/photos/x/url", headers={"Authorization": "Bearer fake"})
+    assert response.status_code == 404
+
+
+def test_photo_url_adult_shared_membership_with_kid_membership_elsewhere(
+    monkeypatch: pytest.MonkeyPatch,
+    photos_client: TestClient,
+    fake_session: AsyncMock,
+) -> None:
+    """Inverse of the binding test: the adult-role membership IS in the
+    shared group, so review access works even though the caller is a
+    kid-role member somewhere else."""
+    _stub_token_verifier(monkeypatch)
+    _wire_photo_url(
+        fake_session,
+        user=_user_row(role="teacher"),
+        photo=_photo_row(owner="someone-else", status="quarantine"),
+        membership_rows=[
+            (_USER_ID, "shared", "teacher"),
+            (_USER_ID, "other-group", "kid"),
+            ("someone-else", "shared", "kid"),
+        ],
+    )
+    response = photos_client.get("/v1/photos/x/url", headers={"Authorization": "Bearer fake"})
+    assert response.status_code == 200
