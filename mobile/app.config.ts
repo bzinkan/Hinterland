@@ -201,6 +201,15 @@ const config: ExpoConfig = {
     updatesChannel: env.updatesChannel,
     firebase: env.firebase,
     entra: env.entra,
+    // Shared key for the silent dev auto-login (POST /v1/auth/dev-login).
+    // Baked in ONLY for development/preview builds, and only when the
+    // builder exports DRAGONFLY_DEV_LOGIN_KEY. Store builds
+    // (play-internal/production) ALWAYS get null -- enforced by
+    // scripts/verify-play-internal-config.mjs in CI.
+    devLoginKey:
+      APP_ENV === "development" || APP_ENV === "preview"
+        ? (process.env.DRAGONFLY_DEV_LOGIN_KEY ?? null)
+        : null,
     sanctuaryDiorama: SANCTUARY_DIORAMA,
     // Links this project to the existing EAS project (account
     // dragonflybrian) -- same id the sanctuary-3d dev client used, so

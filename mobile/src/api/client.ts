@@ -36,6 +36,8 @@ type RequestOptions = {
   signal?: AbortSignal;
   /** Skip the bearer-token header (for /health, /ready, /v1/meta). */
   unauthenticated?: boolean;
+  /** Extra request headers (e.g. the dev-login shared key). */
+  headers?: Record<string, string>;
 };
 
 export async function apiRequest<T>(
@@ -44,6 +46,7 @@ export async function apiRequest<T>(
 ): Promise<T> {
   const headers: Record<string, string> = {
     Accept: "application/json",
+    ...options.headers,
   };
 
   if (options.body !== undefined) {

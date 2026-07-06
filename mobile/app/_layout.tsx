@@ -10,6 +10,7 @@ import 'react-native-reanimated';
 
 import { useColorScheme } from '@/components/useColorScheme';
 import { queryClient } from '@/src/api/queryClient';
+import { ensureDevSession } from '@/src/auth/devSession';
 import { ensureTokenSync as ensureFirebaseTokenSync } from '@/src/auth/firebase';
 import { ensureTokenSync as ensureMsalTokenSync } from '@/src/auth/msal';
 import { env } from '@/src/config/env';
@@ -56,6 +57,15 @@ export default function RootLayout() {
       ensureFirebaseTokenSync();
     }
     ensureMsalTokenSync();
+    // Silent dev auto-login: mint a sandbox kid session when this
+    // pre-production build boots with no stored bearer token. Fire and
+    // forget -- failures leave the normal signed-out UX untouched, and
+    // the helper re-checks the full gate matrix (appEnv, stored token,
+    // baked-in key) internally. Store builds carry devLoginKey=null so
+    // this is unreachable there.
+    if (env.appEnv === 'development' || env.appEnv === 'preview') {
+      void ensureDevSession();
+    }
   }, []);
 
   if (!loaded) {

@@ -1,3 +1,5 @@
+import pytest
+
 from app.core.config import Settings
 
 
@@ -24,6 +26,21 @@ def test_content_root_defaults_to_image_path() -> None:
     # scripts/sync_expeditions.py shim).
     assert Settings().content_root == "/app/content/expeditions"
     assert Settings(content_root="/tmp/expeditions").content_root == "/tmp/expeditions"
+
+
+def test_dev_login_settings_default_off() -> None:
+    settings = Settings()
+    assert settings.dev_login_enabled is False
+    assert settings.dev_login_key is None
+
+
+def test_dev_login_settings_read_dragonfly_env_vars(monkeypatch: pytest.MonkeyPatch) -> None:
+    # env_prefix DRAGONFLY_ maps dev_login_* to the deployment-facing names.
+    monkeypatch.setenv("DRAGONFLY_DEV_LOGIN_ENABLED", "true")
+    monkeypatch.setenv("DRAGONFLY_DEV_LOGIN_KEY", "shared-key")
+    settings = Settings()
+    assert settings.dev_login_enabled is True
+    assert settings.dev_login_key == "shared-key"
 
 
 def test_stub_auth_allowed_fails_closed_outside_local() -> None:

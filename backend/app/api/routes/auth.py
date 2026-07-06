@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import hashlib
+import hmac
 from datetime import UTC, datetime, timedelta
 from typing import Annotated
 
 import structlog
-from fastapi import APIRouter, Depends, HTTPException, Response, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Response, status
 from pydantic import BaseModel, Field
 from sqlalchemy import delete, select
 from sqlalchemy.exc import IntegrityError
@@ -373,6 +375,227 @@ async def kid_exchange(
         jti=jti,
         parent_id=parent_id,
         group_id=group_id,
+    )
+
+    return KidExchangeResponse(
+        session_token=session_token,
+        expires_at=session_expires_at,
+        user=UserResponse.from_model(kid),
+    )
+
+
+# ---------------------------------------------------------------------------
+# POST /v1/auth/dev-login -- silent auto-login for pre-production builds
+# ---------------------------------------------------------------------------
+#
+# The dev API and the W1 pilot share one deployment, which is why this
+# route is fail-closed three independent ways (see `_dev_login_available`):
+# default-off flag, mandatory non-empty shared key, and an unconditional
+# 404 on env=prod. When closed, the response is byte-identical to an
+# unregistered route (404 "Not Found"), and the route is excluded from
+# the OpenAPI schema, so probing cannot tell the feature exists.
+
+# Fixed, well-known ULIDs for the idempotent dev sandbox lineage. All four
+# are valid 26-char Crockford base32 ULIDs (alphabet excludes I L O U) so
+# they behave exactly like organically-minted ids everywhere downstream.
+# Being module constants (not minted per call) is what makes provisioning
+# idempotent: every dev-login call converges on the same four rows and can
+# never touch real rows.
+DEV_PARENT_USER_ID = "01JZDEV0PARENT000000000000"
+DEV_GROUP_ID = "01JZDEV0GRP000000000000000"
+DEV_KID_USER_ID = "01JZDEV0K1D000000000000000"
+DEV_MEMBERSHIP_ID = "01JZDEV0MEMB00000000000000"
+DEV_PARENT_MEMBERSHIP_ID = "01JZDEV0MEMBPAR00000000000"
+
+# Crockford base32 alphabet (no I L O U) -- the shape
+# generate_join_code() produces.
+_JOIN_CODE_ALPHABET = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"
+
+
+def _dev_join_code(dev_login_key: str) -> str:
+    """Deterministic 6-char join code derived from the dev-login key.
+
+    A fixed literal here would be a well-known code any authenticated
+    user could use to join the sandbox group (the source is on GitHub).
+    Deriving from the deployment's secret key keeps provisioning
+    idempotent per deployment while making the code unguessable without
+    the key. Rotating the key does NOT rotate an already-provisioned
+    group's code (the group row is found by PK and left as-is).
+    """
+    digest = hashlib.sha256(f"dev-join-code:{dev_login_key}".encode()).digest()
+    return "".join(_JOIN_CODE_ALPHABET[b % 32] for b in digest[:6])
+
+
+def _dev_login_available(settings: Settings) -> bool:
+    """True only when every dev-login gate is open.
+
+    Belt-and-braces ordering: prod wins over everything, then the
+    default-off flag, then the mandatory key. Enabled-without-key is a
+    misconfiguration that must never open the door -- it stays 404 and
+    logs a warning so the operator can spot it.
+    """
+    if settings.env == "prod":
+        return False
+    if not settings.dev_login_enabled:
+        return False
+    if not settings.dev_login_key:
+        log.warning("auth.dev_login.enabled_without_key", env=settings.env)
+        return False
+    return True
+
+
+async def _get_or_create_dev_rows(session: AsyncSession, dev_login_key: str) -> models.User:
+    """Get-or-create the fixed dev sandbox lineage; returns the dev kid row.
+
+    Each row is looked up by its well-known PK and only inserted when
+    missing, so the whole call is idempotent. Flush ordering mirrors
+    groups.create_kid: FK targets must exist before their dependents in
+    the same session.
+
+    Existing rows are HEALED, not just fetched: the sandbox is synthetic,
+    and a single "Request account deletion" tap from inside it would
+    otherwise set disabled_at and brick dev-login for the whole
+    deployment (the kid loader 403s disabled users).
+    """
+    parent = await session.get(models.User, DEV_PARENT_USER_ID)
+    if parent is None:
+        parent = models.User(
+            id=DEV_PARENT_USER_ID,
+            firebase_uid=None,
+            entra_oid=None,
+            role="parent",
+            display_name="Dev Parent",
+        )
+        session.add(parent)
+        await session.flush()
+    elif parent.disabled_at is not None:
+        parent.disabled_at = None
+
+    group = await session.get(models.Group, DEV_GROUP_ID)
+    if group is None:
+        group = models.Group(
+            id=DEV_GROUP_ID,
+            name="Dev Group",
+            join_code=_dev_join_code(dev_login_key),
+            owner_user_id=DEV_PARENT_USER_ID,
+        )
+        session.add(group)
+        await session.flush()
+
+    kid = await session.get(models.User, DEV_KID_USER_ID)
+    if kid is None:
+        kid = models.User(
+            id=DEV_KID_USER_ID,
+            firebase_uid=None,
+            entra_oid=None,
+            role="kid",
+            display_name="Dev Kid",
+            age_band="11-12",
+            parent_user_id=DEV_PARENT_USER_ID,
+            # Pre-consented sandbox: the dev lineage exists only on
+            # non-prod deployments and never represents a real child.
+            consent_granted_at=datetime.now(UTC),
+        )
+        session.add(kid)
+        await session.flush()
+    else:
+        if kid.disabled_at is not None:
+            kid.disabled_at = None
+        if kid.consent_granted_at is None:
+            kid.consent_granted_at = datetime.now(UTC)
+
+    membership = await session.get(models.Membership, DEV_MEMBERSHIP_ID)
+    if membership is None:
+        membership = models.Membership(
+            id=DEV_MEMBERSHIP_ID,
+            group_id=DEV_GROUP_ID,
+            user_id=DEV_KID_USER_ID,
+            role="kid",
+        )
+        session.add(membership)
+
+    # Organic create_group gives the owner a Membership row too; group
+    # listing and role checks assume it exists.
+    parent_membership = await session.get(models.Membership, DEV_PARENT_MEMBERSHIP_ID)
+    if parent_membership is None:
+        parent_membership = models.Membership(
+            id=DEV_PARENT_MEMBERSHIP_ID,
+            group_id=DEV_GROUP_ID,
+            user_id=DEV_PARENT_USER_ID,
+            role="parent",
+        )
+        session.add(parent_membership)
+
+    await session.commit()
+    return kid
+
+
+async def _ensure_dev_sandbox(session: AsyncSession, dev_login_key: str) -> models.User:
+    """Idempotently provision the dev sandbox, tolerating a concurrent first call."""
+    try:
+        return await _get_or_create_dev_rows(session, dev_login_key)
+    except IntegrityError:
+        # Two racing first calls both saw missing rows and both inserted;
+        # the loser lands here. Roll back and re-run -- the second pass
+        # re-fetches by PK and only inserts whatever is still missing.
+        await session.rollback()
+        log.info("auth.dev_login.provision_race_retry")
+        return await _get_or_create_dev_rows(session, dev_login_key)
+
+
+@router.post(
+    "/auth/dev-login",
+    response_model=KidExchangeResponse,
+    status_code=status.HTTP_200_OK,
+    include_in_schema=False,
+)
+async def dev_login(
+    session: DbSessionDep,
+    settings: Annotated[Settings, Depends(get_request_settings)],
+    x_dev_login_key: Annotated[str | None, Header()] = None,
+) -> KidExchangeResponse:
+    """Mint a kid session JWT for the fixed dev sandbox lineage.
+
+    Pre-production mobile builds call this at boot (silently, no UI) so
+    developers land signed-in without the QR handoff dance. Store builds
+    never carry the key and the route 404s unless explicitly enabled --
+    see `_dev_login_available` for the fail-closed gate stack.
+
+    Returns the exact `KidExchangeResponse` shape so the mobile client
+    reuses the kid-exchange response type unchanged.
+    """
+    if not _dev_login_available(settings):
+        # Indistinguishable from an unregistered route.
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not Found")
+
+    supplied_key = x_dev_login_key or ""
+    configured_key = settings.dev_login_key or ""
+    if not supplied_key or not hmac.compare_digest(
+        supplied_key.encode("utf-8"), configured_key.encode("utf-8")
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid dev-login key.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    kid = await _ensure_dev_sandbox(session, configured_key)
+
+    session_token = mint_session_token(
+        kid_user_id=DEV_KID_USER_ID,
+        parent_id=DEV_PARENT_USER_ID,
+        group_id=DEV_GROUP_ID,
+        settings=settings,
+    )
+    session_expires_at = datetime.now(UTC) + timedelta(
+        seconds=settings.dragonfly_session_ttl_seconds
+    )
+
+    log.info(
+        "auth.dev_login.success",
+        kid_id=DEV_KID_USER_ID,
+        parent_id=DEV_PARENT_USER_ID,
+        group_id=DEV_GROUP_ID,
     )
 
     return KidExchangeResponse(

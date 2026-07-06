@@ -60,3 +60,17 @@ export function kidExchange(handoffToken: string): Promise<KidExchangeResponse> 
     unauthenticated: true,
   });
 }
+
+/**
+ * Silent dev auto-login for pre-production builds. The shared key is the
+ * auth; the backend 404s unless the deployment explicitly enables the
+ * route (and always 404s on prod). Returns the same shape as kidExchange
+ * so callers reuse the existing response type.
+ */
+export function devLogin(key: string): Promise<KidExchangeResponse> {
+  return apiRequest<KidExchangeResponse>("/v1/auth/dev-login", {
+    method: "POST",
+    headers: { "X-Dev-Login-Key": key },
+    unauthenticated: true,
+  });
+}
