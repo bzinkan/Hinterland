@@ -2,7 +2,7 @@ import type { ExpoConfig } from "expo/config";
 
 // `play-internal` is the Google Play Internal Testing track build path.
 // Uses the FINAL package name `com.dragonfly.app` (no `.dev` suffix) and
-// surfaces as "Dragonfly Internal" so testers can tell pilot installs
+// surfaces as "Hinterland Internal" so testers can tell pilot installs
 // apart from a future production install. See
 // docs/google-play-internal-testing.md for the full process.
 type AppEnv =
@@ -107,11 +107,11 @@ const SANCTUARY_DIORAMA =
 function displayName(appEnv: AppEnv): string {
   switch (appEnv) {
     case "production":
-      return "Dragonfly";
+      return "Hinterland";
     case "play-internal":
-      return "Dragonfly Internal";
+      return "Hinterland Internal";
     default:
-      return `Dragonfly (${appEnv})`;
+      return `Hinterland (${appEnv})`;
   }
 }
 
@@ -165,7 +165,7 @@ const config: ExpoConfig = {
       "expo-camera",
       {
         cameraPermission:
-          "Dragonfly uses your camera to take photos of plants and animals you find.",
+          "Hinterland uses your camera to take photos of plants and animals you find.",
         recordAudioAndroid: false,
       },
     ],
@@ -173,14 +173,14 @@ const config: ExpoConfig = {
       "expo-image-picker",
       {
         photosPermission:
-          "Dragonfly uses your photo library so you can pick a photo of a plant or animal you found.",
+          "Hinterland uses your photo library so you can pick a photo of a plant or animal you found.",
       },
     ],
     [
       "expo-location",
       {
         locationAlwaysAndWhenInUsePermission:
-          "Dragonfly uses your location to remember where you spotted each species.",
+          "Hinterland uses your location to remember where you spotted each species.",
       },
     ],
     [

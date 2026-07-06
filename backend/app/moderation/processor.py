@@ -189,7 +189,7 @@ async def process_pending_photo(
             # Gated on the Option B `inat_submit_enabled` flag (default
             # False). When False, the iNat-submit pipeline is dormant
             # and no outbox row is written -- the observation stays
-            # entirely inside Dragonfly until the kid claims it via
+            # entirely inside Hinterland until the kid claims it via
             # the Phase 3 age-13 iNat-claim flow.
             if settings is not None and settings.inat_submit_enabled:
                 session.add(

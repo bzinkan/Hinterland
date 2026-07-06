@@ -1,4 +1,4 @@
-"""Dragonfly RS256 kid JWT mint + verify + JWKS publication (Phase 6a).
+"""Hinterland RS256 kid JWT mint + verify + JWKS publication (Phase 6a).
 
 The kid auth flow uses two short-lived RS256 JWTs minted by this backend:
 
@@ -39,11 +39,11 @@ log = structlog.get_logger()
 
 
 class InvalidDragonflyJwt(Exception):
-    """Raised when a Dragonfly RS256 JWT fails signature, claim, or type checks."""
+    """Raised when a Hinterland RS256 JWT fails signature, claim, or type checks."""
 
 
 class DragonflyTokenClaims(TypedDict, total=False):
-    """Decoded shape of a Dragonfly handoff/session JWT."""
+    """Decoded shape of a Hinterland handoff/session JWT."""
 
     sub: str
     iss: str
@@ -182,7 +182,7 @@ def verify_dragonfly_jwt(
     settings: Settings,
     expected_token_type: Literal["handoff", "session"] | None = None,
 ) -> DragonflyTokenClaims:
-    """Verify a Dragonfly RS256 JWT and return its decoded claims.
+    """Verify a Hinterland RS256 JWT and return its decoded claims.
 
     Wraps every PyJWT failure mode (bad signature, expiry, audience,
     issuer, missing required claims) as :class:`InvalidDragonflyJwt` so
@@ -262,7 +262,7 @@ def _public_jwks_for_kid(kid: str, public_pem: bytes) -> dict[str, object]:
 
 
 def public_jwks(settings: Settings) -> dict[str, object]:
-    """Return the Dragonfly kid-JWT JWKS document.
+    """Return the Hinterland kid-JWT JWKS document.
 
     Served at ``/.well-known/dragonfly-kid-jwks.json``. Cached for the
     process lifetime since the kid + key rotate rarely (manual operator

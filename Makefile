@@ -1,4 +1,4 @@
-# Dragonfly common dev commands.
+# Hinterland common dev commands.
 # Everything in here should run from the repo root.
 
 .PHONY: help install dev dev-db dev-db-down dev-db-logs db-migrate db-revision \
@@ -6,7 +6,7 @@
         terraform-plan-dev cdk-synth cdk-diff cdk-deploy clean
 
 help:
-	@echo "Dragonfly dev commands:"
+	@echo "Hinterland dev commands:"
 	@echo "  make install             - install backend deps"
 	@echo "  make dev                 - run FastAPI locally (hot reload)"
 	@echo "  make dev-db              - start local Postgres for backend dev"

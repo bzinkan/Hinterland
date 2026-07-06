@@ -39,7 +39,7 @@ are descoped; only the CV identify subset remains relevant.
 
 What is **not** verified:
 
-1. iNat CV's actual top-3 accuracy on Dragonfly-style kid photos (handheld, close-up, often partial subject, often poor framing).
+1. iNat CV's actual top-3 accuracy on Hinterland-style kid photos (handheld, close-up, often partial subject, often poor framing).
 2. Whether the dev iNat OAuth token we'll eventually configure has the right scopes for the CV endpoint.
 3. Whether iNat's rate-limit budget under our access tier survives a class of 25 kids each shooting 10 observations in an hour.
 
@@ -47,7 +47,7 @@ What is **not** verified:
 
 Three blockers:
 
-1. **No iNat project account.** Dragonfly needs an iNat user account + project so observations submitted via the iNat-submit worker (Phase 8) attribute to the right place. The same account holds the OAuth token for the CV endpoint. Account creation is a manual signup with email/captcha + a project request reviewed by iNat staff (typically a few days). See <https://www.inaturalist.org/projects/new>.
+1. **No iNat project account.** Hinterland needs an iNat user account + project so observations submitted via the iNat-submit worker (Phase 8) attribute to the right place. The same account holds the OAuth token for the CV endpoint. Account creation is a manual signup with email/captcha + a project request reviewed by iNat staff (typically a few days). See <https://www.inaturalist.org/projects/new>.
 2. **No labeled kid-photo benchmark dataset.** "50 kid-style test observations" needs both photos and ground-truth taxon IDs. Easiest path: Brian (or a tester kid) takes 50 photos in a real outdoor session, labels them, and runs them through the endpoint. Manual + a few hours.
 3. **Score threshold is undefined.** "Correctness target" isn't quantified in `AGENTS.md`. Reasonable starting point: **>=70% of observations have the correct taxon in the top 3** (looser than top-1 because kids often shoot things at family or genus level). Tighten after dogfood.
 

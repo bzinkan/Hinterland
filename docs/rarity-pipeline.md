@@ -1,6 +1,6 @@
 # Rarity Pipeline
 
-The rarity cache is how Dragonfly tells a kid that their observation matters beyond "you logged a thing." `RarityHandler` (see `dispatcher.md`) reads a per-region, per-species tier row and emits a reward sized to match: `legendary` for something almost no one has logged in this geohash cell, `abundant` suppressed entirely. The data powering those lookups is refreshed by a nightly batch job against iNaturalist — not at observation time, because iNat rate limits matter more than freshness for this feature.
+The rarity cache is how Hinterland tells a kid that their observation matters beyond "you logged a thing." `RarityHandler` (see `dispatcher.md`) reads a per-region, per-species tier row and emits a reward sized to match: `legendary` for something almost no one has logged in this geohash cell, `abundant` suppressed entirely. The data powering those lookups is refreshed by a nightly batch job against iNaturalist — not at observation time, because iNat rate limits matter more than freshness for this feature.
 
 Related reading: `architecture.md` (how the nightly Cloud Run job fits into the worker topology), `data-model.md` (the `rarity_cache` table keyed by `(region_geohash4, taxon_id)`), `dispatcher.md` (how `RarityHandler` interprets the tier values), `adr/0005-gcp-target-architecture.md` (Cloud SQL Postgres replaces ADR 0001's DynamoDB).
 
@@ -23,7 +23,7 @@ Cost: rarity data lags iNat reality by up to 24 hours. For a feature about "how 
 
 ## The algorithm
 
-For each geohash-4 cell where Dragonfly has at least one observation in the last 90 days (tracked in `REGION#<gh>/META.last_seen_at`):
+For each geohash-4 cell where Hinterland has at least one observation in the last 90 days (tracked in `REGION#<gh>/META.last_seen_at`):
 
 1. Query iNat `/v1/observations/species_counts` for the cell's bounding box, verifiable observations, research-grade + needs-id, last 5 years. Returns `{taxon_id, count}` pairs.
 2. Compute the total observation count for the cell, `N`. Tier each species by its share of `N`:

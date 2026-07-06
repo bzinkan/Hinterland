@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Phase 3 -- Blob Storage for Dragonfly photos.
+# Phase 3 -- Blob Storage for Hinterland photos.
 #
 # Provisions:
 #   - Storage account `dragonflyphotosdev` in eastus2 (Standard_LRS,

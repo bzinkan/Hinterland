@@ -1,4 +1,4 @@
-"""Dragonfly API entry point.
+"""Hinterland API entry point.
 
 FastAPI app for Azure Container Apps, with the Mangum handler retained for the
 legacy AWS path until that compatibility layer is intentionally removed.

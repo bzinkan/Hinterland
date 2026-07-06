@@ -19,7 +19,7 @@ privacy/compliance risk before any Google Play Internal Testing upload.
 ## Code State
 
 - `APP_ENV=play-internal` uses package `com.dragonfly.app` and display name
-  `Dragonfly Internal`.
+  `Hinterland Internal`.
 - `android.blockedPermissions` includes
   `android.permission.ACCESS_FINE_LOCATION`.
 - `android.permissions` includes

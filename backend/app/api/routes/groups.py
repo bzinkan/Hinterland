@@ -301,7 +301,7 @@ class KidCreateRequest(BaseModel):
 class KidCreateResponse(BaseModel):
     """Public shape of a freshly-provisioned kid + their handoff JWT.
 
-    The `handoff_token` is a single-use Dragonfly-signed RS256 JWT (typ
+    The `handoff_token` is a single-use Hinterland-signed RS256 JWT (typ
     `handoff`, 15-minute TTL). The parent hands it to the kid's device via
     QR code / NFC; the kid's app POSTs it to `/v1/auth/kid-exchange` to
     swap it for a long-lived session JWT. The handoff JWT's `jti` is
@@ -338,7 +338,7 @@ async def create_kid(
     1. Insert `users` row (firebase_uid=NULL, entra_oid=NULL; kids have no
        external IdP identity in the post-Firebase world).
     2. Insert `memberships` row binding the kid to the group.
-    3. Mint a Dragonfly-signed RS256 handoff JWT (15-minute TTL, single-use)
+    3. Mint a Hinterland-signed RS256 handoff JWT (15-minute TTL, single-use)
        embedding `sub=kid_id`, `group_id`, `parent_id`, `token_use=handoff`.
 
     The kid's device receives the handoff JWT (via QR/NFC from the parent),

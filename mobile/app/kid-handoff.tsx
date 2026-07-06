@@ -102,7 +102,7 @@ function parseHandoff(raw: string): HandoffPayload {
   try {
     parsed = JSON.parse(raw);
   } catch (exc) {
-    throw new Error("That QR code is not a Dragonfly kid sign-in code.", { cause: exc });
+    throw new Error("That QR code is not a Hinterland kid sign-in code.", { cause: exc });
   }
   if (
     typeof parsed !== "object" ||
@@ -111,7 +111,7 @@ function parseHandoff(raw: string): HandoffPayload {
     (parsed as { kind?: unknown }).kind !== "dragonfly.kid-handoff.v2" ||
     typeof (parsed as { handoff_token?: unknown }).handoff_token !== "string"
   ) {
-    throw new Error("That QR code is not a Dragonfly kid sign-in code.");
+    throw new Error("That QR code is not a Hinterland kid sign-in code.");
   }
   return parsed as HandoffPayload;
 }

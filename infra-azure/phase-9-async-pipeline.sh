@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# Phase 9 -- Service Bus + Event Grid + Container Apps Jobs for Dragonfly.
+# Phase 9 -- Service Bus + Event Grid + Container Apps Jobs for Hinterland.
 #
 # Closes the infra half of Risk 0002 (Azure async safety/science pipeline).
-# All Dragonfly app code that consumes this infra already landed in
+# All Hinterland app code that consumes this infra already landed in
 # PRs #107-#112 on main; this script wires the Azure-side resources
 # they expect.
 #

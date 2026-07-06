@@ -1,4 +1,4 @@
-"""Unit tests for the Dragonfly RS256 kid-JWT mint/verify path.
+"""Unit tests for the Hinterland RS256 kid-JWT mint/verify path.
 
 Tests are written against the planned ``app.core.kid_jwt`` module surface
 described in the Phase 6a design plan:

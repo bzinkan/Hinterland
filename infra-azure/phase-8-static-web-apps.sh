@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Phase 8 -- Azure Static Web Apps for Dragonfly frontends.
+# Phase 8 -- Azure Static Web Apps for Hinterland frontends.
 #
 # Provisions:
 #   - dragonfly-landing-swa  -> serves dragonfly-app.net + www (web/public)
@@ -13,7 +13,7 @@
 #
 # Prerequisites: az CLI authenticated against management tenant
 # 3b7e8876-fd7e-4b71-b14f-f1bf9beb8e05 (brian@dragonfly-app.net).
-# Also: gh CLI authenticated against the bzinkan/Dragonfly repo so
+# Also: gh CLI authenticated against the bzinkan/Hinterland repo so
 # the deployment tokens can be written to GitHub Actions secrets.
 
 set -euo pipefail

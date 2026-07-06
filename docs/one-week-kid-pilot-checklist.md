@@ -117,7 +117,7 @@ APP_ENV=play-internal npx eas-cli build \
   successfully.
 - [ ] AAB package name is `com.dragonfly.app` (NOT `.dev` /
   `.staging`).
-- [ ] Display name on a temporary install is `Dragonfly Internal`.
+- [ ] Display name on a temporary install is `Hinterland Internal`.
 - [ ] AAB `versionCode` is monotonically greater than the last AAB
   uploaded to Play Console on the `play-internal` track. Read the
   resolved value from the EAS build summary URL — `eas.json` sets
@@ -138,7 +138,7 @@ build until this gate closes.
   tester email is on it. The allowlist itself stays in the private
   spreadsheet alongside the opt-in URL — NOT in the repo.
 - [ ] Brian's own Android phone installs the build via the opt-in
-  URL; app icon is the `Dragonfly Internal` icon and the app opens
+  URL; app icon is the `Hinterland Internal` icon and the app opens
   to the first-run UI without crashing.
 
 ## Gate 3: before first kid test

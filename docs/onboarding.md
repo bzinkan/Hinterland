@@ -8,7 +8,7 @@ Related reading: `architecture.md` (auth model, role attributes), `data-model.md
 
 ## The product position
 
-Dragonfly is invite-only during Phase 1 closed beta. Every account is created either by a parent, a teacher, or automatically through a parent/teacher. Kids never self-register — not because they can't, but because COPPA requires verifiable parental consent and because the "kid self-service signup" flows of other apps are exactly the sloppy pattern we're trying to avoid in an app for 9–12-year-olds.
+Hinterland is invite-only during Phase 1 closed beta. Every account is created either by a parent, a teacher, or automatically through a parent/teacher. Kids never self-register — not because they can't, but because COPPA requires verifiable parental consent and because the "kid self-service signup" flows of other apps are exactly the sloppy pattern we're trying to avoid in an app for 9–12-year-olds.
 
 Two things stay true across every flow:
 
@@ -26,7 +26,7 @@ The primary Phase 1 path. A parent has received an invite code from the closed b
 2. **Tap "I'm a parent."**
 3. **Invite code.** Single text field, prefilled from deep link if the invite came as a URL. Code format is `DRAGON-XXXX` (4 base32 chars after the dash; ~1M code space; redeemable once). Error copy on invalid: "That code doesn't match any invite. Check the email you got, or reply to it if you think this is a mistake."
 4. **Sign up.** Email + password + display name. Password rules per Firebase Auth defaults (6+ chars; we tighten to 8+ chars + at least one digit at the client). Email verification — Firebase sends a verification link, parent clicks it. This is Firebase's native flow; we don't reimplement.
-5. **COPPA acknowledgment screen.** One screen, short copy: "Dragonfly is designed for kids 9–12. You'll create accounts for your kids here, and we'll ask you to approve what information they share. You can delete their account at any time." Accept button advances.
+5. **COPPA acknowledgment screen.** One screen, short copy: "Hinterland is designed for kids 9–12. You'll create accounts for your kids here, and we'll ask you to approve what information they share. You can delete their account at any time." Accept button advances.
 6. **Create family group.** Name defaults to "[Parent display name]'s family" (editable). Creating the group generates a 6-char join code — not shown to the parent because family groups don't use the code (see below); it exists for consistency with the data model.
 7. **Add first kid.** Name (first name or nickname, 1–20 chars), age band (9–10, 11–12, 13+). Age band, not date of birth — we don't need DOB and COPPA data-minimization argues against storing it.
 8. **Account generated.** App shows: "Your kid's login. Write this down or save it somewhere safe." Username is auto-generated, memorable, and not PII: `sparrow-22`, `pinecone-14`, `river-07`. PIN is 4 digits, displayed once, never shown again without parent re-auth.
@@ -69,7 +69,7 @@ Two sub-flavors, depending on who set up the account.
 
 1. Teacher distributes welcome sheet.
 2. Parent receives row with child's name, username, PIN, and a consent URL.
-3. Parent opens the consent URL (in a browser — this is one of the few web surfaces, see `mobile.md`). Page explains what data Dragonfly collects from their child and asks for approval. No account required from the parent in this minimal flow — parental consent is a one-time click-through plus a follow-up confirmation email 24 hours later ("email plus" method, COPPA-compliant for low-risk data collection).
+3. Parent opens the consent URL (in a browser — this is one of the few web surfaces, see `mobile.md`). Page explains what data Hinterland collects from their child and asks for approval. No account required from the parent in this minimal flow — parental consent is a one-time click-through plus a follow-up confirmation email 24 hours later ("email plus" method, COPPA-compliant for low-risk data collection).
 4. On consent, the backend flips `pending_parental_consent=false` and records the consent event with a timestamp, the parent's email (from the URL's one-time token), and the consent version. 
 5. Kid can now sign in normally. Flow is identical to the parent-created kid flow from that point.
 
@@ -77,7 +77,7 @@ Until consent is given, the kid sees a "Waiting for your grown-up to say yes" sc
 
 ## COPPA and data collection
 
-Dragonfly collects the minimum necessary to operate the app for kids under 13. Nothing more, nothing "just in case," nothing for analytics.
+Hinterland collects the minimum necessary to operate the app for kids under 13. Nothing more, nothing "just in case," nothing for analytics.
 
 **From kids:** first name or nickname (1–20 chars, kid's choice or parent's choice), age band (9–10, 11–12, 13+ — not exact date of birth), observation photos, observation location (lat/lng rounded to 4 decimal places, ~11m precision), observation taxon ID (via iNat CV, kid-confirmed). That's it. No real name unless the kid chose to use it. No email. No profile photo in Phase 1. No friend lists beyond the class/family group they were placed in.
 

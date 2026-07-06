@@ -31,7 +31,7 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    app_name: str = "Dragonfly API"
+    app_name: str = "Hinterland API"
     app_version: str = "0.1.0"
     env: Environment = "local"
     log_level: LogLevel = "INFO"
@@ -67,7 +67,7 @@ class Settings(BaseSettings):
         "https://login.microsoftonline.com/dfd7ebb4-0b29-42cb-aa05-e5e0124bab8f/discovery/v2.0/keys"
     )
 
-    # Dragonfly RS256 kid JWTs (handoff + session). Backend mints and
+    # Hinterland RS256 kid JWTs (handoff + session). Backend mints and
     # verifies these locally; the kid app stores the session JWT and sends
     # it as a Bearer token. JWKS published at /.well-known/...json.
     dragonfly_jwt_issuer: str = "https://api.dragonfly-app.net"
@@ -94,7 +94,7 @@ class Settings(BaseSettings):
     user_claims_cache_max_size: int = 1024
 
     # Test-compat stub auth. When allowed, bearer claims lacking both the
-    # ``oid`` (Entra) and ``token_type`` (Dragonfly) markers short-circuit
+    # ``oid`` (Entra) and ``token_type`` (Hinterland) markers short-circuit
     # to a claims-only CurrentUser with no DB lookup -- a shape only the
     # test suite's stubbed verifiers produce. Production-safe default is
     # fail-closed: explicit override (`DRAGONFLY_ALLOW_STUB_AUTH=true|false`)
@@ -116,10 +116,10 @@ class Settings(BaseSettings):
     inat_request_timeout_seconds: float = 8.0
 
     # Outbound iNat submission posture. Defaults to False per the
-    # Option B decision (2026-06-04): Dragonfly does NOT post kid
+    # Option B decision (2026-06-04): Hinterland does NOT post kid
     # observations to iNaturalist while the kid is under 13 because
     # iNat's standard ToS requires users to be 13+. Observations stay
-    # in Dragonfly until the kid claims them via the Phase 3 age-13
+    # in Hinterland until the kid claims them via the Phase 3 age-13
     # iNat-claim flow.
     #
     # When False the moderation worker / review-queue approve handler

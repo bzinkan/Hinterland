@@ -1,4 +1,4 @@
-"""Alembic environment for Dragonfly Postgres migrations."""
+"""Alembic environment for Hinterland Postgres migrations."""
 
 from __future__ import annotations
 

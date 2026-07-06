@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Phase 2 -- Azure Database for PostgreSQL Flexible Server for Dragonfly.
+# Phase 2 -- Azure Database for PostgreSQL Flexible Server for Hinterland.
 #
 # Provisions:
 #   - Burstable B1ms Flexible Server `dragonfly-postgres-dev` in eastus2

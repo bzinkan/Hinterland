@@ -400,7 +400,7 @@ function HandoffModal({
         <View style={styles.modalCard}>
           <Text style={styles.heading}>Hand off to {handoff?.display_name}</Text>
           <Text style={styles.help}>
-            Open Dragonfly on the kid's device and scan this code. The token
+            Open Hinterland on the kid's device and scan this code. The token
             is one-time-use; if the kid doesn't sign in within a few minutes
             you'll need to re-issue from their roster row.
           </Text>

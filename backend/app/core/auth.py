@@ -5,7 +5,7 @@ Phase 6a replaces the single Firebase verifier with two parallel paths:
 * **Entra ID adults** -- access tokens minted by Microsoft Entra External ID
   for parents and teachers. Verified via JWKS using PyJWT against the
   configured tenant + audience.
-* **Dragonfly RS256 kids** -- session JWTs minted by this backend's own
+* **Hinterland RS256 kids** -- session JWTs minted by this backend's own
   ``kid_jwt`` module. Verified with the public PEM loaded from Azure Key
   Vault.
 
@@ -64,7 +64,7 @@ class CurrentUser(BaseModel):
     Field semantics:
 
     * ``uid``       -- the local ``users.id`` (ULID) for resolved Entra /
-                       Dragonfly tokens. For legacy stub tokens used in
+                       Hinterland tokens. For legacy stub tokens used in
                        tests, this stays the raw stub uid.
     * ``email``     -- present for Entra adults; ``None`` for kids.
     * ``role``      -- ``parent`` / ``teacher`` / ``kid`` / ``admin``.
@@ -196,7 +196,7 @@ def _verify_entra_inline(token: str, settings: Settings) -> dict[str, object]:
 
 
 def _verify_dragonfly(token: str, settings: Settings) -> dict[str, object]:
-    """Verify a Dragonfly RS256 kid session JWT."""
+    """Verify a Hinterland RS256 kid session JWT."""
     try:
         claims = verify_dragonfly_jwt(token, settings=settings, expected_token_type="session")
     except InvalidDragonflyJwt as exc:
@@ -205,14 +205,14 @@ def _verify_dragonfly(token: str, settings: Settings) -> dict[str, object]:
 
 
 def verify_bearer_token(token: str, settings: Settings) -> tuple[TokenPath, dict[str, object]]:
-    """Dispatch a bearer token to either the Entra or Dragonfly verifier.
+    """Dispatch a bearer token to either the Entra or Hinterland verifier.
 
     The unverified ``iss`` claim selects the path. Either of:
 
     * exact match against ``settings.entra_issuer``, OR
     * a ``https://login.microsoftonline.com/{tenant}/v2.0`` prefix
 
-    routes to the Entra verifier. The Dragonfly path requires ``iss ==
+    routes to the Entra verifier. The Hinterland path requires ``iss ==
     settings.dragonfly_jwt_issuer`` (default ``https://api.dragonfly-app.net``).
 
     Returns ``(path, verified_claims)``. Raises :class:`InvalidAuthToken`
@@ -398,7 +398,7 @@ def _is_stub_claims(claims: dict[str, object]) -> bool:
     """Return True for the claims shapes produced by the test stub helper.
 
     The stub returns dicts without ``oid`` (real Entra claim) or
-    ``token_type`` (real Dragonfly claim) -- both are present on every
+    ``token_type`` (real Hinterland claim) -- both are present on every
     legitimate verified token. When neither is present we short-circuit
     to ``current_user_from_claims`` and skip the DB lookup, which keeps
     the existing 9 test files' AsyncMock sessions usable as-is.
@@ -459,7 +459,7 @@ async def get_current_user(
 
     1. 401 if no ``Authorization: Bearer ...`` header.
     2. Dispatch via :func:`verify_bearer_token` to either the Entra or
-       Dragonfly verifier; 401 on any verification failure.
+       Hinterland verifier; 401 on any verification failure.
     3. **Test-compat shortcut** (only when ``settings.stub_auth_allowed``,
        i.e. ``env == "local"`` unless explicitly overridden): if the
        verifier returns a claims dict lacking both ``oid`` and
@@ -554,7 +554,7 @@ async def resolve_current_user_row(
 ) -> models.User:
     """Return the canonical ``users`` row for an authenticated request.
 
-    Real Entra and Dragonfly tokens resolve ``CurrentUser.uid`` to the local
+    Real Entra and Hinterland tokens resolve ``CurrentUser.uid`` to the local
     ``users.id``. Legacy tests and rollback paths may still present a Firebase
     uid or raw Entra oid, so this helper keeps those fallbacks in one place
     while preferring the local id path.

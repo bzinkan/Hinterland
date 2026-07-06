@@ -1,6 +1,6 @@
 # Phase 9 — Async pipeline + monitoring
 
-Closes the **infra-azure** half of Risk 0002 (async safety/science pipeline) and the alarms half of Risk 0003 (dispatcher SLO). All Dragonfly app code that consumes this infra already landed in PRs #107–#112 on `main`; phase 9 wires the Azure-side resources those app changes expect.
+Closes the **infra-azure** half of Risk 0002 (async safety/science pipeline) and the alarms half of Risk 0003 (dispatcher SLO). All Hinterland app code that consumes this infra already landed in PRs #107–#112 on `main`; phase 9 wires the Azure-side resources those app changes expect.
 
 ## What ships
 

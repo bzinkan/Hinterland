@@ -55,7 +55,7 @@ ANTHROPIC_MODEL = "claude-opus-4-8"
 MAX_TOKENS = 8192
 
 _SYSTEM_PROMPT = """\
-You draft expedition content for Dragonfly, a citizen-science app where kids
+You draft expedition content for Hinterland, a citizen-science app where kids
 aged 9-12 log real outdoor observations. A human author reviews and edits
 every draft before it ships (ADR 0002: LLMs are author-time only).
 
@@ -117,7 +117,7 @@ Example of a valid expedition:
   "duration_minutes": 20,
   "environments": ["yard", "park", "street", "school", "other"],
   "intro": "Look around. Even the most familiar place is full of life you've never noticed. Find three living things and log them.",
-  "outro": "You just contributed real data to science. Welcome to Dragonfly.",
+  "outro": "You just contributed real data to science. Welcome to Hinterland.",
   "prerequisites": [],
   "steps": [
     {

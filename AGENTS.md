@@ -1,6 +1,6 @@
 # AGENTS.md
 
-Dragonfly is a citizen-science field app for curious explorers of all ages. People log real observations, fill a personal Dex, complete expeditions, and may eventually contribute approved observations to iNaturalist through a reviewed contribution flow. Kid accounts remain adult-managed.
+Hinterland (formerly Dragonfly; full title "The Hinterland Guide", short form "Hinterland" everywhere user-facing) is a citizen-science field app for curious explorers of all ages. People log real observations, fill a personal Dex, complete expeditions, and may eventually contribute approved observations to iNaturalist through a reviewed contribution flow. Kid accounts remain adult-managed. Layer-2 identifiers (bundle ids, `DRAGONFLY_*` env vars, deep-link scheme, Azure resource names, the `dragonfly-app.net` domain) deliberately keep the old name — see `docs/adr/0013-hinterland-rename.md` before renaming anything.
 
 This file is for coding agents working in this repository. It is both a project plan and a set of guardrails. Read it before making changes.
 
@@ -16,7 +16,7 @@ Start with these files, in this order:
 6. `docs/dispatcher.md` for reward handling.
 7. `docs/mobile.md` for Expo/mobile constraints.
 8. `docs/adr/` for decisions that must not be casually reversed. Most active:
-   - [ADR 0010](docs/adr/0010-azure-target-architecture.md) — Azure target architecture (Entra External Identities, Dragonfly-signed kid JWTs, Azure Postgres, Blob Storage, Container Apps, Key Vault, Azure AI Content Safety, Azure Monitor). Supersedes ADR 0005, 0008, and 0009.
+   - [ADR 0010](docs/adr/0010-azure-target-architecture.md) — Azure target architecture (Entra External Identities, Hinterland-signed kid JWTs, Azure Postgres, Blob Storage, Container Apps, Key Vault, Azure AI Content Safety, Azure Monitor). Supersedes ADR 0005, 0008, and 0009.
    - [ADR 0006](docs/adr/0006-ingest-pipelines.md) — Ingest pipelines are explicit, replayable, and audited via `ingest_runs`.
    - [ADR 0007](docs/adr/0007-internal-ai-agent-tooling.md) — Multi-agent AI is internal/adult-only; never on a kid-facing request path.
    - [ADR 0002](docs/adr/0002-no-runtime-llm.md) — Kid-facing runtime LLM calls remain forbidden.
@@ -27,7 +27,7 @@ If code and docs disagree, stop and reconcile them in the same PR. Do not let ar
 
 The original docs describe an AWS serverless stack; the next wave of docs described a GCP/Cloud Run runtime. Both are now historical for new implementation work.
 
-The active direction is Azure, documented in [ADR 0010](docs/adr/0010-azure-target-architecture.md): Microsoft Entra External Identities for adults, Dragonfly-signed RS256 JWTs for kids, Azure Database for PostgreSQL Flexible Server, Azure Blob Storage, Azure Container Apps, Azure Key Vault, Azure AI Content Safety, and Azure Monitor/Application Insights/Log Analytics. Keep product and data invariants from the AWS/GCP-era docs, but do not add new AWS-only or GCP-only implementation unless a new ADR explicitly reopens the platform decision.
+The active direction is Azure, documented in [ADR 0010](docs/adr/0010-azure-target-architecture.md): Microsoft Entra External Identities for adults, Hinterland-signed RS256 JWTs for kids, Azure Database for PostgreSQL Flexible Server, Azure Blob Storage, Azure Container Apps, Azure Key Vault, Azure AI Content Safety, and Azure Monitor/Application Insights/Log Analytics. Keep product and data invariants from the AWS/GCP-era docs, but do not add new AWS-only or GCP-only implementation unless a new ADR explicitly reopens the platform decision.
 
 When migrating platform pieces, prefer compatibility layers and small reversible changes:
 

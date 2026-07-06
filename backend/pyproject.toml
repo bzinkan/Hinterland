@@ -1,7 +1,7 @@
 [project]
 name = "dragonfly-backend"
 version = "0.1.0"
-description = "Dragonfly API — citizen science for kids 9–12"
+description = "Hinterland API — citizen science for kids 9–12"
 requires-python = ">=3.12"
 readme = "README.md"
 
@@ -23,7 +23,7 @@ dependencies = [
     "botocore>=1.35.0",
 
     # Auth
-    "pyjwt[crypto]>=2.9.0",              # Phase 6: RS256 verification for Entra + Dragonfly JWTs
+    "pyjwt[crypto]>=2.9.0",              # Phase 6: RS256 verification for Entra + Hinterland JWTs
     "azure-identity>=1.19.0",            # Phase 6: DefaultAzureCredential picks up UAMI in Container Apps
     "aiohttp>=3.10.0",                   # Azure async managed-identity transport for Service Bus workers
     "azure-keyvault-secrets>=4.8.0",     # Phase 6: read kid-jwt signing/public PEMs + Entra settings

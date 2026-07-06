@@ -1,7 +1,7 @@
 # App Store Compliance Checklist
 
 Re-verify official Apple and Google policy before every submission. This file is
-the Dragonfly-specific checklist, not legal advice.
+the Hinterland-specific checklist, not legal advice.
 
 Before entering public landing/support URLs in Google Play Console, run
 [`landing-pre-play-checklist.md`](landing-pre-play-checklist.md) and the deploy
@@ -13,7 +13,7 @@ The first store surface is Google Play Internal Testing for a tiny,
 adult-supervised W1 pilot.
 
 - [x] `play-internal` uses stable package `com.dragonfly.app`.
-- [x] `play-internal` display name is `Dragonfly Internal`.
+- [x] `play-internal` display name is `Hinterland Internal`.
 - [x] `play-internal` blocks `ACCESS_FINE_LOCATION`.
 - [x] `play-internal` explicitly requests `ACCESS_COARSE_LOCATION`.
 - [x] Expeditions relevance uses already-granted coarse location passively

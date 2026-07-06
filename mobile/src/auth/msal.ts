@@ -4,7 +4,7 @@
  *
  * Native parent setup is web-first for the W1 pilot because
  * `@azure/msal-browser` is web-only. Kid sign-in does NOT use MSAL on any
- * platform: `/v1/auth/kid-exchange` issues a Dragonfly-signed session JWT
+ * platform: `/v1/auth/kid-exchange` issues a Hinterland-signed session JWT
  * directly after the QR handoff.
  *
  * Usage shape mirrors `firebase.ts`:

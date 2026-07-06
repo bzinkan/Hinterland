@@ -1,4 +1,4 @@
-"""Submit a clean Dragonfly observation to iNaturalist.
+"""Submit a clean Hinterland observation to iNaturalist.
 
 iNat's v1 API needs a two-call dance: create the observation, then attach
 the photo. Both happen in this function so the caller (Cloud Tasks task
@@ -65,7 +65,7 @@ async def submit_observation_to_inat(
     species_guess: str | None = None,
 ) -> InatSubmitResult:
     """Push the observation + photo to iNaturalist."""
-    # Step 1: create the observation. Use Dragonfly's id as the iNat
+    # Step 1: create the observation. Use Hinterland's id as the iNat
     # uuid -- gives idempotency for free under Cloud Tasks redelivery.
     obs_payload: dict[str, object] = {
         "observation": {

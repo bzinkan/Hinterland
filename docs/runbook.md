@@ -1,4 +1,4 @@
-# Dragonfly Azure Runbook
+# Hinterland Azure Runbook
 
 ADR 0010 makes Azure the active runtime. GCP Cloud Run/Cloud SQL/Cloud Tasks
 instructions are historical unless explicitly called out as residual DNS or
@@ -134,7 +134,7 @@ APP_ENV=play-internal npm run config:play-internal
 The config check must verify:
 
 - package `com.dragonfly.app`
-- display name `Dragonfly Internal`
+- display name `Hinterland Internal`
 - update channel `play-internal`
 - `ACCESS_FINE_LOCATION` blocked
 - `ACCESS_COARSE_LOCATION` explicitly requested
@@ -171,7 +171,7 @@ obtained and the 50-photo CV benchmark is run.
 Closed-beta target:
 
 - clean moderation path enqueues iNat submit
-- idempotency key = Dragonfly observation id
+- idempotency key = Hinterland observation id
 - retries with DLQ/dead-letter visibility
 - terminal failures alert but never affect the kid submission response
 

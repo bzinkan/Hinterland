@@ -1,6 +1,6 @@
 # Roadmap
 
-Dragonfly's Phase 1 feature surface is code-complete for a controlled beta.
+Hinterland's Phase 1 feature surface is code-complete for a controlled beta.
 The active roadmap is risk closure and pilot hardening, not new product scope.
 
 ## Current Target
@@ -33,7 +33,7 @@ Required before any kid sees the build:
 
 ### 2. Auth And Pilot Flow
 
-- Production API accepts Entra adult tokens and Dragonfly kid JWTs.
+- Production API accepts Entra adult tokens and Hinterland kid JWTs.
 - Route code resolves authenticated users through `resolve_current_user_row`.
 - Native Android play-internal/production does not issue Firebase ID tokens.
 - Kids sign in by scanning `dragonfly.kid-handoff.v2` QR payloads.

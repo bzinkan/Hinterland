@@ -79,9 +79,9 @@ export default function SignInScreen() {
       <DesktopContainer>
         <Stack.Screen options={{ title: "Sign in" }} />
         <View style={styles.container}>
-          <Text style={styles.title}>Welcome to Dragonfly</Text>
+          <Text style={styles.title}>Welcome to Hinterland</Text>
           <Text style={styles.subtitle}>
-            Dragonfly parent and teacher accounts sign in with Microsoft
+            Hinterland parent and teacher accounts sign in with Microsoft
             Entra. Kids get a join code from you and never enter an email.
           </Text>
 

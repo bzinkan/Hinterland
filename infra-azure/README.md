@@ -1,6 +1,6 @@
 # Azure infrastructure
 
-Sibling to `infra-gcp/`. Tracks Dragonfly's Azure-side resources during the GCP -> Azure migration (ADR 0010).
+Sibling to `infra-gcp/`. Tracks Hinterland's Azure-side resources during the GCP -> Azure migration (ADR 0010).
 
 ## What's here
 
@@ -19,7 +19,7 @@ This directory will hold the `az` CLI scripts and (eventually) Bicep / Terraform
 
 ## CLI usage
 
-Every command targets the Dragonfly subscription explicitly so it doesn't disturb other defaults:
+Every command targets the Hinterland subscription explicitly so it doesn't disturb other defaults:
 
 ```powershell
 az group show --name dragonfly-dev-rg --subscription 5a04114f-9102-4e0b-828b-b385096edfbc

@@ -1,6 +1,6 @@
 # The Dispatcher
 
-The dispatcher is the spine of Dragonfly. Every observation submission runs through it; every user-visible reward comes out of it. Get this contract right in Phase 1 and the rest of the roadmap is purely additive.
+The dispatcher is the spine of Hinterland. Every observation submission runs through it; every user-visible reward comes out of it. Get this contract right in Phase 1 and the rest of the roadmap is purely additive.
 
 ## The one-sentence version
 

@@ -1,6 +1,6 @@
 """Integration tests for POST /v1/auth/kid-exchange.
 
-The endpoint accepts a Dragonfly RS256 handoff JWT in the request body
+The endpoint accepts a Hinterland RS256 handoff JWT in the request body
 (no Authorization header), verifies it, atomically claims the jti via
 ``kid_handoff_jti``, and mints a long-lived session JWT for the kid's
 device.

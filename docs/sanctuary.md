@@ -1,6 +1,6 @@
 # The Sanctuary
 
-The Sanctuary is Dragonfly's stylized, persistent in-app habitat scene.
+The Sanctuary is Hinterland's stylized, persistent in-app habitat scene.
 It grows as a kid logs **real-world** observations, gives kids an
 indoor reason to reopen the app, and refuses to let them progress
 indoors. The whole feature is built around one rule: **the Sanctuary
