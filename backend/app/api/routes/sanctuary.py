@@ -140,6 +140,12 @@ class SanctuaryElementDTO(BaseModel):
     icon: str
     taxon_id: int | None
     source_observation_id: str | None
+    # The kid's own source photo for this element, present ONLY when the
+    # source observation's moderation_status is "clean" -- see the
+    # photo-enrichment block in ``get_my_sanctuary`` for the safety
+    # rationale. ``None`` means "render the icon", never "photo pending":
+    # the client gets no moderation state machine.
+    photo_id: str | None = None
     unlocked_at: datetime
     payload: dict[str, Any] = Field(default_factory=dict)
 
@@ -261,6 +267,24 @@ class SanctuarySoundscapeDTO(BaseModel):
     description: str
 
 
+class SanctuarySouvenirDTO(BaseModel):
+    """A keepsake for a completed expedition, derived at read time.
+
+    ADR 0012 "Expedition souvenirs": completed ``expedition_progress``
+    rows are joined to authored ``content/sanctuary/souvenirs.json`` at
+    request time -- no new tables, no new writer, no dispatcher change.
+    Progress rows whose expedition has no authored souvenir (content can
+    trail) are silently skipped.
+    """
+
+    expedition_id: str
+    zone_id: ZoneId
+    icon: str
+    title: str
+    detail: str
+    completed_at: datetime
+
+
 class SanctuarySnapshotResponse(BaseModel):
     zones: list[SanctuaryZoneDTO]
     elements: list[SanctuaryElementDTO]
@@ -273,6 +297,7 @@ class SanctuarySnapshotResponse(BaseModel):
     tiny_surprises: list[SanctuaryTinySurpriseDTO] = Field(default_factory=list)
     season: SanctuarySeasonDTO
     soundscapes: list[SanctuarySoundscapeDTO] = Field(default_factory=list)
+    souvenirs: list[SanctuarySouvenirDTO] = Field(default_factory=list)
     # ``sound_assets_available`` is the global gate the mobile screen uses
     # to decide whether to render a future play control vs. a muted
     # placeholder. False until audio assets ship; flipped on by a later
@@ -342,10 +367,76 @@ async def get_my_sanctuary(
         .all()
     )
 
+    # ------------------------------------------------------------------
+    # Photo enrichment -- SAFETY-CRITICAL gate (ADR 0012 "Photo-on-tap").
+    #
+    # The Sanctuary is a kid-facing surface, so the clean-moderation gate
+    # lives HERE, server-side: an element carries a ``photo_id`` only when
+    # its source observation belongs to the current user AND its
+    # ``moderation_status`` is ``"clean"``. The photo-URL endpoint
+    # (``GET /v1/photos/{photo_id}/url``, post-#161) enforces its own
+    # audience rules -- adults (parent/teacher group-mates) may fetch
+    # UNMODERATED photos there because that endpoint is the review
+    # surface, and owners may fetch any non-deleted photo of their own --
+    # so relying on it alone would let pending/quarantined photos render
+    # in the Sanctuary. Gating on "clean" here means the client never
+    # learns a photo_id it should not show; a pending photo simply
+    # appears on a later refresh once moderation passes, with no
+    # client-side moderation state machine. (Re-validated against
+    # post-#161 ``photos.py``: the owner check there short-circuits every
+    # non-owner rule, so a kid CAN fetch the signed URL for their own
+    # clean photo -- this surface is not dead-on-arrival.)
+    # ------------------------------------------------------------------
+    source_observation_ids = {
+        row.source_observation_id for row in element_rows if row.source_observation_id is not None
+    }
+    photo_id_by_observation_id: dict[str, str] = {}
+    if source_observation_ids:
+        observation_rows = (
+            await session.execute(
+                select(
+                    models.Observation.id,
+                    models.Observation.photo_id,
+                    models.Observation.moderation_status,
+                ).where(
+                    models.Observation.id.in_(source_observation_ids),
+                    # Defensive ownership pin: a sanctuary_elements row is
+                    # already user-scoped, but its source_observation_id
+                    # column has no same-user constraint -- never let a
+                    # foreign observation id resolve to a photo here.
+                    models.Observation.user_id == user_row.id,
+                )
+            )
+        ).all()
+        for observation_id, photo_id, moderation_status in observation_rows:
+            if moderation_status == "clean":
+                photo_id_by_observation_id[observation_id] = photo_id
+
+    # Completed expeditions -> read-time souvenirs (ADR 0012). Oldest
+    # completion first so the shelf grows at the end as new expeditions
+    # finish.
+    progress_rows = (
+        await session.execute(
+            select(
+                models.ExpeditionProgress.expedition_id,
+                models.ExpeditionProgress.completed_at,
+            )
+            .where(
+                models.ExpeditionProgress.user_id == user_row.id,
+                models.ExpeditionProgress.completed_at.is_not(None),
+            )
+            .order_by(
+                models.ExpeditionProgress.completed_at.asc(),
+                # Tie-break so same-second completions keep a stable shelf order.
+                models.ExpeditionProgress.expedition_id.asc(),
+            )
+        )
+    ).all()
+
     zones = [
         _build_zone(zone_id, content, zone_state_by_id.get(zone_id)) for zone_id in _ZONE_ORDER
     ]
-    elements = [_build_element(row, content) for row in element_rows]
+    elements = [_build_element(row, content, photo_id_by_observation_id) for row in element_rows]
     recent_events = [_build_event(row) for row in recent_event_rows]
     # Journal reuses the same recent-events query, reversed -- oldest
     # first among the most-recent-10 set. No second DB call.
@@ -362,6 +453,7 @@ async def get_my_sanctuary(
         unlocked_element_ids={row.element_id for row in element_rows},
     )
     soundscapes_view = _soundscapes_for_response(content)
+    souvenirs_view = _souvenirs_from_progress(progress_rows, content)
 
     return SanctuarySnapshotResponse(
         zones=zones,
@@ -375,6 +467,7 @@ async def get_my_sanctuary(
         tiny_surprises=tiny_surprises_view,
         season=season_info,
         soundscapes=soundscapes_view,
+        souvenirs=souvenirs_view,
         sound_assets_available=False,
     )
 
@@ -436,6 +529,7 @@ def _build_zone(
 def _build_element(
     row: models.SanctuaryElement,
     content: SanctuaryContent,
+    photo_id_by_observation_id: dict[str, str],
 ) -> SanctuaryElementDTO:
     """Merge a stored element row with authored content.
 
@@ -444,6 +538,11 @@ def _build_element(
          keyed by ``element_id``.
       2. Snapshot copy on ``SanctuaryElement.payload``.
       3. Safe fallback strings.
+
+    ``photo_id_by_observation_id`` holds ONLY the current user's
+    clean-moderated observations (built in ``get_my_sanctuary``); any
+    element whose source observation is absent from the map -- pending,
+    quarantined, rejected, foreign, or deleted -- gets ``photo_id=None``.
     """
     payload: dict[str, Any] = dict(row.payload) if isinstance(row.payload, dict) else {}
 
@@ -479,6 +578,10 @@ def _build_element(
     detail = authored_detail or _string_or_none(payload.get("detail")) or _FALLBACK_ELEMENT_DETAIL
     icon = authored_icon or _string_or_none(payload.get("icon")) or _FALLBACK_ELEMENT_ICON
 
+    photo_id: str | None = None
+    if row.source_observation_id is not None:
+        photo_id = photo_id_by_observation_id.get(row.source_observation_id)
+
     return SanctuaryElementDTO(
         element_id=row.element_id,
         zone_id=row.zone_id,
@@ -488,6 +591,7 @@ def _build_element(
         icon=icon,
         taxon_id=row.taxon_id,
         source_observation_id=row.source_observation_id,
+        photo_id=photo_id,
         unlocked_at=row.unlocked_at,
         payload=payload,
     )
@@ -817,6 +921,40 @@ def _select_season_info(
         zone_accents=zone_accents,
         variant_copy=variant_copy,
     )
+
+
+def _souvenirs_from_progress(
+    progress_rows: Sequence[Any],
+    content: SanctuaryContent,
+) -> list[SanctuarySouvenirDTO]:
+    """Map completed ``expedition_progress`` rows to authored souvenirs.
+
+    ``progress_rows`` are ``(expedition_id, completed_at)`` pairs already
+    filtered to ``completed_at IS NOT NULL`` and ordered by completion
+    time ascending; that order is preserved on the wire. A row whose
+    expedition has no authored souvenir yet is silently skipped --
+    content can trail the expedition catalogue without breaking the
+    snapshot (the souvenir simply appears once souvenirs.json catches
+    up).
+    """
+    out: list[SanctuarySouvenirDTO] = []
+    for expedition_id, completed_at in progress_rows:
+        if completed_at is None:  # defensive; the query already filters
+            continue
+        souvenir = content.souvenir_by_expedition_id.get(expedition_id)
+        if souvenir is None:
+            continue
+        out.append(
+            SanctuarySouvenirDTO(
+                expedition_id=souvenir.expedition_id,
+                zone_id=souvenir.zone,
+                icon=souvenir.icon,
+                title=souvenir.title,
+                detail=souvenir.detail,
+                completed_at=completed_at,
+            )
+        )
+    return out
 
 
 def _soundscapes_for_response(content: SanctuaryContent) -> list[SanctuarySoundscapeDTO]:
