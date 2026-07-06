@@ -105,6 +105,16 @@ function IslandGroupInner({
   // Dormant islands do NOT sway; the silhouette hint on them does.
   const swayAmp = island.dormant ? 0 : WIND_SKEW;
 
+  // Intra-island band depth only makes sense when the band is FARTHER
+  // than the island itself (band factor < island parallax). On far
+  // islands (sky 0.1, woodland/elsewhere 0.35) the raw formula inverts
+  // and can push a band clear off its plateau at the pan clamp —
+  // device-verified on the sky island, whose cloud band detached. Clamp
+  // each band factor to the island's own parallax so far islands move
+  // as one rigid piece while fore islands keep their full depth.
+  const backFactor = Math.min(PARALLAX_FACTOR.back, islandParallax);
+  const midFactor = Math.min(PARALLAX_FACTOR.mid, islandParallax);
+
   const anchorTransform = useDerivedValue<Transforms3d>(() => [
     { translateX: slot.x - panX.value * islandParallax },
     { translateY: slot.y },
@@ -113,7 +123,7 @@ function IslandGroupInner({
   const backTransform = useDerivedValue<Transforms3d>(() => [
     {
       translateX:
-        (panX.value * (islandParallax - PARALLAX_FACTOR.back)) / slot.islandScale,
+        (panX.value * (islandParallax - backFactor)) / slot.islandScale,
     },
   ]);
   const midSwayTransform = useDerivedValue<Transforms3d>(() => {
@@ -121,7 +131,7 @@ function IslandGroupInner({
     return [
       {
         translateX:
-          (panX.value * (islandParallax - PARALLAX_FACTOR.mid)) / slot.islandScale,
+          (panX.value * (islandParallax - midFactor)) / slot.islandScale,
       },
       { translateY: LAYER_BOTTOM_Y },
       { skewX: skew },
