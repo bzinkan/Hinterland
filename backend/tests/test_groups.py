@@ -230,7 +230,7 @@ def _stub_firebase_admin(monkeypatch: pytest.MonkeyPatch) -> dict[str, list[obje
     """Patch the Phase 6a kid-provisioning side effects.
 
     Returns a dict of call logs keyed by side-effect name. After the Phase 6a
-    rewrite the kid-create route mints a Dragonfly RS256 handoff JWT instead
+    rewrite the kid-create route mints a Hinterland RS256 handoff JWT instead
     of creating a Firebase user; this helper records calls to
     ``mint_handoff_token`` under the legacy key ``create_token`` so existing
     assertions keep reading sensibly.

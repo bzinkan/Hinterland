@@ -46,7 +46,7 @@ export default function RootLayout() {
 
   useEffect(() => {
     // ADR 0010 production/play-internal auth is Entra for adults and
-    // Dragonfly-issued session JWTs for kids. Firebase token sync is
+    // Hinterland-issued session JWTs for kids. Firebase token sync is
     // development-only now; running it in play-internal would clear a
     // stored kid session when Firebase has no signed-in user.
     if (

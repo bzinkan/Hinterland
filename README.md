@@ -1,8 +1,9 @@
-# Dragonfly
+# Hinterland
 
-[![CI](https://github.com/bzinkan/Dragonfly/actions/workflows/ci.yml/badge.svg)](https://github.com/bzinkan/Dragonfly/actions/workflows/ci.yml)
+[![CI](https://github.com/bzinkan/Hinterland/actions/workflows/ci.yml/badge.svg)](https://github.com/bzinkan/Hinterland/actions/workflows/ci.yml)
 
-Citizen-science field app for curious explorers of all ages. People log real
+Hinterland (formerly Dragonfly; full title "The Hinterland Guide") is a
+citizen-science field app for curious explorers of all ages. People log real
 outdoor observations, fill a personal Dex, complete expeditions, and may
 eventually contribute approved observations to iNaturalist through a reviewed
 contribution flow. Kid accounts remain adult-managed.
@@ -50,7 +51,7 @@ Active Azure shape:
 - Database: Azure Database for PostgreSQL Flexible Server.
 - Photos: Azure Blob Storage with SAS URLs.
 - Adult auth: Microsoft Entra External Identities.
-- Kid auth: Dragonfly-signed RS256 handoff/session JWTs.
+- Kid auth: Hinterland-signed RS256 handoff/session JWTs.
 - Moderation provider: Azure AI Content Safety, still async and off the hot path.
 - Frontend: parents web on Azure Static Web Apps; apex/www currently remain on Firebase Hosting per ADR 0010 migration notes.
 

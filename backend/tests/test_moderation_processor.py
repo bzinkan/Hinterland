@@ -284,7 +284,7 @@ async def test_clean_with_observation_and_no_settings_skips_outbox(
 ) -> None:
     """Option B default: when settings=None the processor flips
     moderation_status but does NOT write an outbox row. The kid's
-    observation stays entirely inside Dragonfly."""
+    observation stays entirely inside Hinterland."""
     photo = _photo_row()
     obs = _obs_row()
     _wire_session(fake_session, photo=photo, observation=obs)

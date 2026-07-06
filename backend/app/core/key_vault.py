@@ -1,8 +1,8 @@
 """Thin wrapper over Azure Key Vault for Phase 6 boot-time secret loading.
 
-The backend reads four named secrets from the Dragonfly Key Vault:
+The backend reads four named secrets from the Hinterland Key Vault:
 
-* ``kid-jwt-signing-key``  -- RSA private PEM used to mint Dragonfly RS256
+* ``kid-jwt-signing-key``  -- RSA private PEM used to mint Hinterland RS256
   handoff + session JWTs for kids.
 * ``kid-jwt-public-key``   -- RSA public PEM used to verify the same and to
   build the public JWKS at ``/.well-known/dragonfly-kid-jwks.json``.
@@ -70,7 +70,7 @@ def _get_secret_value(vault_url: str, secret_name: str) -> str:
 
 
 def get_kid_signing_pem(settings: Settings) -> bytes:
-    """Return the PEM-encoded RSA private key used to mint Dragonfly JWTs.
+    """Return the PEM-encoded RSA private key used to mint Hinterland JWTs.
 
     Local override (``DRAGONFLY_KID_JWT_SIGNING_PEM``) wins so tests can
     supply a freshly generated key without reaching AKV.
@@ -90,7 +90,7 @@ def get_kid_signing_pem(settings: Settings) -> bytes:
 
 
 def get_kid_public_pem(settings: Settings) -> bytes:
-    """Return the PEM-encoded RSA public key for Dragonfly-JWT verification."""
+    """Return the PEM-encoded RSA public key for Hinterland-JWT verification."""
     if settings.kid_jwt_public_pem:
         return settings.kid_jwt_public_pem.encode("utf-8")
     try:

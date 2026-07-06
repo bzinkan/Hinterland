@@ -2,7 +2,7 @@
 
 ## System At A Glance
 
-Dragonfly is an Azure-hosted field app with one kid-facing hot path:
+Hinterland is an Azure-hosted field app with one kid-facing hot path:
 observation submission. Everything slow or failure-prone, including photo
 moderation, iNaturalist submission, rarity refresh, ingest, and admin replay,
 must run outside that hot path.
@@ -19,7 +19,7 @@ Expo mobile / parents web
 Azure Container Apps: FastAPI / uvicorn
         |
         +--> Entra External Identities (adult access tokens)
-        +--> Dragonfly RS256 kid JWTs (handoff/session)
+        +--> Hinterland RS256 kid JWTs (handoff/session)
         +--> Azure Database for PostgreSQL Flexible Server
         +--> Azure Blob Storage (photos, SAS URLs)
         +--> iNaturalist API (CV + eventual project submit)
@@ -55,10 +55,11 @@ Adults authenticate with Microsoft Entra External Identities. Verified Entra
 tokens are resolved to local `users` rows by `users.entra_oid`.
 
 Kids never enter email/password. A parent/teacher provisions a kid, the backend
-mints a 15-minute single-use Dragonfly handoff JWT, and the kid app exchanges
-that at `POST /v1/auth/kid-exchange` for a 30-day Dragonfly session JWT.
-Dragonfly kid JWTs are RS256 and are verified against
-`/.well-known/dragonfly-kid-jwks.json`.
+mints a 15-minute single-use Hinterland handoff JWT, and the kid app exchanges
+that at `POST /v1/auth/kid-exchange` for a 30-day Hinterland session JWT.
+Hinterland kid JWTs are RS256 and are verified against
+`/.well-known/dragonfly-kid-jwks.json` (the path keeps the legacy name; it is a
+deployed client contract — see ADR 0013).
 
 The backend augments request identity from Postgres on every real token path:
 `CurrentUser.uid` is the canonical local `users.id`. Route code should resolve
@@ -68,7 +69,7 @@ the row through `resolve_current_user_row(...)`, not by directly querying
 ## Component Responsibilities
 
 **API service.** FastAPI on Azure Container Apps. Owns synchronous HTTP,
-dispatcher execution, signed URL issuance, Entra/Dragonfly auth verification,
+dispatcher execution, signed URL issuance, Entra/Hinterland auth verification,
 and source-of-truth writes to Postgres.
 
 **Photo storage.** Azure Blob Storage private container. `pending/`,
@@ -80,7 +81,7 @@ Signed PUT/GET URLs are SAS URLs behind the existing storage protocol.
 is allowed only for local/dev/W1 Internal Testing. Provider outage must retry or
 hold pending; never default-allow on safety outage.
 
-**iNaturalist submit worker.** Async, retryable, and idempotent by Dragonfly
+**iNaturalist submit worker.** Async, retryable, and idempotent by Hinterland
 observation id. It is disabled until the iNat OAuth/project account risk is
 closed and moderation clean-path wiring exists.
 

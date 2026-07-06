@@ -60,8 +60,9 @@ Related docs:
       Console support contact.
 - [ ] `privacy@dragonfly-app.net` is live and monitored for privacy requests.
 - [ ] App name in Play Console matches the current listing plan. Production
-      listing name: `Dragonfly`; internal tester device label may be
-      `Dragonfly Internal` from the `play-internal` build.
+      listing name: `Hinterland` (renamed per ADR 0013; update the Console
+      listing if it was created as `Dragonfly`); internal tester device
+      label is `Hinterland Internal` from the `play-internal` build.
 - [ ] Package-name caution is understood: the first AAB uploaded to the
       production-intended Play Console app must use `com.dragonfly.app`, not
       `com.dragonfly.app.dev` or `com.dragonfly.app.staging`.

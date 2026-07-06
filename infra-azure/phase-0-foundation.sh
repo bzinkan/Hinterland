@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Phase 0 -- Azure foundation for Dragonfly (ADR 0010).
+# Phase 0 -- Azure foundation for Hinterland (ADR 0010).
 #
 # Idempotent. Re-running it should produce no changes if the resources
 # already exist with the expected shape.

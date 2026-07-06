@@ -43,7 +43,7 @@ The code surface exists:
 - `AzureContentSafetyModerator` behind the `Moderator` protocol.
 - `process_pending_photo()` for pending -> clean/quarantine lifecycle.
 - Adult review queue endpoints and mobile review UI.
-- iNat submitter code with idempotency by Dragonfly observation id.
+- iNat submitter code with idempotency by Hinterland observation id.
 - Admin jobs for rarity refresh, stale-review sweep, and dispatcher replay.
 
 The W1 Android Internal Testing pilot may run with:

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Phase 1 -- Entra foundation for Dragonfly (ADR 0010).
+# Phase 1 -- Entra foundation for Hinterland (ADR 0010).
 #
 # Builds on phase-1-external-id-tenant.sh (which created the CIAM tenant).
 # This script provisions:

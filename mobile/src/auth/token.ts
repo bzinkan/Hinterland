@@ -3,7 +3,7 @@
  *
  * Development/preview can paste a bearer token into Settings. Production
  * writes the same key from either MSAL on the parents web surface or the
- * Dragonfly kid handoff exchange on native.
+ * Hinterland kid handoff exchange on native.
  *
  * Web build: SecureStore is no-op on web. Falls back to localStorage so the
  * web preview still works during development.

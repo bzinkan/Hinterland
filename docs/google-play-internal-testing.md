@@ -1,6 +1,6 @@
 # Google Play Console: Internal Testing process
 
-This doc walks through getting Dragonfly onto the Google Play **Internal
+This doc walks through getting Hinterland onto the Google Play **Internal
 testing** track for a controlled adult-supervised kid pilot. It covers
 the Play Console steps, the build command, and the tester-onboarding
 flow. It does NOT cover Closed testing, Open testing, or production --
@@ -45,12 +45,12 @@ doc is this section, you avoided the worst-case mistake.
 
 ## 1. Create the Play Console app entry
 
-If a Dragonfly entry does not yet exist:
+If a Hinterland entry does not yet exist:
 
 1. https://play.google.com/console
 2. **All apps** → **Create app**
-3. App name: **Dragonfly** (this is the production-listing display name;
-   pilot tester devices show "Dragonfly Internal" because that's what
+3. App name: **Hinterland** (this is the production-listing display name;
+   pilot tester devices show "Hinterland Internal" because that's what
    the AAB's `<application android:label>` resolves to from the
    `play-internal` APP_ENV branch in `mobile/app.config.ts`)
 4. Default language: English (United States)
@@ -83,7 +83,7 @@ filename to `.gitignore` if you download it inside the repo.
 
 Expected build properties:
 - Package name: `com.dragonfly.app`
-- Display name: `Dragonfly Internal`
+- Display name: `Hinterland Internal`
 - App version: `0.1.0` (the `version` field in `mobile/app.config.ts`)
 - Version code: auto-incremented by EAS (the `play-internal` profile
   has `autoIncrement: true`)
@@ -131,7 +131,7 @@ Working directory: `mobile/`.
 
    - [ ] `android.package` is `com.dragonfly.app` (NOT
      `com.dragonfly.app.dev` or `com.dragonfly.app.staging`).
-   - [ ] `name` is `Dragonfly Internal` (the `play-internal` branch
+   - [ ] `name` is `Hinterland Internal` (the `play-internal` branch
      of `displayName()` in `mobile/app.config.ts`).
    - [ ] `version` is `0.1.0` (the `version` field in
      `mobile/app.config.ts`; `android.versionCode` is NOT pinned in
@@ -170,7 +170,7 @@ Working directory: `mobile/`.
 ### Expected values
 
 - [ ] Package name: `com.dragonfly.app`
-- [ ] Display name on the device: `Dragonfly Internal`
+- [ ] Display name on the device: `Hinterland Internal`
 - [ ] App version: `0.1.0`
 - [ ] Track: Internal testing (NOT Closed, NOT Open, NOT Production)
 - [ ] Tester type: known adult-supervised testers only (1–3
@@ -202,7 +202,7 @@ Working directory: `mobile/`.
 
 ## 3. Upload the AAB to Internal testing
 
-1. Play Console → your Dragonfly app → **Testing → Internal testing**
+1. Play Console → your Hinterland app → **Testing → Internal testing**
 2. **Create new release**
 3. Upload the `.aab` you downloaded from EAS
 4. Release name: leave the default (Play Console fills it from
@@ -216,10 +216,10 @@ Working directory: `mobile/`.
 
 ## 4. Create the tester email list
 
-1. Play Console → your Dragonfly app → **Testing → Internal testing
+1. Play Console → your Hinterland app → **Testing → Internal testing
    → Testers** tab
 2. **Create email list**
-3. Name: `Dragonfly kid pilot W1`
+3. Name: `Hinterland kid pilot W1`
 4. Add tester email addresses (NOT committed to the repo; keep these
    in a private spreadsheet or password manager). Internal testing
    supports up to 100 testers.
@@ -239,10 +239,10 @@ Working directory: `mobile/`.
    - "Tap the link from the SAME Google account email I used to add you"
    - A 1-2 sentence description of what the app is
    - "This is a private test -- please do not share the link"
-   - A note that the install shows up as **Dragonfly Internal** on
-     their phone, not "Dragonfly"
+   - A note that the install shows up as **Hinterland Internal** on
+     their phone, not "Hinterland"
 5. Each tester taps the link → "Become a tester" → goes to the Play
-   Store listing for `Dragonfly Internal` → **Install**. From then on
+   Store listing for `Hinterland Internal` → **Install**. From then on
    updates auto-flow when you push a new build.
 
 ## 6. Adult-supervised kid-test rules

@@ -38,7 +38,7 @@ export type CreateKidResponse = {
    * One-time, 15-minute backend-signed JWT the kid app exchanges at
    * `POST /v1/auth/kid-exchange` for a long-lived session JWT. Renamed
    * from `custom_token` in Phase 6a when the backend swapped from
-   * Firebase custom tokens to Dragonfly-issued RS256 JWTs.
+   * Firebase custom tokens to Hinterland-issued RS256 JWTs.
    */
   handoff_token: string;
 };

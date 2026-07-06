@@ -42,7 +42,7 @@ export default function ObserveScreen() {
       <View style={styles.center}>
         <Text style={styles.heading}>Camera access</Text>
         <Text style={styles.body}>
-          Dragonfly uses your camera to take photos of plants and animals you
+          Hinterland uses your camera to take photos of plants and animals you
           find.
         </Text>
         <Pressable

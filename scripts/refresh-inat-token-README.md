@@ -1,6 +1,6 @@
 # Daily iNat token refresh
 
-Until the Dragonfly iNat OAuth app is approved (eligibility ~early August), the iNat CV identify endpoint runs on a 24-hour JWT that has to be rotated daily. [`scripts/refresh-inat-token.sh`](refresh-inat-token.sh) reduces the rotation to a 10-second task.
+Until the Hinterland iNat OAuth app is approved (eligibility ~early August), the iNat CV identify endpoint runs on a 24-hour JWT that has to be rotated daily. [`scripts/refresh-inat-token.sh`](refresh-inat-token.sh) reduces the rotation to a 10-second task.
 
 ## The daily ritual
 
@@ -18,7 +18,7 @@ That's it. The script writes the JWT to Key Vault, rolls the Container App revis
 
 Pick whichever fits your day:
 
-- **Google Calendar daily reminder** at the time you usually open your laptop ("Refresh Dragonfly iNat token — 10s")
+- **Google Calendar daily reminder** at the time you usually open your laptop ("Refresh Hinterland iNat token — 10s")
 - **Windows Task Scheduler / cron** event that just pops a notification, since the actual rotation needs the browser session
 - **Add the command to your shell's startup script** so a banner reminds you (`echo "TODO: bash scripts/refresh-inat-token.sh --clipboard"` in `.bashrc`)
 
@@ -26,7 +26,7 @@ If you forget for a day, the kid app still works — the picker greys out the CV
 
 ## When this script gets retired
 
-Once iNat approves the Dragonfly OAuth app (account-age + improving-ID gates per https://www.inaturalist.org/oauth/applications/new):
+Once iNat approves the Hinterland OAuth app (account-age + improving-ID gates per https://www.inaturalist.org/oauth/applications/new):
 
 1. Register the OAuth app, capture `client_id` + `client_secret`
 2. Store both in Key Vault as `inat-oauth-client-id` + `inat-oauth-client-secret`

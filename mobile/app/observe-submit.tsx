@@ -399,7 +399,7 @@ export default function ObserveSubmitScreen() {
       {locStatus === "denied" && (
         <Text style={styles.error}>
           Location permission denied. Open the OS settings, enable location for
-          Dragonfly, then come back.
+          Hinterland, then come back.
         </Text>
       )}
       {locStatus === "error" && (

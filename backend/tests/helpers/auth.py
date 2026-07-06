@@ -1,9 +1,9 @@
-"""Shared test stubs for token verification across the Dragonfly auth rewrite.
+"""Shared test stubs for token verification across the Hinterland auth rewrite.
 
 Phase 6a replaces the single Firebase verifier
 (`app.core.auth.verify_firebase_id_token`) with a two-path bearer-token
 entry point (`app.core.auth.verify_token`) that handles both Entra ID
-adult tokens and Dragonfly RS256 kid session tokens.
+adult tokens and Hinterland RS256 kid session tokens.
 
 This module exposes a single ``stub_token_verifier`` helper that patches
 whichever entry point the current source tree exposes -- so the same

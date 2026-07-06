@@ -1,5 +1,5 @@
 /**
- * Typed fetch wrapper around the Dragonfly API.
+ * Typed fetch wrapper around the Hinterland API.
  *
  * - Reads the bearer token from secure storage and injects it on every call.
  * - Resolves URLs against `env.apiBaseUrl` (env-switched per APP_ENV).

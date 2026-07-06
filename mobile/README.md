@@ -1,6 +1,6 @@
-# Dragonfly mobile
+# Hinterland mobile
 
-Expo (React Native) app for Dragonfly. iOS, Android, and a thin web build for the
+Expo (React Native) app for Hinterland (formerly Dragonfly). iOS, Android, and a thin web build for the
 parent-consent / teacher dashboard surface (per `docs/mobile.md`).
 
 Phase 6+ surface: Field Journal tab (route `index`) lists the signed-in

@@ -1,4 +1,4 @@
-// Metro bundler config for the Dragonfly Expo app.
+// Metro bundler config for the Hinterland Expo app.
 //
 // 1. `unstable_enablePackageExports` so Metro honours the "exports" map
 //    in package.json -- without it the @azure/msal-common entry points

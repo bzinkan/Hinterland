@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Phase 4 -- Azure Container Registry for Dragonfly backend image.
+# Phase 4 -- Azure Container Registry for Hinterland backend image.
 #
 # Provisions:
 #   - ACR `dragonflyacrdev` (Basic SKU, ~$5/mo) in eastus2

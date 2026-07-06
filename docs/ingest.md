@@ -1,7 +1,7 @@
 # Ingest Pipelines
 
 Ingest is a production subsystem for moving external or repo-authored data into
-Dragonfly safely.
+Hinterland safely.
 
 ## Sources
 

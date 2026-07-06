@@ -56,7 +56,7 @@ class RegionRefreshResult:
 
 
 async def discover_active_regions(session: AsyncSession) -> list[str]:
-    """Return geohash-4 cells where Dragonfly has at least one observation.
+    """Return geohash-4 cells where Hinterland has at least one observation.
 
     Phase 8 simplification: no `last 90 days` filter -- we're at zero-
     observations scale. Add the date predicate once we have meaningful

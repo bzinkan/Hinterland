@@ -230,7 +230,7 @@ async def approve_review(
     #
     # Gated on the Option B `inat_submit_enabled` flag (default False).
     # When False the moderation_status flip happens but the outbox row
-    # is skipped -- the kid's observation never leaves Dragonfly.
+    # is skipped -- the kid's observation never leaves Hinterland.
     observation_id_for_enqueue: str | None = None
     if review.observation_id is not None:
         observation = (

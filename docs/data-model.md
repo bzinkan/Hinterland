@@ -1,6 +1,6 @@
 # Postgres Data Model
 
-ADR 0005 supersedes the original DynamoDB single-table design. Dragonfly now
+ADR 0005 supersedes the original DynamoDB single-table design. Hinterland now
 uses Cloud SQL for PostgreSQL as the operational store.
 
 The logical product invariants are unchanged:

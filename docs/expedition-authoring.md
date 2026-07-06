@@ -19,7 +19,7 @@ One JSON file per expedition, living in `content/expeditions/<tier>/<id>.json`. 
   "duration_minutes": 20,
   "environments": ["yard", "park", "street", "school", "other"],
   "intro": "Look around. Even the most familiar place is full of life you've never noticed. Find three living things and log them.",
-  "outro": "You just contributed real data to science. Welcome to Dragonfly.",
+  "outro": "You just contributed real data to science. Welcome to Hinterland.",
   "prerequisites": [],
   "steps": [
     {

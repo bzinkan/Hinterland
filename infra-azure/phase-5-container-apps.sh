@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Phase 5 -- Azure Container Apps for Dragonfly backend.
+# Phase 5 -- Azure Container Apps for Hinterland backend.
 #
 # Provisions:
 #   - Log Analytics workspace `dragonfly-law-dev` (~$10/mo at default

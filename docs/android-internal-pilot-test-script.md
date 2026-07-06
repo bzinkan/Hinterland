@@ -31,8 +31,8 @@ Internal testing track. No classroom rollout. No public release.
   [`docs/one-week-kid-pilot-checklist.md`](one-week-kid-pilot-checklist.md).
   The opt-in URL lives in the private tester list (location outside
   this repo).
-- [ ] Home-screen app name reads **"Dragonfly Internal"**. If it reads
-  bare "Dragonfly", the AAB came from the `production` profile, not
+- [ ] Home-screen app name reads **"Hinterland Internal"**. If it reads
+  bare "Hinterland", the AAB came from the `production` profile, not
   `play-internal` — stop and follow
   [`docs/android-internal-pilot-stop-plan.md`](android-internal-pilot-stop-plan.md).
 - [ ] Confirm environment + API base URL on the device. Open the app,

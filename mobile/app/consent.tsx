@@ -53,7 +53,7 @@ export default function ConsentScreen() {
       <ScrollView contentContainerStyle={styles.container}>
         <Text style={styles.title}>Parental Consent</Text>
         <Text style={styles.body}>
-          Dragonfly is a citizen-science field app for kids ages 9-12.
+          Hinterland is a citizen-science field app for kids ages 9-12.
           Before your kid can use it, COPPA requires us to record your
           consent as a parent or guardian.
         </Text>
@@ -120,7 +120,7 @@ export default function ConsentScreen() {
           </View>
           <Text style={styles.checkboxLabel}>
             I am the parent or legal guardian of the kid who will use this
-            account, and I consent to Dragonfly collecting the data described
+            account, and I consent to Hinterland collecting the data described
             above.
           </Text>
         </Pressable>

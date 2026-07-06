@@ -428,7 +428,7 @@ def test_approve_happy_path_option_b_skips_outbox(
     """Option B default (`inat_submit_enabled=False`): the approve handler
     still flips observation.moderation_status='clean', but writes NO
     `inat_submit_outbox` row and attempts NO Service Bus enqueue. The
-    observation stays inside Dragonfly until the kid claims it via the
+    observation stays inside Hinterland until the kid claims it via the
     Phase 3 age-13 flow."""
     _stub_token_verifier(monkeypatch)
 

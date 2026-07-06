@@ -395,10 +395,10 @@ def kid_jwks(
     response: Response,
     settings: Annotated[Settings, Depends(get_request_settings)],
 ) -> dict[str, object]:
-    """Return the Dragonfly kid-JWT signing key in JWKS format.
+    """Return the Hinterland kid-JWT signing key in JWKS format.
 
     Used by any downstream service (mobile app, future services) to verify
-    Dragonfly-minted kid handoff / session tokens. The same kid is rotated
+    Hinterland-minted kid handoff / session tokens. The same kid is rotated
     rarely (manifest constant `dragonfly_jwt_kid`), so this response is
     cacheable for an hour.
     """

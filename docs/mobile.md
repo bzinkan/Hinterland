@@ -1,6 +1,6 @@
 # Mobile
 
-Dragonfly is a phone-first app. The web surface exists for parent-consent pages, the teacher dashboard, and admin tools — nothing a kid will ever see. This doc covers the mobile-specific decisions that the backend architecture doesn't cover: offline capture, permissions, build and distribution, and app-store compliance for a kids product.
+Hinterland is a phone-first app. The web surface exists for parent-consent pages, the teacher dashboard, and admin tools — nothing a kid will ever see. This doc covers the mobile-specific decisions that the backend architecture doesn't cover: offline capture, permissions, build and distribution, and app-store compliance for a kids product.
 
 Related reading: `architecture.md` (what the backend expects from the client), `onboarding.md` (the flows this platform has to serve), `moderation.md` (why the client uploads to `pending/` and not `observations/`), `expedition-authoring.md` (voice and tone that apply equally to in-app copy).
 
@@ -8,7 +8,7 @@ Related reading: `architecture.md` (what the backend expects from the client), `
 
 **Primary: iOS and Android native**, shipped via Expo (React Native). One codebase, two app-store binaries, roughly 95% shared code with small per-platform shims for permissions copy and notification handling.
 
-**Secondary: web**, same Expo codebase via Expo-for-web. Web is for the parent consent page, the teacher dashboard (review queue, class roster, welcome-sheet download), and the kid-account handoff QR page. Web is *not* the kid experience — no camera flow, no Dex browsing, no celebration sequence. If a kid opens the web app on a laptop in Phase 1, they see "Dragonfly is best on a phone — here's a QR to get the app."
+**Secondary: web**, same Expo codebase via Expo-for-web. Web is for the parent consent page, the teacher dashboard (review queue, class roster, welcome-sheet download), and the kid-account handoff QR page. Web is *not* the kid experience — no camera flow, no Dex browsing, no celebration sequence. If a kid opens the web app on a laptop in Phase 1, they see "Hinterland is best on a phone — here's a QR to get the app."
 
 **Not supported: tablets as a first-class layout.** Tablets render the phone layout letterboxed. Classroom iPad use is a real Phase 1 concern but the phone layout is fine at iPad sizes; we don't build tablet-specific screens until post-beta usage data says we should.
 
@@ -44,14 +44,14 @@ The queue is the source of truth for in-flight observations. The app does not ma
 
 ## Permissions
 
-Every permission Dragonfly asks for follows the same pattern: **pre-prompt in our own UI first, then trigger the native dialog, then handle denial gracefully.** The pre-prompt explains *why* we want the permission in the kid's language. The native dialog is the yes/no. Denial is not fatal — each permission has a degraded-mode path.
+Every permission Hinterland asks for follows the same pattern: **pre-prompt in our own UI first, then trigger the native dialog, then handle denial gracefully.** The pre-prompt explains *why* we want the permission in the kid's language. The native dialog is the yes/no. Denial is not fatal — each permission has a degraded-mode path.
 
 ### Camera
 
 - **When.** First observation attempt in the first expedition step. Not at app install.
 - **Pre-prompt copy.** "Next, you'll take a photo of what you found. We need your camera to do that — is that okay?" [ Yes, ask me ] [ Not now ]
 - **Denial path.** "No problem. You can upload a photo from your camera roll instead." Triggers `expo-image-picker` as a fallback, which uses a separate library permission.
-- **iOS Info.plist.** `NSCameraUsageDescription = "Dragonfly uses your camera to take photos of plants and animals you find."`
+- **iOS Info.plist.** `NSCameraUsageDescription = "Hinterland uses your camera to take photos of plants and animals you find."`
 - **Android.** `android.permission.CAMERA` in `app.config.ts`.
 
 ### Location
@@ -60,7 +60,7 @@ Every permission Dragonfly asks for follows the same pattern: **pre-prompt in ou
 - **Pre-prompt copy.** "Your location helps other kids find rare species nearby. We only use it for this observation — we don't track where you are."
 - **Precision.** `Location.Accuracy.Balanced` (roughly city-block precision). We do not need GPS-grade accuracy — the backend rounds to 4 decimal places (~11m) for geocache keys and the rarity system is geohash-4 (~20km cells). High-accuracy GPS drains battery; balanced is enough and kinder to the device.
 - **Denial path.** Kid enters a location manually via a map picker — drop a pin on a map centered on the last-known-or-default-city. The observation is flagged `location_source=manual` so the rarity system can still process it (with a slight confidence penalty at analysis time — not Phase 1 work, but the flag costs nothing to write now).
-- **iOS Info.plist.** `NSLocationWhenInUseUsageDescription = "Dragonfly uses your location to remember where you spotted each species."` We do not ask for background location; we have no use for it.
+- **iOS Info.plist.** `NSLocationWhenInUseUsageDescription = "Hinterland uses your location to remember where you spotted each species."` We do not ask for background location; we have no use for it.
 
 ### Photo library
 
@@ -97,7 +97,7 @@ Expo Notifications handles APNs and FCM uniformly. The expo-push-token is stored
 
 **Never:**
 
-- Marketing. No "come back to Dragonfly!" re-engagement pushes.
+- Marketing. No "come back to Hinterland!" re-engagement pushes.
 - Ads, partner content, cross-promotion.
 - Geographic pushes based on kid location ("a rare bird was spotted near you!"). Even though this would be cool for the product, it requires location-usage semantics we haven't earned and COPPA-reviewed.
 
