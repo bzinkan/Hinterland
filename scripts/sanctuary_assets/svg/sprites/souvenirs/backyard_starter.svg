@@ -1,0 +1,12 @@
+<svg viewBox="0 0 128 128" xmlns="http://www.w3.org/2000/svg">
+<defs><radialGradient cx="69" cy="102" r="6" gradientUnits="userSpaceOnUse" id="sanctuary-souvenir-backyard-starter-g0"><stop offset="0" stop-color="{{glow}}" stop-opacity="0.6"/><stop offset="1" stop-color="{{glow}}" stop-opacity="0"/></radialGradient></defs>
+<ellipse cx="64" cy="121.5" rx="15" ry="3.3" fill="{{earth_deep}}" opacity="0.16"/>
+<rect x="50" y="90" width="28" height="34" rx="6" fill="{{water}}" opacity="0.35"/>
+<rect x="50" y="90" width="28" height="34" rx="6" fill="{{cloud}}" opacity="0.25"/>
+<rect x="48" y="84" width="32" height="7" rx="3" fill="{{bark}}"/>
+<rect x="51" y="82.6" width="26" height="3" rx="1.5" fill="{{sand}}"/>
+<path d="M58.2 120C58.2 112 54.28 107.2 55 104C55.72 108 61.8 112.8 61.8 120Z" fill="{{green_mid}}"/>
+<circle cx="69" cy="102" r="3" fill="{{glow}}"/>
+<circle cx="69" cy="102" r="6" fill="url(#sanctuary-souvenir-backyard-starter-g0)"/>
+<rect x="53" y="93" width="3.4" height="26" rx="1.7" fill="{{cloud}}" opacity="0.5"/>
+</svg>

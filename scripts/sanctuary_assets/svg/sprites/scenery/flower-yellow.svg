@@ -1,0 +1,26 @@
+<svg viewBox="0 0 128 128" xmlns="http://www.w3.org/2000/svg">
+<ellipse cx="64" cy="121.5" rx="14" ry="3.08" fill="{{earth_deep}}" opacity="0.14"/>
+<path d="M51.7 124C51.7 111 54.4 103.2 54.92 98C55.44 104.5 54.3 112.3 54.3 124Z" fill="{{green_deep}}"/>
+<path d="M63.7 124C63.7 106 64.68 95.2 65.2 88C65.72 97 66.3 107.8 66.3 124Z" fill="{{green_deep}}"/>
+<path d="M74.7 124C74.7 113 77.65 106.4 78.17 102C78.69 107.5 77.3 114.1 77.3 124Z" fill="{{green_deep}}"/>
+<path d="M55.8 124C55.8 117 45.12 112.8 46 110C46.88 113.5 60.2 117.7 60.2 124Z" fill="{{green_mid}}"/>
+<path d="M69 124C69 118 81.2 114.4 82 112C82.8 115 73 118.6 73 124Z" fill="{{green_mid}}"/>
+<circle cx="51.29" cy="89" r="3.9" fill="{{glow}}"/>
+<circle cx="56.04" cy="92.45" r="3.9" fill="{{glow}}"/>
+<circle cx="54.22" cy="98.05" r="3.9" fill="{{glow}}"/>
+<circle cx="48.35" cy="98.05" r="3.9" fill="{{glow}}"/>
+<circle cx="46.53" cy="92.45" r="3.9" fill="{{glow}}"/>
+<circle cx="51.29" cy="94" r="3.1" fill="{{glow}}"/>
+<circle cx="66.6" cy="76.48" r="4.99" fill="{{glow}}"/>
+<circle cx="72.69" cy="80.9" r="4.99" fill="{{glow}}"/>
+<circle cx="70.36" cy="88.06" r="4.99" fill="{{glow}}"/>
+<circle cx="62.84" cy="88.06" r="4.99" fill="{{glow}}"/>
+<circle cx="60.52" cy="80.9" r="4.99" fill="{{glow}}"/>
+<circle cx="66.6" cy="82.88" r="3.97" fill="{{glow}}"/>
+<circle cx="75.9" cy="94.08" r="3.43" fill="{{glow}}"/>
+<circle cx="80.09" cy="97.12" r="3.43" fill="{{glow}}"/>
+<circle cx="78.49" cy="102.04" r="3.43" fill="{{glow}}"/>
+<circle cx="73.31" cy="102.04" r="3.43" fill="{{glow}}"/>
+<circle cx="71.72" cy="97.12" r="3.43" fill="{{glow}}"/>
+<circle cx="75.9" cy="98.48" r="2.73" fill="{{glow}}"/>
+</svg>

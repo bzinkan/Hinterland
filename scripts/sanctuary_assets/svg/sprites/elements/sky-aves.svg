@@ -1,0 +1,10 @@
+<svg viewBox="0 0 128 128" xmlns="http://www.w3.org/2000/svg">
+<path d="M64 58C48.8 42 30.48 40 24.48 44L26.48 49L31.48 47L32.48 52L37.48 50C51.84 56 60 61 64 62Z" fill="{{earth_deep}}"/>
+<path d="M58 53C45.76 46 35.12 45 29.04 46.4C38.16 49 48.8 52 57 54.6Z" fill="{{cloud}}" opacity="0.4"/>
+<path d="M64 58C79.2 42 97.52 40 103.52 44L101.52 49L96.52 47L95.52 52L90.52 50C76.16 56 68 61 64 62Z" fill="{{earth_deep}}"/>
+<path d="M70 53C82.24 46 92.88 45 98.96 46.4C89.84 49 79.2 52 71 54.6Z" fill="{{cloud}}" opacity="0.4"/>
+<ellipse cx="64" cy="58" rx="6" ry="9" fill="{{earth_deep}}"/>
+<circle cx="64" cy="49" r="3.6" fill="{{earth_deep}}"/>
+<path d="M60.6 65L64 72L67.4 65Z" fill="{{earth_deep}}"/>
+<ellipse cx="64" cy="121.5" rx="10" ry="2.2" fill="{{earth_deep}}" opacity="0.1"/>
+</svg>

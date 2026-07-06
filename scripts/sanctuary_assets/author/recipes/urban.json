@@ -1,0 +1,37 @@
+{
+  "_comment": "Urban island: paving slabs with life pushing through the gaps -- planter greenery, moss seams, a pocket-park feel.",
+  "zone": "urban",
+  "back": {
+    "humps": 4,
+    "height": 96,
+    "opacity": 0.36
+  },
+  "island": {
+    "width": 400,
+    "topY": 222,
+    "surfaceDrop": 26,
+    "midDrop": 62,
+    "taperDepth": 150,
+    "roots": 1,
+    "wobble": 0.09
+  },
+  "mid": {
+    "terrain": "paving",
+    "canopy": {
+      "count": 3,
+      "rx": 34,
+      "ry": 20,
+      "opacity": 0.85
+    },
+    "slabs": 5
+  },
+  "fore": {
+    "tufts": 4,
+    "flowers": [
+      "accent_warm"
+    ],
+    "extras": [
+      "planters"
+    ]
+  }
+}

@@ -54,3 +54,6 @@ yarn-debug.log*
 
 # Local dev
 docker-compose.override.yml
+
+# Sanctuary art pipeline previews (dev-only; regenerate with preview.mjs)
+scripts/sanctuary_assets/.preview/

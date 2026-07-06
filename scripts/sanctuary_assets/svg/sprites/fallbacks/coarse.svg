@@ -1,0 +1,8 @@
+<svg viewBox="0 0 128 128" xmlns="http://www.w3.org/2000/svg">
+<defs><linearGradient x1="0" y1="103" x2="0" y2="124" gradientUnits="userSpaceOnUse" id="fallback-coarse-g0"><stop offset="0" stop-color="{{accent_cool}}"/><stop offset="1" stop-color="{{green_deep}}"/></linearGradient></defs>
+<ellipse cx="64" cy="121.5" rx="21" ry="4.62" fill="{{earth_deep}}" opacity="0.16"/>
+<path d="M41 124A23 23 0 0 1 87 124Z" fill="{{green_deep}}"/>
+<path d="M43.5 124A20.5 20.5 0 0 1 84.5 124Z" fill="url(#fallback-coarse-g0)"/>
+<path d="M52 112C55 105 62 102 68 103C62 105 56 109 54.6 114Z" fill="{{glow}}" opacity="0.45"/>
+<circle cx="64" cy="115" r="3.4" fill="{{glow}}" opacity="0.8"/>
+</svg>

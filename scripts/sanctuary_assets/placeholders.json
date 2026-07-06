@@ -1,0 +1,4 @@
+{
+  "_comment": "Icon keys that are allowed to have NO sprite yet. validate.mjs requires every content icon key (and every required souvenir id) to resolve to a manifest sprite OR appear here -- never both, and never stale. The generator ships full coverage, so this list is empty; it exists so a future content drop can land before its art without breaking CI.",
+  "allowlist": []
+}

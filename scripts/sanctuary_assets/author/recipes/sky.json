@@ -1,0 +1,35 @@
+{
+  "_comment": "Sky island: a small islet ringed by clouds, barely any ground -- the archipelago's high perch.",
+  "zone": "sky",
+  "back": {
+    "humps": 3,
+    "height": 60,
+    "opacity": 0.26
+  },
+  "island": {
+    "width": 250,
+    "topY": 210,
+    "surfaceDrop": 20,
+    "midDrop": 44,
+    "taperDepth": 150,
+    "roots": 1,
+    "wobble": 0.14
+  },
+  "mid": {
+    "terrain": "cloud-ring",
+    "canopy": {
+      "count": 3,
+      "rx": 26,
+      "ry": 16,
+      "opacity": 0.84
+    },
+    "cloudPuffs": 6
+  },
+  "fore": {
+    "tufts": 3,
+    "flowers": [],
+    "extras": [
+      "clouds"
+    ]
+  }
+}

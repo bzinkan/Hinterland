@@ -1,0 +1,6 @@
+# Keep generated art byte-stable across platforms: the sanctuary asset
+# pipeline (build_manifest/validate drift checks) byte-compares committed
+# SVGs and generated TS against fresh LF output, so CRLF checkouts on
+# Windows would false-positive the drift gate.
+scripts/sanctuary_assets/svg/**/*.svg text eol=lf
+mobile/src/sanctuary/art/*.gen.ts text eol=lf

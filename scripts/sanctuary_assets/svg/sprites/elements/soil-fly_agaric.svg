@@ -1,0 +1,13 @@
+<svg viewBox="0 0 128 128" xmlns="http://www.w3.org/2000/svg">
+<defs><linearGradient x1="0" y1="94" x2="0" y2="124" gradientUnits="userSpaceOnUse" id="sanctuary-soil-fly-agaric-g0"><stop offset="0" stop-color="{{cloud}}"/><stop offset="1" stop-color="{{sand}}"/></linearGradient><linearGradient x1="0" y1="72" x2="0" y2="94" gradientUnits="userSpaceOnUse" id="sanctuary-soil-fly-agaric-g1"><stop offset="0" stop-color="{{accent_warm}}"/><stop offset="1" stop-color="{{earth_deep}}"/></linearGradient></defs>
+<ellipse cx="64" cy="121.5" rx="15" ry="3.3" fill="{{earth_deep}}" opacity="0.16"/>
+<path d="M59 124C60 110 60.6 100 61 94L67 94C67.4 100 68 110 69 124Z" fill="url(#sanctuary-soil-fly-agaric-g0)"/>
+<ellipse cx="64" cy="94" rx="12" ry="3" fill="{{sand}}"/>
+<path d="M78.56 93.15C76.72 95.23 73.52 97.4 70.2 98.26C66.88 99.12 61.95 99.12 58.62 98.31C55.3 97.5 52.06 95.4 50.27 93.41C48.48 91.43 47.43 88.66 47.9 86.42C48.37 84.18 50.46 81.47 53.08 79.97C55.7 78.48 60.02 77.54 63.61 77.44C67.21 77.34 71.72 77.99 74.65 79.38C77.59 80.76 80.57 83.47 81.22 85.76C81.87 88.06 80.39 91.06 78.56 93.15Z" fill="{{earth_deep}}"/>
+<path d="M48 91C49 72 79 72 80 91C70 94.4 58 94.4 48 91Z" fill="url(#sanctuary-soil-fly-agaric-g1)"/>
+<circle cx="55" cy="84" r="1.8" fill="{{cloud}}"/>
+<circle cx="62" cy="79" r="2.2" fill="{{cloud}}"/>
+<circle cx="70" cy="82" r="1.6" fill="{{cloud}}"/>
+<circle cx="75" cy="87" r="1.4" fill="{{cloud}}"/>
+<circle cx="51" cy="89" r="1.3" fill="{{cloud}}"/>
+</svg>

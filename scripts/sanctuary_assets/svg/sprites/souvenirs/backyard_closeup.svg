@@ -1,0 +1,9 @@
+<svg viewBox="0 0 128 128" xmlns="http://www.w3.org/2000/svg">
+<defs><linearGradient x1="0" y1="98" x2="0" y2="124" gradientUnits="userSpaceOnUse" id="sanctuary-souvenir-backyard-closeup-g0"><stop offset="0" stop-color="{{bark}}"/><stop offset="1" stop-color="{{earth_deep}}"/></linearGradient><linearGradient x1="0" y1="65" x2="0" y2="103" gradientUnits="userSpaceOnUse" id="sanctuary-souvenir-backyard-closeup-g1"><stop offset="0" stop-color="{{sand}}"/><stop offset="1" stop-color="{{bark}}"/></linearGradient></defs>
+<ellipse cx="64" cy="121.5" rx="15" ry="3.3" fill="{{earth_deep}}" opacity="0.16"/>
+<rect x="72" y="98" width="7" height="26" rx="3.4" fill="url(#sanctuary-souvenir-backyard-closeup-g0)" transform="rotate(-35 75.5 111)"/>
+<path d="M79 84A19 19 0 1 1 41 84A19 19 0 1 1 79 84ZM74.5 84A14.5 14.5 0 1 0 45.5 84A14.5 14.5 0 1 0 74.5 84Z" fill="url(#sanctuary-souvenir-backyard-closeup-g1)"/>
+<circle cx="60" cy="84" r="14.5" fill="{{water}}" opacity="0.3"/>
+<path d="M58.8 93C58.8 85.5 55.12 81 56 78C56.88 81.75 63.2 86.25 63.2 93Z" fill="{{green_mid}}"/>
+<path d="M50 80C52 75 56 73 61 73C57 75 54 77 52.6 81Z" fill="{{cloud}}" opacity="0.75"/>
+</svg>

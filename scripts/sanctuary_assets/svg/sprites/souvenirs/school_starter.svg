@@ -1,0 +1,16 @@
+<svg viewBox="0 0 128 128" xmlns="http://www.w3.org/2000/svg">
+<defs><radialGradient cx="64" cy="78" r="11" gradientUnits="userSpaceOnUse" id="sanctuary-souvenir-school-starter-g0"><stop offset="0" stop-color="{{glow}}"/><stop offset="1" stop-color="{{accent_warm}}"/></radialGradient></defs>
+<ellipse cx="64" cy="121.5" rx="12" ry="2.64" fill="{{earth_deep}}" opacity="0.16"/>
+<path d="M61 90L52 120L59 116L63 98Z" fill="{{accent_warm}}"/>
+<path d="M67 90L76 120L69 116L65 98Z" fill="{{earth_deep}}"/>
+<circle cx="77" cy="80" r="5.4" fill="{{accent_warm}}"/>
+<circle cx="73.19" cy="89.19" r="5.4" fill="{{accent_warm}}"/>
+<circle cx="64" cy="93" r="5.4" fill="{{accent_warm}}"/>
+<circle cx="54.81" cy="89.19" r="5.4" fill="{{accent_warm}}"/>
+<circle cx="51" cy="80" r="5.4" fill="{{accent_warm}}"/>
+<circle cx="54.81" cy="70.81" r="5.4" fill="{{accent_warm}}"/>
+<circle cx="64" cy="67" r="5.4" fill="{{accent_warm}}"/>
+<circle cx="73.19" cy="70.81" r="5.4" fill="{{accent_warm}}"/>
+<circle cx="64" cy="80" r="10" fill="url(#sanctuary-souvenir-school-starter-g0)"/>
+<circle cx="64" cy="80" r="4" fill="{{glow}}"/>
+</svg>

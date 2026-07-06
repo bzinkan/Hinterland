@@ -1,0 +1,35 @@
+{
+  "_comment": "Pond island: a water lens with a sandy shore ring, lily pads, and a reedy cattail fringe.",
+  "zone": "pond",
+  "back": {
+    "humps": 3,
+    "height": 76,
+    "opacity": 0.3
+  },
+  "island": {
+    "width": 400,
+    "topY": 230,
+    "surfaceDrop": 24,
+    "midDrop": 60,
+    "taperDepth": 150,
+    "roots": 1,
+    "wobble": 0.1
+  },
+  "mid": {
+    "terrain": "water",
+    "canopy": {
+      "count": 3,
+      "rx": 40,
+      "ry": 24,
+      "opacity": 0.84
+    },
+    "lilyPads": 3
+  },
+  "fore": {
+    "tufts": 4,
+    "flowers": [],
+    "extras": [
+      "reeds"
+    ]
+  }
+}

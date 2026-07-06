@@ -1,0 +1,12 @@
+<svg viewBox="0 0 128 128" xmlns="http://www.w3.org/2000/svg">
+<path d="M98 102A34 34 0 1 1 30 102A34 34 0 1 1 98 102ZM92 102A28 28 0 1 0 36 102A28 28 0 1 0 92 102Z" fill="{{cloud}}" opacity="0.5" transform="translate(0 102) scale(1 0.32) translate(0 -102)"/>
+<path d="M87 102A23 23 0 1 1 41 102A23 23 0 1 1 87 102ZM82 102A18 18 0 1 0 46 102A18 18 0 1 0 82 102Z" fill="{{cloud}}" opacity="0.65" transform="translate(0 102) scale(1 0.32) translate(0 -102)"/>
+<ellipse cx="64" cy="102" rx="15" ry="4.6" fill="{{water}}"/>
+<path d="M75.63 99C75.76 100.05 74.06 101.57 72.13 102.32C70.19 103.08 66.65 103.56 64 103.53C61.35 103.51 58.08 102.94 56.21 102.19C54.33 101.43 52.83 100.1 52.75 99C52.67 97.9 53.86 96.31 55.73 95.62C57.61 94.93 61.4 94.78 64 94.85C66.6 94.91 69.38 95.31 71.32 96.01C73.26 96.7 75.49 97.95 75.63 99Z" fill="{{green_deep}}"/>
+<circle cx="57.5" cy="95" r="4" fill="{{green_mid}}"/>
+<circle cx="57.5" cy="94" r="2.2" fill="{{cloud}}"/>
+<circle cx="57.5" cy="94" r="1.1" fill="{{earth_deep}}"/>
+<circle cx="70.5" cy="95" r="4" fill="{{green_mid}}"/>
+<circle cx="70.5" cy="94" r="2.2" fill="{{cloud}}"/>
+<circle cx="70.5" cy="94" r="1.1" fill="{{earth_deep}}"/>
+</svg>

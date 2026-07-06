@@ -19,12 +19,16 @@ describe("island dressing", () => {
     }
   });
 
-  it("every rule resolves through the sprite-manifest seam without throwing", () => {
-    // The generated atlas is a stub until D5, so entries may be null --
-    // but the lookup itself must never throw for an authored rule key.
+  it("every rule key resolves to a real scenery sprite", () => {
+    // The D5 atlas covers every authored rule key -- a null here means the
+    // dressing table and scripts/sanctuary_assets drifted apart, which the
+    // pipeline's validate.mjs also fails. zone/tierMin mirror the rule.
     for (const rule of DRESSING_RULES) {
       const sprite = getScenerySprite(rule.key);
-      expect(sprite === null || sprite.tierMin >= 0).toBe(true);
+      expect(sprite).not.toBeNull();
+      expect(sprite?.zone).toBe(rule.zone);
+      expect(sprite?.tierMin).toBe(rule.tierMin);
+      expect(sprite?.svg).toContain("<svg");
     }
   });
 

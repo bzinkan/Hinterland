@@ -1,0 +1,34 @@
+{
+  "_comment": "Woodland island: tall dense canopy over a shaded shelf, mushroomy floor fringe.",
+  "zone": "woodland",
+  "back": {
+    "humps": 5,
+    "height": 110,
+    "opacity": 0.38
+  },
+  "island": {
+    "width": 430,
+    "topY": 232,
+    "surfaceDrop": 28,
+    "midDrop": 70,
+    "taperDepth": 160,
+    "roots": 2,
+    "wobble": 0.12
+  },
+  "mid": {
+    "terrain": "grass",
+    "canopy": {
+      "count": 5,
+      "rx": 56,
+      "ry": 36,
+      "opacity": 0.9
+    }
+  },
+  "fore": {
+    "tufts": 6,
+    "flowers": [],
+    "extras": [
+      "mushrooms"
+    ]
+  }
+}

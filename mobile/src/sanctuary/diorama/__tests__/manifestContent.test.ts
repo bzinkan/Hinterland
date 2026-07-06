@@ -2,14 +2,19 @@
  * App-side manifest <-> content cross-check (mirrors the CI gate in
  * scripts/sanctuary_assets/validate.mjs, but runs against the app's
  * generated sprite manifest in jest so drift fails the mobile suite too).
- * The atlas is a stub until D5; the seam contract (never throw, always a
- * sprite or a typed fallback) is what these tests pin down.
+ * Since D5 the atlas is real and coverage is total: every authored icon
+ * key draws an actual sprite, and the seam contract (never throw, always
+ * a sprite or a typed fallback) still holds for unknown keys.
  */
 
 import {
   modeledIconKeys,
   resolveElementSprite,
 } from "@/src/sanctuary/diorama/assets/manifest";
+import {
+  SANCTUARY_FALLBACK_SPRITES,
+  SANCTUARY_SOUVENIR_SPRITES,
+} from "@/src/sanctuary/art/sprites.gen";
 
 // Content files are the source of truth for icon keys (repo-root content/).
 /* eslint-disable @typescript-eslint/no-var-requires */
@@ -35,29 +40,62 @@ const contentIconKeys = collectIconKeys(
   new Set<string>(),
 );
 
+/** Souvenir sprites the diorama requires (ADR 0012 expedition souvenirs). */
+const REQUIRED_SOUVENIR_IDS = [
+  "backyard_starter",
+  "park_starter",
+  "street_starter",
+  "school_starter",
+  "anywhere_starter",
+  "backyard_closeup",
+  "park_pollinators",
+  "street_survivors",
+  "school_census",
+  "anywhere_collector",
+];
+
 describe("sprite manifest <-> sanctuary content", () => {
   it("content defines icon keys (sanity: the fixture import worked)", () => {
     expect(contentIconKeys.size).toBeGreaterThanOrEqual(20);
   });
 
-  it("every DRAWN manifest key corresponds to a real content icon key", () => {
-    // A manifest entry whose key no content file references is stale and
-    // would be invisible product surface -- fail loudly.
-    for (const key of modeledIconKeys()) {
-      expect(contentIconKeys.has(key)).toBe(true);
+  it("manifest coverage is EXACTLY the content icon keys (none missing, none stale)", () => {
+    // A content key without a sprite would silently draw a fallback shape;
+    // a manifest key no content file references is invisible product
+    // surface. Both directions fail loudly.
+    expect([...modeledIconKeys()].sort()).toEqual([...contentIconKeys].sort());
+  });
+
+  it("every content icon key resolves to a real drawn sprite", () => {
+    for (const key of contentIconKeys) {
+      const resolved = resolveElementSprite(key, "coarse");
+      expect(resolved.kind).toBe("sprite");
+      if (resolved.kind === "sprite") {
+        expect(resolved.sprite.svg).toContain("<svg");
+        expect(resolved.sprite.svg).toContain('viewBox="0 0 128 128"');
+        expect(resolved.sprite.viewBox).toEqual({ width: 128, height: 128 });
+        expect(resolved.sprite.scale).toBeGreaterThan(0);
+      }
     }
   });
 
-  it("every content icon key resolves to a sprite or a typed fallback", () => {
-    // resolveElementSprite must never throw for any authored key; a
-    // fallback kind means the diorama draws the simple typed shape.
-    for (const key of contentIconKeys) {
-      const resolved = resolveElementSprite(key, "coarse");
-      if (resolved.kind === "sprite") {
-        expect(typeof resolved.sprite.module).toBe("number");
-      } else {
-        expect(resolved.fallback).toBe("dome");
-      }
+  it("every required souvenir id has a sprite keyed sanctuary.souvenir.<id>", () => {
+    for (const id of REQUIRED_SOUVENIR_IDS) {
+      const sprite = SANCTUARY_SOUVENIR_SPRITES[`sanctuary.souvenir.${id}`];
+      expect(sprite).toBeDefined();
+      expect(sprite.svg).toContain("<svg");
+    }
+  });
+
+  it("every element type has a drawn fallback motif", () => {
+    for (const type of [
+      "coarse",
+      "charismatic",
+      "relationship",
+      "surprise",
+      "signature",
+    ] as const) {
+      expect(SANCTUARY_FALLBACK_SPRITES[type].svg).toContain("<svg");
     }
   });
 

@@ -1,0 +1,19 @@
+<svg viewBox="0 0 128 128" xmlns="http://www.w3.org/2000/svg">
+<defs><linearGradient x1="0" y1="78" x2="0" y2="124" gradientUnits="userSpaceOnUse" id="sanctuary-souvenir-street-starter-g0"><stop offset="0" stop-color="{{bark}}"/><stop offset="1" stop-color="{{earth_deep}}"/></linearGradient></defs>
+<ellipse cx="64" cy="121.5" rx="17" ry="3.74" fill="{{earth_deep}}" opacity="0.16"/>
+<rect x="43" y="78" width="42" height="46" rx="3" fill="url(#sanctuary-souvenir-street-starter-g0)"/>
+<rect x="48" y="83" width="32" height="36" rx="2" fill="{{sand}}"/>
+<rect x="48" y="83" width="32" height="36" rx="2" fill="{{cloud}}" opacity="0.35"/>
+<path d="M62.8 116C62.8 106 62.52 100 63 96C63.48 101 65.2 107 65.2 116Z" fill="{{green_deep}}"/>
+<path d="M62.5 108C62.5 104 55.4 101.6 56 100C56.6 102 65.5 104.4 65.5 108Z" fill="{{green_deep}}" opacity="0.85"/>
+<circle cx="63" cy="87" r="3.9" fill="{{accent_cool}}"/>
+<circle cx="67.76" cy="90.45" r="3.9" fill="{{accent_cool}}"/>
+<circle cx="65.94" cy="96.05" r="3.9" fill="{{accent_cool}}"/>
+<circle cx="60.06" cy="96.05" r="3.9" fill="{{accent_cool}}"/>
+<circle cx="58.24" cy="90.45" r="3.9" fill="{{accent_cool}}"/>
+<circle cx="63" cy="92" r="3.1" fill="{{glow}}"/>
+<circle cx="46" cy="81" r="1.6" fill="{{earth_deep}}"/>
+<circle cx="82" cy="81" r="1.6" fill="{{earth_deep}}"/>
+<circle cx="46" cy="121" r="1.6" fill="{{earth_deep}}"/>
+<circle cx="82" cy="121" r="1.6" fill="{{earth_deep}}"/>
+</svg>

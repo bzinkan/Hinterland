@@ -1,0 +1,23 @@
+{
+  "_comment": "Provenance ledger for every asset input (validate.mjs enforces the license literals). OWNED = authored in this repo by the deterministic generators; provenance points at the recipe + generator that produce it, so a clean clone can re-derive every byte. The CC0 mechanism (url + sha256) is retained for the future audio beds -- attribution UI conflicts with the no-external-links-for-kids invariant, so CC0/OWNED stay the only licenses that can pass CI. Add an entry BEFORE referencing a new source id from assets.json.",
+  "sources": [
+    {
+      "id": "recipes-layers",
+      "name": "Generated island layers (author/generate_layers.mjs)",
+      "url": null,
+      "license": "OWNED",
+      "sha256": null,
+      "provenance": "author/recipes/<zone>.json + author/generate_layers.mjs",
+      "notes": "Deterministic, seeded (author/lib/rand.mjs); no external input."
+    },
+    {
+      "id": "recipes-sprites",
+      "name": "Generated sprites (author/generate_sprites.mjs)",
+      "url": null,
+      "license": "OWNED",
+      "sha256": null,
+      "provenance": "author/recipes/sprites.json + author/generate_sprites.mjs",
+      "notes": "Deterministic, seeded (author/lib/rand.mjs); no external input."
+    }
+  ]
+}

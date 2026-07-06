@@ -1,0 +1,14 @@
+<svg viewBox="0 0 128 128" xmlns="http://www.w3.org/2000/svg">
+<defs><linearGradient x1="0" y1="108" x2="0" y2="124" gradientUnits="userSpaceOnUse" id="pine-tall-g0"><stop offset="0" stop-color="{{bark}}"/><stop offset="1" stop-color="{{earth_deep}}"/></linearGradient><linearGradient x1="0" y1="102" x2="0" y2="133.5" gradientUnits="userSpaceOnUse" id="pine-tall-g1"><stop offset="0" stop-color="{{green_mid}}"/><stop offset="1" stop-color="{{green_deep}}"/></linearGradient><linearGradient x1="0" y1="74" x2="0" y2="105.5" gradientUnits="userSpaceOnUse" id="pine-tall-g2"><stop offset="0" stop-color="{{green_mid}}"/><stop offset="1" stop-color="{{green_deep}}"/></linearGradient><linearGradient x1="0" y1="46" x2="0" y2="77.5" gradientUnits="userSpaceOnUse" id="pine-tall-g3"><stop offset="0" stop-color="{{green_mid}}"/><stop offset="1" stop-color="{{green_deep}}"/></linearGradient><linearGradient x1="0" y1="18" x2="0" y2="49.5" gradientUnits="userSpaceOnUse" id="pine-tall-g4"><stop offset="0" stop-color="{{green_mid}}"/><stop offset="1" stop-color="{{green_deep}}"/></linearGradient></defs>
+<ellipse cx="64" cy="121.5" rx="16" ry="3.52" fill="{{earth_deep}}" opacity="0.16"/>
+<path d="M59 124C60.5 116 61.9 116 62.3 108L65.7 108C66.1 116 67.5 116 69 124Z" fill="url(#pine-tall-g0)"/>
+<path d="M42.6 133.5C56 130.5 60 104 64 100.6C68 104 72 130.5 85.4 133.5Z" fill="{{green_deep}}"/>
+<path d="M44 132.1C56 129.5 60 104 64 102C68 104 72 129.5 84 132.1Z" fill="url(#pine-tall-g1)"/>
+<path d="M46.47 105.5C57.55 102.5 60.77 76 64 72.6C67.23 76 70.45 102.5 81.53 105.5Z" fill="{{green_deep}}"/>
+<path d="M47.87 104.1C57.55 101.5 60.77 76 64 74C67.23 76 70.45 101.5 80.13 104.1Z" fill="url(#pine-tall-g2)"/>
+<path d="M50.33 77.5C59.09 74.5 61.55 48 64 44.6C66.45 48 68.91 74.5 77.67 77.5Z" fill="{{green_deep}}"/>
+<path d="M51.73 76.1C59.09 73.5 61.55 48 64 46C66.45 48 68.91 73.5 76.27 76.1Z" fill="url(#pine-tall-g3)"/>
+<path d="M54.2 49.5C60.64 46.5 62.32 20 64 16.6C65.68 20 67.36 46.5 73.8 49.5Z" fill="{{green_deep}}"/>
+<path d="M55.6 48.1C60.64 45.5 62.32 20 64 18C65.68 20 67.36 45.5 72.4 48.1Z" fill="url(#pine-tall-g4)"/>
+<path d="M63.2 34C63.05 34.99 60.75 35.9 59.28 36.45C57.82 37 55.51 37.7 54.4 37.29C53.3 36.88 52.6 35.02 52.67 34C52.74 32.98 53.56 31.76 54.81 31.18C56.06 30.6 58.77 30.03 60.17 30.5C61.57 30.97 63.34 33.01 63.2 34Z" fill="{{glow}}" opacity="0.18"/>
+</svg>

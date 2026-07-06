@@ -1,0 +1,9 @@
+<svg viewBox="0 0 128 128" xmlns="http://www.w3.org/2000/svg">
+<defs><linearGradient x1="0" y1="102" x2="0" y2="124" gradientUnits="userSpaceOnUse" id="stump-round-g0"><stop offset="0" stop-color="{{bark}}"/><stop offset="1" stop-color="{{earth_deep}}"/></linearGradient></defs>
+<ellipse cx="64" cy="121.5" rx="16" ry="3.52" fill="{{earth_deep}}" opacity="0.16"/>
+<path d="M51 102C50 118 48 121 45 124L83 124C80 121 78 118 77 102Z" fill="url(#stump-round-g0)"/>
+<ellipse cx="64" cy="102" rx="13" ry="5.4" fill="{{sand}}"/>
+<ellipse cx="64" cy="102" rx="8.4" ry="3.4" fill="{{earth_mid}}" opacity="0.55"/>
+<ellipse cx="64" cy="102" rx="4" ry="1.6" fill="{{earth_deep}}" opacity="0.6"/>
+<path d="M79.44 99C79.44 99.55 77.84 100.32 76.74 100.66C75.65 101 73.86 101.3 72.87 101.03C71.89 100.75 70.8 99.65 70.82 99C70.85 98.35 72.03 97.38 73.01 97.11C74 96.83 75.66 97.03 76.73 97.35C77.8 97.66 79.44 98.45 79.44 99Z" fill="{{green_mid}}" opacity="0.9"/>
+</svg>

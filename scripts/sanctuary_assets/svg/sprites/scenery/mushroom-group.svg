@@ -1,0 +1,16 @@
+<svg viewBox="0 0 128 128" xmlns="http://www.w3.org/2000/svg">
+<defs><linearGradient x1="0" y1="106" x2="0" y2="124" gradientUnits="userSpaceOnUse" id="mushroom-group-g0"><stop offset="0" stop-color="{{cloud}}"/><stop offset="1" stop-color="{{sand}}"/></linearGradient><linearGradient x1="0" y1="93.9" x2="0" y2="106" gradientUnits="userSpaceOnUse" id="mushroom-group-g1"><stop offset="0" stop-color="{{accent_warm}}"/><stop offset="1" stop-color="{{earth_mid}}"/></linearGradient><linearGradient x1="0" y1="100" x2="0" y2="124" gradientUnits="userSpaceOnUse" id="mushroom-group-g2"><stop offset="0" stop-color="{{cloud}}"/><stop offset="1" stop-color="{{sand}}"/></linearGradient><linearGradient x1="0" y1="85.7" x2="0" y2="100" gradientUnits="userSpaceOnUse" id="mushroom-group-g3"><stop offset="0" stop-color="{{sand}}"/><stop offset="1" stop-color="{{earth_mid}}"/></linearGradient><linearGradient x1="0" y1="113" x2="0" y2="124" gradientUnits="userSpaceOnUse" id="mushroom-group-g4"><stop offset="0" stop-color="{{cloud}}"/><stop offset="1" stop-color="{{sand}}"/></linearGradient><linearGradient x1="0" y1="104.2" x2="0" y2="113" gradientUnits="userSpaceOnUse" id="mushroom-group-g5"><stop offset="0" stop-color="{{accent_warm}}"/><stop offset="1" stop-color="{{earth_mid}}"/></linearGradient></defs>
+<ellipse cx="64" cy="121.5" rx="17" ry="3.74" fill="{{earth_deep}}" opacity="0.16"/>
+<rect x="49.36" y="106" width="5.28" height="18" rx="2.64" fill="url(#mushroom-group-g0)"/>
+<path d="M63.33 110.1C62.28 111.87 59.56 113.93 56.83 114.7C54.1 115.47 49.69 115.49 46.96 114.71C44.23 113.93 41.59 111.86 40.44 110.03C39.28 108.2 38.92 105.52 40.04 103.73C41.16 101.94 44.35 100.02 47.17 99.3C49.99 98.58 54.29 98.62 56.96 99.42C59.63 100.21 62.13 102.28 63.19 104.06C64.25 105.84 64.39 108.33 63.33 110.1Z" fill="{{earth_deep}}" opacity="0.9"/>
+<path d="M41 106C42.1 92.8 61.9 92.8 63 106Z" fill="url(#mushroom-group-g1)"/>
+<circle cx="47.6" cy="100.5" r="1.54" fill="{{glow}}" opacity="0.7"/>
+<rect x="71.88" y="100" width="6.24" height="24" rx="3.12" fill="url(#mushroom-group-g2)"/>
+<path d="M88.53 104.68C87.07 106.65 83.39 108.34 80.17 109.2C76.95 110.05 72.34 110.58 69.21 109.81C66.07 109.04 62.55 106.61 61.37 104.56C60.18 102.5 60.74 99.52 62.11 97.49C63.48 95.47 66.5 93.26 69.59 92.42C72.67 91.58 77.38 91.63 80.62 92.46C83.85 93.28 87.65 95.32 88.97 97.35C90.29 99.39 90 102.71 88.53 104.68Z" fill="{{earth_deep}}" opacity="0.9"/>
+<path d="M62 100C63.3 84.4 86.7 84.4 88 100Z" fill="url(#mushroom-group-g3)"/>
+<circle cx="69.8" cy="93.5" r="1.82" fill="{{glow}}" opacity="0.7"/>
+<rect x="63.08" y="113" width="3.84" height="11" rx="1.92" fill="url(#mushroom-group-g4)"/>
+<path d="M74.04 116.5C73.14 117.82 70.53 119.04 68.43 119.54C66.33 120.04 63.52 120.03 61.45 119.5C59.38 118.98 56.82 117.7 55.99 116.39C55.17 115.08 55.58 112.99 56.49 111.64C57.41 110.3 59.44 108.89 61.48 108.32C63.52 107.74 66.7 107.63 68.75 108.19C70.8 108.75 72.91 110.28 73.79 111.66C74.67 113.05 74.93 115.19 74.04 116.5Z" fill="{{earth_deep}}" opacity="0.9"/>
+<path d="M57 113C57.8 103.4 72.2 103.4 73 113Z" fill="url(#mushroom-group-g5)"/>
+<circle cx="61.8" cy="109" r="1.12" fill="{{glow}}" opacity="0.7"/>
+</svg>

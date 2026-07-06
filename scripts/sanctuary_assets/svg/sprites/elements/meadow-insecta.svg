@@ -1,0 +1,16 @@
+<svg viewBox="0 0 128 128" xmlns="http://www.w3.org/2000/svg">
+<defs><linearGradient x1="0" y1="94" x2="0" y2="118" gradientUnits="userSpaceOnUse" id="sanctuary-meadow-insecta-g0"><stop offset="0" stop-color="{{bark}}"/><stop offset="1" stop-color="{{earth_deep}}"/></linearGradient></defs>
+<ellipse cx="64" cy="121.5" rx="13" ry="2.86" fill="{{earth_deep}}" opacity="0.16"/>
+<path d="M58 106L50 123L52.4 124L59 109Z" fill="{{earth_deep}}"/>
+<path d="M58 106L45 123L47.4 124L59 109Z" fill="{{earth_deep}}"/>
+<path d="M58 106L40 123L42.4 124L59 109Z" fill="{{earth_deep}}"/>
+<path d="M70 106L78 123L75.6 124L69 109Z" fill="{{earth_deep}}"/>
+<path d="M70 106L83 123L80.6 124L69 109Z" fill="{{earth_deep}}"/>
+<path d="M70 106L88 123L85.6 124L69 109Z" fill="{{earth_deep}}"/>
+<path d="M82.38 106C82.46 109.22 80.4 113.49 77.34 115.83C74.27 118.17 68.46 120.04 64 120.05C59.54 120.06 53.88 118.21 50.6 115.87C47.32 113.53 44.27 109.25 44.33 106C44.39 102.75 47.7 98.67 50.97 96.4C54.25 94.13 59.69 92.35 64 92.37C68.31 92.39 73.79 94.26 76.85 96.53C79.92 98.8 82.3 102.78 82.38 106Z" fill="{{earth_deep}}"/>
+<path d="M80.54 106C80.52 108.74 78.34 112.22 75.58 114.18C72.83 116.14 68.01 117.65 64 117.75C59.99 117.86 54.46 116.76 51.53 114.8C48.6 112.84 46.33 108.87 46.42 106C46.51 103.13 49.15 99.63 52.08 97.59C55.01 95.55 60.07 93.75 64 93.77C67.93 93.8 72.92 95.72 75.68 97.76C78.43 99.8 80.55 103.26 80.54 106Z" fill="url(#sanctuary-meadow-insecta-g0)"/>
+<path d="M64 93L65.4 117L62.6 117Z" fill="{{earth_deep}}"/>
+<circle cx="57" cy="102" r="2" fill="{{glow}}" opacity="0.8"/>
+<circle cx="72" cy="108" r="1.6" fill="{{glow}}" opacity="0.8"/>
+<circle cx="79" cy="98" r="4.4" fill="{{earth_deep}}"/>
+</svg>

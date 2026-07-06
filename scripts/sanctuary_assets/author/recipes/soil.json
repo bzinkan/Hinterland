@@ -1,0 +1,35 @@
+{
+  "_comment": "Soil island: a low cliff shelf whose front face shows strata bands, pebbles, and mushrooms -- the underground made visible.",
+  "zone": "soil",
+  "back": {
+    "humps": 4,
+    "height": 70,
+    "opacity": 0.3
+  },
+  "island": {
+    "width": 390,
+    "topY": 206,
+    "surfaceDrop": 30,
+    "midDrop": 84,
+    "taperDepth": 170,
+    "roots": 2,
+    "wobble": 0.13
+  },
+  "mid": {
+    "terrain": "shelf",
+    "canopy": {
+      "count": 3,
+      "rx": 38,
+      "ry": 20,
+      "opacity": 0.82
+    }
+  },
+  "fore": {
+    "tufts": 4,
+    "flowers": [],
+    "extras": [
+      "mushrooms",
+      "pebbles"
+    ]
+  }
+}

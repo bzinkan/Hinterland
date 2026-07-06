@@ -1,0 +1,26 @@
+<svg viewBox="0 0 128 128" xmlns="http://www.w3.org/2000/svg">
+<ellipse cx="64" cy="121.5" rx="14" ry="3.08" fill="{{earth_deep}}" opacity="0.14"/>
+<path d="M51.7 124C51.7 111 49.4 103.2 49.92 98C50.44 104.5 54.3 112.3 54.3 124Z" fill="{{green_deep}}"/>
+<path d="M63.7 124C63.7 106 62.41 95.2 62.93 88C63.45 97 66.3 107.8 66.3 124Z" fill="{{green_deep}}"/>
+<path d="M74.7 124C74.7 113 72.1 106.4 72.62 102C73.14 107.5 77.3 114.1 77.3 124Z" fill="{{green_deep}}"/>
+<path d="M55.8 124C55.8 117 45.12 112.8 46 110C46.88 113.5 60.2 117.7 60.2 124Z" fill="{{green_mid}}"/>
+<path d="M69 124C69 118 81.2 114.4 82 112C82.8 115 73 118.6 73 124Z" fill="{{green_mid}}"/>
+<circle cx="54.95" cy="89" r="3.9" fill="{{accent_warm}}"/>
+<circle cx="59.7" cy="92.45" r="3.9" fill="{{accent_warm}}"/>
+<circle cx="57.88" cy="98.05" r="3.9" fill="{{accent_warm}}"/>
+<circle cx="52.01" cy="98.05" r="3.9" fill="{{accent_warm}}"/>
+<circle cx="50.19" cy="92.45" r="3.9" fill="{{accent_warm}}"/>
+<circle cx="54.95" cy="94" r="3.1" fill="{{glow}}"/>
+<circle cx="66.69" cy="76.48" r="4.99" fill="{{accent_warm}}"/>
+<circle cx="72.77" cy="80.9" r="4.99" fill="{{accent_warm}}"/>
+<circle cx="70.45" cy="88.06" r="4.99" fill="{{accent_warm}}"/>
+<circle cx="62.92" cy="88.06" r="4.99" fill="{{accent_warm}}"/>
+<circle cx="60.6" cy="80.9" r="4.99" fill="{{accent_warm}}"/>
+<circle cx="66.69" cy="82.88" r="3.97" fill="{{glow}}"/>
+<circle cx="74.33" cy="94.08" r="3.43" fill="{{accent_warm}}"/>
+<circle cx="78.52" cy="97.12" r="3.43" fill="{{accent_warm}}"/>
+<circle cx="76.92" cy="102.04" r="3.43" fill="{{accent_warm}}"/>
+<circle cx="71.75" cy="102.04" r="3.43" fill="{{accent_warm}}"/>
+<circle cx="70.15" cy="97.12" r="3.43" fill="{{accent_warm}}"/>
+<circle cx="74.33" cy="98.48" r="2.73" fill="{{glow}}"/>
+</svg>

@@ -1,0 +1,35 @@
+{
+  "_comment": "Elsewhere islet: small, mist-wrapped, and a little strange -- glow-cap stalks and drifting spores. Mystery, not menace.",
+  "zone": "elsewhere",
+  "back": {
+    "humps": 2,
+    "height": 52,
+    "opacity": 0.25
+  },
+  "island": {
+    "width": 200,
+    "topY": 216,
+    "surfaceDrop": 18,
+    "midDrop": 42,
+    "taperDepth": 150,
+    "roots": 2,
+    "wobble": 0.16
+  },
+  "mid": {
+    "terrain": "mist",
+    "canopy": {
+      "count": 3,
+      "rx": 22,
+      "ry": 14,
+      "opacity": 0.8
+    },
+    "glowStalks": 2
+  },
+  "fore": {
+    "tufts": 3,
+    "flowers": [],
+    "extras": [
+      "spores"
+    ]
+  }
+}

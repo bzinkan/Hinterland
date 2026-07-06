@@ -1,0 +1,12 @@
+<svg viewBox="0 0 128 128" xmlns="http://www.w3.org/2000/svg">
+<defs><linearGradient x1="0" y1="112" x2="0" y2="124" gradientUnits="userSpaceOnUse" id="sanctuary-urban-edge-life-moment-g0"><stop offset="0" stop-color="{{sand}}"/><stop offset="1" stop-color="{{earth_mid}}"/></linearGradient></defs>
+<ellipse cx="64" cy="121.5" rx="26" ry="5.72" fill="{{earth_deep}}" opacity="0.12"/>
+<rect x="34" y="112" width="27" height="12" rx="2.4" fill="url(#sanctuary-urban-edge-life-moment-g0)"/>
+<rect x="67" y="112" width="27" height="12" rx="2.4" fill="url(#sanctuary-urban-edge-life-moment-g0)"/>
+<path d="M61 124L63 112L67 112L67 124Z" fill="{{earth_deep}}"/>
+<path d="M62.4 114C62.4 99 64.36 90 65 84C65.64 91.5 65.6 100.5 65.6 114Z" fill="{{green_deep}}"/>
+<path d="M62 100C62 94 50.2 90.4 51 88C51.8 91 66 94.6 66 100Z" fill="{{green_mid}}"/>
+<path d="M63.2 92C63.2 86 75.28 82.4 76 80C76.72 83 66.8 86.6 66.8 92Z" fill="{{green_mid}}"/>
+<circle cx="65" cy="80" r="3.4" fill="{{glow}}"/>
+<circle cx="65" cy="80" r="1.6" fill="{{accent_warm}}"/>
+</svg>

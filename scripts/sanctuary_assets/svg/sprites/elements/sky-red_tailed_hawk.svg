@@ -1,0 +1,11 @@
+<svg viewBox="0 0 128 128" xmlns="http://www.w3.org/2000/svg">
+<path d="M64 58C44 42 18 40 12 44L14 49L19 47L20 52L25 50C48 56 60 61 64 62Z" fill="{{bark}}"/>
+<path d="M58 53C40 46 26 45 18 46.4C30 49 44 52 57 54.6Z" fill="{{cloud}}" opacity="0.4"/>
+<path d="M64 58C84 42 110 40 116 44L114 49L109 47L108 52L103 50C80 56 68 61 64 62Z" fill="{{bark}}"/>
+<path d="M70 53C88 46 102 45 110 46.4C98 49 84 52 71 54.6Z" fill="{{cloud}}" opacity="0.4"/>
+<ellipse cx="64" cy="58" rx="6" ry="9" fill="{{bark}}"/>
+<circle cx="64" cy="49" r="3.6" fill="{{bark}}"/>
+<path d="M58 65C59 73 69 73 70 65Z" fill="{{accent_warm}}"/>
+<ellipse cx="64" cy="121.5" rx="10" ry="2.2" fill="{{earth_deep}}" opacity="0.1"/>
+<circle cx="65.4" cy="48" r="1" fill="{{glow}}"/>
+</svg>

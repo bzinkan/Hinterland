@@ -1,0 +1,64 @@
+name: Validate sanctuary diorama art
+
+# Runs when 2.5D art inputs or outputs change. Enforces (ADR 0012):
+#   - determinism: regenerating the seeded SVG layers/sprites is a no-op
+#   - every content icon key / souvenir id / DRESSING_RULES key is drawn
+#     or explicitly placeholder-allowlisted (either/or, never both)
+#   - the Skia SVG element allowlist and {{palette-token}} vocabulary
+#   - per-file and total size budgets
+#   - OWNED/CC0-only source licenses
+#   - the generated app manifests match assets.json + svg/ (drift check,
+#     same trick as content/schema/ in content-validate.yml)
+# See scripts/sanctuary_assets/README.md. Zero npm dependencies: plain node.
+
+on:
+  pull_request:
+    paths:
+      - "content/sanctuary/**"
+      - "scripts/sanctuary_assets/**"
+      - "mobile/src/sanctuary/art/**"
+      - "mobile/src/sanctuary/diorama/scene/dressing.ts"
+  push:
+    paths:
+      - "content/sanctuary/**"
+      - "scripts/sanctuary_assets/**"
+      - "mobile/src/sanctuary/art/**"
+      - "mobile/src/sanctuary/diorama/scene/dressing.ts"
+
+jobs:
+  validate-art:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Regenerate layers and sprites
+        working-directory: scripts/sanctuary_assets
+        run: |
+          node author/generate_layers.mjs
+          node author/generate_sprites.mjs
+
+      - name: Confirm generation is deterministic
+        run: |
+          git diff --exit-code scripts/sanctuary_assets/svg || (
+            echo "::error::svg/ is not what the generators produce. Rerun scripts/sanctuary_assets generators and commit (never hand-edit svg/)."
+            exit 1
+          )
+
+      - name: Regenerate app manifests
+        working-directory: scripts/sanctuary_assets
+        run: node build_manifest.mjs
+
+      - name: Confirm generated manifests are up to date
+        run: |
+          git diff --exit-code mobile/src/sanctuary/art || (
+            echo "::error::mobile/src/sanctuary/art is out of date. Run scripts/sanctuary_assets/build_manifest.mjs and commit."
+            exit 1
+          )
+
+      - name: Validate art
+        working-directory: scripts/sanctuary_assets
+        run: node validate.mjs

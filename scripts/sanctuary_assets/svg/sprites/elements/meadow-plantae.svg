@@ -1,0 +1,13 @@
+<svg viewBox="0 0 128 128" xmlns="http://www.w3.org/2000/svg">
+<ellipse cx="64" cy="121.5" rx="16" ry="3.52" fill="{{earth_deep}}" opacity="0.16"/>
+<path d="M62.2 124C62.2 93 61.28 74.4 62 62C62.72 77.5 65.8 96.1 65.8 124Z" fill="{{green_deep}}"/>
+<path d="M60.4 104C60.4 95 40.96 89.6 42 86C43.04 90.5 65.6 95.9 65.6 104Z" fill="{{green_mid}}"/>
+<path d="M62.6 94C62.6 84 83.04 78 84 74C84.96 79 67.4 85 67.4 94Z" fill="{{green_mid}}"/>
+<circle cx="62" cy="43" r="7.02" fill="{{accent_cool}}"/>
+<circle cx="70.56" cy="49.22" r="7.02" fill="{{accent_cool}}"/>
+<circle cx="67.29" cy="59.28" r="7.02" fill="{{accent_cool}}"/>
+<circle cx="56.71" cy="59.28" r="7.02" fill="{{accent_cool}}"/>
+<circle cx="53.44" cy="49.22" r="7.02" fill="{{accent_cool}}"/>
+<circle cx="62" cy="52" r="5.58" fill="{{glow}}"/>
+<circle cx="78" cy="70" r="3" fill="{{accent_warm}}" opacity="0.9"/>
+</svg>

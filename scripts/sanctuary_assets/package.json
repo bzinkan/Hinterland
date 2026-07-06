@@ -1,0 +1,14 @@
+{
+  "name": "sanctuary-assets",
+  "version": "0.2.0",
+  "private": true,
+  "description": "Deterministic agent-authored art pipeline for the Sanctuary 2.5D diorama (ADR 0012): recipes -> seeded SVG layers + sprites -> inlined TS manifests under mobile/src/sanctuary/art/. Zero dependencies -- plain node. See README.md.",
+  "type": "module",
+  "scripts": {
+    "generate": "node author/generate_layers.mjs && node author/generate_sprites.mjs",
+    "manifest": "node build_manifest.mjs",
+    "validate": "node validate.mjs",
+    "preview": "node preview.mjs",
+    "all": "npm run generate && npm run manifest && npm run validate"
+  }
+}

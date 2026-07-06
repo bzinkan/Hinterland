@@ -1,0 +1,36 @@
+{
+  "_comment": "Meadow island: broad sunny grass shelf, low canopy, thick flower fringe. Tuning happens HERE (ADR 0012) -- rerun generate_layers.mjs, never hand-edit svg/.",
+  "zone": "meadow",
+  "back": {
+    "humps": 4,
+    "height": 88,
+    "opacity": 0.34
+  },
+  "island": {
+    "width": 420,
+    "topY": 224,
+    "surfaceDrop": 26,
+    "midDrop": 64,
+    "taperDepth": 150,
+    "roots": 2,
+    "wobble": 0.1
+  },
+  "mid": {
+    "terrain": "grass",
+    "canopy": {
+      "count": 4,
+      "rx": 46,
+      "ry": 26,
+      "opacity": 0.86
+    }
+  },
+  "fore": {
+    "tufts": 9,
+    "flowers": [
+      "accent_cool",
+      "glow",
+      "accent_warm"
+    ],
+    "extras": []
+  }
+}

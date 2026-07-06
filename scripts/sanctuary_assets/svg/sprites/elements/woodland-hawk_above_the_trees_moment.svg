@@ -1,0 +1,10 @@
+<svg viewBox="0 0 128 128" xmlns="http://www.w3.org/2000/svg">
+<defs><linearGradient x1="0" y1="98" x2="0" y2="124" gradientUnits="userSpaceOnUse" id="sanctuary-woodland-hawk-above-the-trees-moment-g0"><stop offset="0" stop-color="{{green_mid}}"/><stop offset="1" stop-color="{{green_deep}}"/></linearGradient><linearGradient x1="0" y1="104" x2="0" y2="124" gradientUnits="userSpaceOnUse" id="sanctuary-woodland-hawk-above-the-trees-moment-g1"><stop offset="0" stop-color="{{green_mid}}"/><stop offset="1" stop-color="{{green_deep}}"/></linearGradient></defs>
+<path d="M71.04 112C70.78 114.76 70.21 118.07 67.31 119.92C64.4 121.77 58.1 122.89 53.59 123.11C49.08 123.32 44.75 122.29 40.25 121.21C35.75 120.14 28.79 118.95 26.58 116.65C24.37 114.35 25.05 110.08 26.97 107.43C28.89 104.78 33.59 102.08 38.1 100.76C42.61 99.44 48.91 99.07 54.04 99.5C59.17 99.93 66.06 101.27 68.89 103.35C71.72 105.44 71.31 109.24 71.04 112Z" fill="url(#sanctuary-woodland-hawk-above-the-trees-moment-g0)"/>
+<path d="M99 115C99.09 117.31 95.19 120.4 92.02 122.07C88.85 123.74 84.03 125.02 80 125.03C75.97 125.04 70.96 123.82 67.84 122.15C64.73 120.48 61.1 117.25 61.32 115C61.54 112.75 66.05 110.39 69.17 108.63C72.28 106.87 76.27 104.52 80 104.45C83.73 104.38 88.35 106.47 91.52 108.22C94.68 109.98 98.92 112.69 99 115Z" fill="url(#sanctuary-woodland-hawk-above-the-trees-moment-g1)"/>
+<path d="M50.94 104C50.91 105.07 50.48 106.55 49.04 107.16C47.61 107.78 44.5 107.9 42.31 107.7C40.13 107.49 36.77 106.83 35.93 105.94C35.1 105.06 36.3 103.46 37.3 102.39C38.3 101.31 39.96 99.77 41.94 99.5C43.93 99.22 47.69 99.99 49.19 100.74C50.69 101.5 50.96 102.93 50.94 104Z" fill="{{glow}}" opacity="0.16"/>
+<path d="M64 44C52 35 40 34 34 36.4L38 40.6C48 41 59 46 64 46.6Z" fill="{{bark}}"/>
+<path d="M64 44C76 35 88 34 94 36.4L90 40.6C80 41 69 46 64 46.6Z" fill="{{bark}}"/>
+<ellipse cx="64" cy="44" rx="4" ry="6" fill="{{bark}}"/>
+<path d="M60.6 49C61 54 67 54 67.4 49Z" fill="{{accent_warm}}"/>
+</svg>
