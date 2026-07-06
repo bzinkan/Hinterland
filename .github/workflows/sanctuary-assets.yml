@@ -1,7 +1,8 @@
 name: Validate sanctuary diorama art
 
 # Runs when 2.5D art inputs or outputs change. Enforces (ADR 0012):
-#   - determinism: regenerating the seeded SVG layers/sprites is a no-op
+#   - determinism: regenerating the seeded SVG layers/sprites/backdrops
+#     is a no-op
 #   - every content icon key / souvenir id / DRESSING_RULES key is drawn
 #     or explicitly placeholder-allowlisted (either/or, never both)
 #   - the Skia SVG element allowlist and {{palette-token}} vocabulary
@@ -35,11 +36,12 @@ jobs:
         with:
           node-version: 20
 
-      - name: Regenerate layers and sprites
+      - name: Regenerate layers, sprites, and backdrops
         working-directory: scripts/sanctuary_assets
         run: |
           node author/generate_layers.mjs
           node author/generate_sprites.mjs
+          node author/generate_backdrops.mjs
 
       - name: Confirm generation is deterministic
         run: |

@@ -1,17 +1,56 @@
 {
-  "_comment": "AUTHORED source of truth for the 2.5D diorama art (ADR 0012). Two kinds: 'layer' entries are the four parallax bands of a zone island (zone + layerBand, drawn by author/generate_layers.mjs from author/recipes/<zone>.json); 'sprite' entries are 128x128 bottom-center-anchored sprites (author/generate_sprites.mjs + author/recipes/sprites.json) in four spriteClasses: element (iconKey from content/sanctuary/*.json), fallback (elementType motif), souvenir (sanctuary.souvenir.<id>), scenery (sceneryKey + zone + tierMin mirroring DRESSING_RULES). build_manifest.mjs inlines the svg/ files into mobile/src/sanctuary/art/*.gen.ts; validate.mjs enforces coverage, the Skia allowlist, budgets, and drift.",
+  "_comment": "AUTHORED source of truth for the 2.5D diorama art (ADR 0012). Three kinds: 'layer' entries are the four parallax bands of a zone island (zone + layerBand, drawn by author/generate_layers.mjs from author/recipes/<zone>.json); 'sprite' entries are 128x128 bottom-center-anchored sprites (author/generate_sprites.mjs + author/recipes/sprites.json) in four spriteClasses: element (iconKey from content/sanctuary/*.json), fallback (elementType motif), souvenir (sanctuary.souvenir.<id>), scenery (sceneryKey + zone + tierMin mirroring DRESSING_RULES); 'backdrop' entries are the 1024x640 full-bleed biome-scene depth bands (zone + sceneBand far/mid/ground/fore, drawn by author/generate_backdrops.mjs from author/recipes/backdrops.json -- ADR 0012 addendum, meadow first, other zones use the island-art interim). build_manifest.mjs inlines the svg/ files into mobile/src/sanctuary/art/*.gen.ts; validate.mjs enforces coverage, the Skia allowlist, budgets, and drift.",
   "categories": {
     "layer-svg": {
       "maxKB": 8
     },
     "sprite-svg": {
       "maxKB": 6
+    },
+    "backdrop-svg": {
+      "maxKB": 16
     }
   },
   "totals": {
     "svgMaxKB": 400
   },
   "entries": [
+    {
+      "name": "meadow-scene-far",
+      "kind": "backdrop",
+      "category": "backdrop-svg",
+      "zone": "meadow",
+      "sceneBand": "far",
+      "out": "svg/backdrops/meadow/far.svg",
+      "source": "recipes-backdrops"
+    },
+    {
+      "name": "meadow-scene-mid",
+      "kind": "backdrop",
+      "category": "backdrop-svg",
+      "zone": "meadow",
+      "sceneBand": "mid",
+      "out": "svg/backdrops/meadow/mid.svg",
+      "source": "recipes-backdrops"
+    },
+    {
+      "name": "meadow-scene-ground",
+      "kind": "backdrop",
+      "category": "backdrop-svg",
+      "zone": "meadow",
+      "sceneBand": "ground",
+      "out": "svg/backdrops/meadow/ground.svg",
+      "source": "recipes-backdrops"
+    },
+    {
+      "name": "meadow-scene-fore",
+      "kind": "backdrop",
+      "category": "backdrop-svg",
+      "zone": "meadow",
+      "sceneBand": "fore",
+      "out": "svg/backdrops/meadow/fore.svg",
+      "source": "recipes-backdrops"
+    },
     {
       "name": "meadow-back",
       "kind": "layer",

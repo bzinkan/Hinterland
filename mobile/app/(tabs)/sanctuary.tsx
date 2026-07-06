@@ -1,5 +1,6 @@
 /**
- * Sanctuary tab route: renders the 2.5D diorama when
+ * Sanctuary tab route: renders the 2.5D diorama experience (biome chooser
+ * -> full-bleed biome scene, ADR 0012 addendum) when
  * decideSanctuaryDiorama says so (build flag SANCTUARY_DIORAMA + no screen
  * reader + no Simple view + crash latch below 3 strikes, all via
  * useSanctuaryDioramaFlag), else the classic text-first screen -- the

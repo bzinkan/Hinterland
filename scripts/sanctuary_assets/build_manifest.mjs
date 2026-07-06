@@ -1,11 +1,15 @@
 /**
  * Emit the app-side art manifests from assets.json + the generated svg/.
  *
- * Outputs (both under mobile/src/sanctuary/art/):
+ * Outputs (all under mobile/src/sanctuary/art/):
  *   islandLayers.gen.ts -- palette-slot vocabulary + per-zone island layer
  *                          bands (back/base/mid/fore) as inline SVG
  *   sprites.gen.ts      -- element/fallback/souvenir/scenery sprites as
  *                          inline SVG (the D2 stub's exported names, kept)
+ *   backdrops.gen.ts    -- full-bleed biome-scene depth bands
+ *                          (far/mid/ground/fore, ADR 0012 addendum) for
+ *                          zones that have graduated from the island-art
+ *                          interim (meadow first)
  *
  * Every file is linted against the ADR 0012 Skia allowlist before it is
  * inlined, output ordering is byte-stable, and CI runs `git diff
@@ -28,9 +32,11 @@ const ART_DIR = path.join(HERE, "..", "..", "mobile", "src", "sanctuary", "art")
 
 const ZONE_ORDER = ["meadow", "woodland", "pond", "sky", "soil", "urban", "elsewhere"];
 const BAND_ORDER = ["back", "base", "mid", "fore"];
+const SCENE_BAND_ORDER = ["far", "mid", "ground", "fore"];
 const ELEMENT_TYPE_ORDER = ["coarse", "charismatic", "relationship", "surprise", "signature"];
 const LAYER_VIEWBOX = { width: 512, height: 384 };
 const SPRITE_VIEWBOX = { width: 128, height: 128 };
+const BACKDROP_VIEWBOX = { width: 1024, height: 640 };
 
 const HEADER = `// GENERATED — do not edit; regenerate via scripts/sanctuary_assets
 // (node author/generate_layers.mjs && node author/generate_sprites.mjs &&
@@ -77,6 +83,7 @@ export async function renderManifests() {
 
   const layers = assets.entries.filter((entry) => entry.kind === "layer");
   const sprites = assets.entries.filter((entry) => entry.kind === "sprite");
+  const backdrops = assets.entries.filter((entry) => entry.kind === "backdrop");
   const byClass = (spriteClass) =>
     sprites
       .filter((entry) => entry.spriteClass === spriteClass)
@@ -207,12 +214,69 @@ ${record("  ", scenery)}
 };
 `;
 
-  return { islandLayersTs, spritesTs };
+  // --- backdrops.gen.ts ------------------------------------------------------
+
+  const backdropZones = ZONE_ORDER.filter((zone) =>
+    backdrops.some((entry) => entry.zone === zone),
+  );
+  const extraBackdrops = backdrops.filter(
+    (entry) => !ZONE_ORDER.includes(entry.zone) || !SCENE_BAND_ORDER.includes(entry.sceneBand),
+  );
+  if (extraBackdrops.length > 0) {
+    throw new Error(`unexpected backdrop entries: ${extraBackdrops.map((entry) => entry.name).join(", ")}`);
+  }
+
+  const backdropViewBox = `0 0 ${BACKDROP_VIEWBOX.width} ${BACKDROP_VIEWBOX.height}`;
+  const backdropBlocks = [];
+  for (const zone of backdropZones) {
+    const bandBlocks = [];
+    for (const band of SCENE_BAND_ORDER) {
+      const entry = backdrops.find((candidate) => candidate.zone === zone && candidate.sceneBand === band);
+      if (!entry) throw new Error(`assets.json backdrop set for '${zone}' is missing the '${band}' band (a scene ships all four or none)`);
+      const source = await loadSvg(entry, backdropViewBox);
+      bandBlocks.push(
+        `    ${band}: {\n      viewBox: { width: ${BACKDROP_VIEWBOX.width}, height: ${BACKDROP_VIEWBOX.height} },\n      svg: ${JSON.stringify(source)},\n    },`,
+      );
+    }
+    backdropBlocks.push(`  ${zone}: {\n${bandBlocks.join("\n")}\n  },`);
+  }
+
+  const backdropsTs = `${HEADER}
+//
+// Full-bleed biome-scene depth bands (ADR 0012 addendum: chooser +
+// scenes). 1024x640 canvases, bottom-anchored by the renderer per band
+// (sceneLayout.ts), colors as {{palette-slot}} placeholders (see
+// islandLayers.gen.ts for the slot vocabulary and baseline hexes).
+// Zones absent here render the island-art interim in their scene.
+
+import type { SanctuaryZoneId } from "@/src/api/sanctuary";
+
+/** Painter-order scene depth bands (back first; fore outruns the camera). */
+export type SanctuarySceneBand = ${SCENE_BAND_ORDER.map((band) => `"${band}"`).join(" | ")};
+
+export type SanctuaryBackdropLayer = {
+  viewBox: { width: number; height: number };
+  /** Inline SVG source; {{slot}} placeholders tint at draw time. */
+  svg: string;
+};
+
+/** Zone scene backdrops, 1024x640 canvas, subject painted low. */
+export const SANCTUARY_BACKDROPS: Partial<
+  Record<SanctuaryZoneId, Record<SanctuarySceneBand, SanctuaryBackdropLayer>>
+> = {
+${backdropBlocks.join("\n")}
+};
+`;
+
+  return { islandLayersTs, spritesTs, backdropsTs };
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  const { islandLayersTs, spritesTs } = await renderManifests();
+  const { islandLayersTs, spritesTs, backdropsTs } = await renderManifests();
   await writeFile(path.join(ART_DIR, "islandLayers.gen.ts"), islandLayersTs, "utf8");
   await writeFile(path.join(ART_DIR, "sprites.gen.ts"), spritesTs, "utf8");
-  console.log("manifest: wrote mobile/src/sanctuary/art/{islandLayers.gen.ts,sprites.gen.ts}");
+  await writeFile(path.join(ART_DIR, "backdrops.gen.ts"), backdropsTs, "utf8");
+  console.log(
+    "manifest: wrote mobile/src/sanctuary/art/{islandLayers.gen.ts,sprites.gen.ts,backdrops.gen.ts}",
+  );
 }

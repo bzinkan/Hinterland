@@ -31,9 +31,7 @@ import {
 } from "react-native";
 import {
   Easing,
-  runOnJS,
   useDerivedValue,
-  useFrameCallback,
   useSharedValue,
   withDecay,
   withRepeat,
@@ -66,6 +64,8 @@ import {
   type IslandPlan,
   type VistaPlan,
 } from "@/src/sanctuary/diorama/vistaPlan";
+import { CueCard } from "@/src/sanctuary/dioramaui/CueCard";
+import { FirstFramePulse } from "@/src/sanctuary/dioramaui/FirstFramePulse";
 import { classifyRelease } from "@/src/sanctuary/dioramaui/gestures";
 import { IslandGroup, WIND_PERIOD_MS } from "@/src/sanctuary/dioramaui/IslandGroup";
 import {
@@ -483,48 +483,6 @@ export function DioramaScene({
 }
 
 /**
- * One-shot first-frame reporter for the render watchdog. Isolated
- * component (spike FrameHud pattern) so its runOnJS never re-renders the
- * canvas subtree; the parent unmounts it after the first pulse.
- */
-function FirstFramePulse({ onFirstFrame }: { onFirstFrame: () => void }) {
-  const seen = useSharedValue(false);
-  useFrameCallback(() => {
-    if (!seen.value) {
-      seen.value = true;
-      runOnJS(onFirstFrame)();
-    }
-  });
-  return null;
-}
-
-/** Light cue card for a silhouette tap: authored title/detail only. */
-function CueCard({
-  cue,
-  onClose,
-}: {
-  cue: SanctuaryMysteryCueDto;
-  onClose: () => void;
-}) {
-  return (
-    <View style={styles.cueCardWrap} pointerEvents="box-none">
-      <View style={styles.cueCard}>
-        <Text style={styles.cueCardTitle}>{cue.title}</Text>
-        <Text style={styles.cueCardDetail}>{cue.detail}</Text>
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="Close"
-          style={styles.cueCardClose}
-          onPress={onClose}
-        >
-          <Text style={styles.cueCardCloseText}>Close</Text>
-        </Pressable>
-      </View>
-    </View>
-  );
-}
-
-/**
  * Non-visual zone proxies for screen-reader users who land on the canvas
  * (decideSanctuaryDiorama routes them to the classic screen, but TalkBack
  * can be enabled mid-session): one focusable element per island with the
@@ -606,30 +564,6 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
   },
   titleChipText: { color: "#EDEFEA", fontSize: 14, fontWeight: "600" },
-  cueCardWrap: {
-    ...StyleSheet.absoluteFillObject,
-    justifyContent: "flex-end",
-    padding: 16,
-  },
-  cueCard: {
-    backgroundColor: "#FBF9F2",
-    borderRadius: 14,
-    padding: 16,
-    gap: 8,
-  },
-  cueCardTitle: { fontSize: 16, fontWeight: "600", color: "#2A2A2A" },
-  cueCardDetail: { fontSize: 14, color: "#4A4A4A", lineHeight: 20 },
-  cueCardClose: {
-    alignSelf: "flex-end",
-    minHeight: 44,
-    minWidth: 44,
-    justifyContent: "center",
-    alignItems: "center",
-    paddingHorizontal: 14,
-    borderRadius: 8,
-    backgroundColor: "#3F6B40",
-  },
-  cueCardCloseText: { color: "#FFFFFF", fontSize: 14, fontWeight: "500" },
   a11yOverlay: {
     position: "absolute",
     left: 0,

@@ -197,3 +197,85 @@ provenance-ledger + CI-gate posture as the ADR 0011 pipeline.
   expresses; retained on the deferred list for hero moments only.
 - **WebView canvas** — a browser surface inside a COPPA kids app for
   zero product benefit.
+
+## Addendum — composition pivot: biome chooser + full-bleed scenes (2026-07-06)
+
+The D7 milestone shipped the seven-island archipelago vista this ADR
+originally specified, and putting it on device is what changed the
+decision. This addendum revises the **scene shape** section only; the
+stack, the pure-core firewall, the flag lattice, and the art pipeline
+invariants all carry over unchanged.
+
+### Decision
+
+The Sanctuary's main view is now a **biome chooser + full-bleed biome
+scenes**:
+
+- **Chooser** — the tab's landing view is a native RN scrollable list of
+  seven large biome cards (zone title, awake depth-tier progress or a
+  calm dormant mystery hint, palette-derived colors). No canvas; a card
+  tap enters that zone's scene, Back returns.
+- **Biome scene** — one zone rendered as a big layered 2.5D backdrop
+  (WoW-zone-vista x Nintendo-diorama feel): sky gradient with a per-zone
+  tint, then FAR / MID / GROUND depth bands spanning the whole scene
+  width, plus optional FORE framing accents. The ground runs along the
+  bottom of the screen — **a biome is a place you stand, not a floating
+  island**: no plateau edge, no rock underside. The scene is ~1.6
+  screens wide; horizontal drag pans with clamp + decay, bands move at
+  ~0.2 / 0.5 / 1.0 / 1.3 of the pan (fore outruns the camera for the
+  near-frame feel), and mid/fore sway in the wind pivoted at the ground
+  line. Inhabitant sprites stand on the ground band, placed by remapping
+  the existing seeded island-local layout onto ground coordinates
+  (`groundRemap.ts`, pure + unit-tested, painter order and relative
+  spread preserved, 44dp+ hit targets).
+
+### Why
+
+- **The kid picks a destination.** A chooser makes each biome a place
+  you deliberately go, which matches the product's "visit your meadow"
+  fiction better than panning past six other islands to reach it.
+- **Full-bleed backdrops carry painterly art far better than small
+  floating islands.** The archipelago squeezed each zone's art into a
+  fraction of the canvas; a whole-screen layered backdrop is where
+  hand-painted gradients, hill bands, and haze actually read.
+- **The vista pan was mostly empty sky on portrait phones.** Seven
+  islands in one 2.5-screen canvas left the majority of every frame
+  unpainted atmosphere; a per-zone scene spends every pixel on the zone.
+
+### Retired
+
+- The archipelago vista as a routed surface: `vistaLayout.ts` slots, the
+  vista composition, and pan-between-islands interaction. The vista
+  renderer (`DioramaScene.tsx` and its islands-on-one-canvas path) stays
+  in-tree this milestone as reference but is **unrouted** — nothing
+  navigates to it.
+- The vista->dive camera flight (`framing.ts` still backs its tests;
+  scenes frame themselves).
+
+### Kept unchanged (contracts that did not move)
+
+- SkPicture-only rendering: record once per palette state, replay per
+  frame; no per-frame SVG DOM, no per-frame React state.
+- Palette-token art: every color still flows through
+  `svgCache.substitute` + `paletteSlots`; dormant scenes are baked
+  desaturated-slot recordings (zero steady-state layer cost) and the
+  wake moment is the same transient saveLayer saturation lerp, held
+  until the tab is focused.
+- Silhouette hints + cue cards on cued dormant zones.
+- The render watchdog + persisted 3-strike latch, now armed per scene
+  mount (the chooser is native RN and cannot strike).
+- The `SANCTUARY_DIORAMA` flag lattice, `Sanctuary2DScreen` as the
+  permanent fallback, and `ElementInspectModal` reused as-is.
+- The D4 spike (`app/dev/diorama-spike.tsx`) stays frozen and compiling.
+
+### Migration path
+
+Biomes get full backdrop art one at a time through the existing asset
+pipeline (new `backdrop` kind: four 1024x640 bands per zone, ≤16 KB per
+band, same {{palette-token}} + Skia-allowlist + determinism gates).
+**Meadow ships first** (Elwynn/Nagrand grassland vocabulary: rolling
+hill bands, wildflower drifts, soft treeline, winding pale path). A zone
+without a backdrop set renders the documented interim instead: its
+existing island layer art centered in the scene over a simple ground
+gradient — so all seven biomes are enterable from day one and each
+upgrade is a pure content drop with no renderer change.

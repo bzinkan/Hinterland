@@ -1,0 +1,52 @@
+<svg viewBox="0 0 1024 640" xmlns="http://www.w3.org/2000/svg">
+<defs><linearGradient x1="0" y1="520" x2="0" y2="640" gradientUnits="userSpaceOnUse" id="meadow-scene-fore-g0"><stop offset="0" stop-color="{{green_deep}}" stop-opacity="0"/><stop offset="1" stop-color="{{green_deep}}" stop-opacity="0.28"/></linearGradient><linearGradient x1="0" y1="490" x2="0" y2="640" gradientUnits="userSpaceOnUse" id="meadow-scene-fore-g1"><stop offset="0" stop-color="{{green_mid}}"/><stop offset="1" stop-color="{{green_deep}}"/></linearGradient><linearGradient x1="0" y1="510" x2="0" y2="640" gradientUnits="userSpaceOnUse" id="meadow-scene-fore-g2"><stop offset="0" stop-color="{{green_mid}}"/><stop offset="1" stop-color="{{green_deep}}"/></linearGradient></defs>
+<rect x="-16" y="520" width="1056" height="128" fill="url(#meadow-scene-fore-g0)"/>
+<path d="M28.67 646C23.39 601.07 2.15 572.31 -4.89 556.13C-2.89 581.3 27.97 615.45 34.13 646Z" fill="url(#meadow-scene-fore-g1)"/>
+<path d="M36.56 646C32.6 568.95 -4.09 519.64 -9.37 491.9C-7.37 535.05 35.92 593.61 40.54 646Z" fill="url(#meadow-scene-fore-g1)"/>
+<path d="M43.52 646C40.88 598.87 28.85 568.71 25.33 551.75C27.33 578.14 44.8 613.95 47.88 646Z" fill="url(#meadow-scene-fore-g1)"/>
+<path d="M50.29 646C48.97 601.43 47.44 572.91 45.68 556.87C47.68 581.83 53.87 615.7 55.41 646Z" fill="url(#meadow-scene-fore-g1)"/>
+<path d="M57.18 646C57.18 570.09 56.9 521.51 56.9 494.18C58.9 536.69 62.82 594.38 62.82 646Z" fill="url(#meadow-scene-fore-g1)"/>
+<path d="M65.43 646C66.75 597.68 77.74 566.76 79.5 549.37C81.5 576.43 70.41 613.15 68.87 646Z" fill="url(#meadow-scene-fore-g1)"/>
+<path d="M72.71 646C75.35 593.57 88.02 560.01 91.54 541.14C93.54 570.5 78.97 610.35 75.89 646Z" fill="url(#meadow-scene-fore-g1)"/>
+<path d="M79.74 646C83.7 588.54 109.73 551.77 115.01 531.08C117.01 563.26 87.78 606.93 83.16 646Z" fill="url(#meadow-scene-fore-g1)"/>
+<path d="M86.25 646C91.53 579 134.29 536.12 141.33 512C143.33 549.52 97.11 600.44 90.95 646Z" fill="url(#meadow-scene-fore-g1)"/>
+<path d="M932.71 646C927.43 578.73 888.66 535.68 881.62 511.46C883.62 549.13 931.93 600.26 938.09 646Z" fill="url(#meadow-scene-fore-g2)"/>
+<path d="M942.03 646C938.25 596.42 923.24 564.68 918.21 546.83C920.21 574.6 940.72 612.28 945.12 646Z" fill="url(#meadow-scene-fore-g2)"/>
+<path d="M950.09 646C947.82 604.49 943.24 577.92 940.22 562.98C942.22 586.23 950.76 617.77 953.4 646Z" fill="url(#meadow-scene-fore-g2)"/>
+<path d="M957.33 646C956.57 601.31 952.19 572.7 951.18 556.61C953.18 581.64 961.62 615.61 962.5 646Z" fill="url(#meadow-scene-fore-g2)"/>
+<path d="M966.18 646C966.93 604.04 973.22 577.19 974.23 562.08C976.23 585.58 970.87 617.47 969.99 646Z" fill="url(#meadow-scene-fore-g2)"/>
+<path d="M973.64 646C975.9 608.51 987.65 584.52 990.66 571.02C992.66 592.02 981.52 620.51 978.88 646Z" fill="url(#meadow-scene-fore-g2)"/>
+<path d="M982 646C985.77 596.08 1009.86 564.14 1014.89 546.16C1016.89 574.12 991.26 612.06 986.86 646Z" fill="url(#meadow-scene-fore-g2)"/>
+<path d="M990.43 646C995.71 607.97 1011.71 583.64 1018.75 569.95C1020.75 591.24 1000.93 620.14 994.77 646Z" fill="url(#meadow-scene-fore-g2)"/>
+<path d="M601.42 644C601.59 602.05 604.58 575.2 604.8 560.1C606.8 583.59 606.02 615.47 605.83 644Z" fill="{{green_deep}}" opacity="0.9"/>
+<path d="M879.12 644C877.73 606.88 875.14 583.13 873.3 569.77C875.3 590.55 880.65 618.76 882.26 644Z" fill="{{green_deep}}" opacity="0.9"/>
+<path d="M913.47 644C914.4 603.58 919.11 577.71 920.34 563.16C922.34 585.8 919.94 616.51 918.86 644Z" fill="{{green_deep}}" opacity="0.9"/>
+<path d="M80.07 644C76.02 594.97 57.96 563.58 52.57 545.93C54.57 573.39 81.32 610.66 86.04 644Z" fill="{{green_deep}}" opacity="0.9"/>
+<path d="M368.3 644C370.92 613.19 376.33 593.48 379.82 582.39C381.82 599.64 375.76 623.05 372.71 644Z" fill="{{green_deep}}" opacity="0.9"/>
+<path d="M93.38 644C92.49 603.6 88.89 577.75 87.7 563.21C89.7 585.83 95.57 616.53 96.62 644Z" fill="{{green_deep}}" opacity="0.9"/>
+<path d="M513.3 644C509.73 598.7 498 569.71 493.24 553.4C495.24 578.77 514.95 613.2 519.12 644Z" fill="{{green_deep}}" opacity="0.9"/>
+<path d="M330.16 644C334.36 603.77 355.85 578.03 361.45 563.55C363.45 586.07 340.34 616.65 335.45 644Z" fill="{{green_deep}}" opacity="0.9"/>
+<path d="M699.57 644C701.52 615.28 706.36 596.9 708.96 586.56C710.96 602.64 707.09 624.47 704.82 644Z" fill="{{green_deep}}" opacity="0.9"/>
+<path d="M700.17 644C703.75 591.72 725.43 558.27 730.2 539.45C732.2 568.72 708.66 608.45 704.49 644Z" fill="{{green_deep}}" opacity="0.9"/>
+<path d="M456.61 644C455.61 571.9 460.41 540.95 460.01 516.19L463.01 517.59C463.61 578.09 462.01 644 462.01 644Z" fill="{{green_deep}}"/>
+<ellipse cx="471.23" cy="516.85" rx="8.3" ry="5.76" fill="{{accent_warm}}" opacity="0.95"/>
+<ellipse cx="462.2" cy="525.5" rx="8.3" ry="5.76" fill="{{accent_warm}}" opacity="0.95"/>
+<ellipse cx="450.09" cy="520.05" rx="8.3" ry="5.76" fill="{{accent_warm}}" opacity="0.95"/>
+<ellipse cx="452.69" cy="505.29" rx="8.3" ry="5.76" fill="{{accent_warm}}" opacity="0.95"/>
+<ellipse cx="463.96" cy="503.36" rx="8.3" ry="5.76" fill="{{accent_warm}}" opacity="0.95"/>
+<circle cx="460.01" cy="514.19" r="5.19" fill="{{glow}}"/>
+<path d="M146.55 644C145.55 566.29 150.35 532.79 149.95 505.98L152.95 507.38C153.55 572.99 151.95 644 151.95 644Z" fill="{{green_deep}}"/>
+<ellipse cx="159.66" cy="504.58" rx="7" ry="4.86" fill="{{accent_cool}}" opacity="0.95"/>
+<ellipse cx="152.82" cy="513.27" rx="7" ry="4.86" fill="{{accent_cool}}" opacity="0.95"/>
+<ellipse cx="141.66" cy="509.06" rx="7" ry="4.86" fill="{{accent_cool}}" opacity="0.95"/>
+<ellipse cx="144.04" cy="496.26" rx="7" ry="4.86" fill="{{accent_cool}}" opacity="0.95"/>
+<ellipse cx="154.19" cy="495.23" rx="7" ry="4.86" fill="{{accent_cool}}" opacity="0.95"/>
+<circle cx="149.95" cy="503.98" r="4.38" fill="{{glow}}"/>
+<path d="M362.42 644C361.42 558.36 366.22 521.25 365.82 491.57L368.82 492.97C369.42 565.78 367.82 644 367.82 644Z" fill="{{green_deep}}"/>
+<ellipse cx="379.86" cy="490.87" rx="10.15" ry="7.05" fill="{{accent_warm}}" opacity="0.95"/>
+<ellipse cx="367.93" cy="503.51" rx="10.15" ry="7.05" fill="{{accent_warm}}" opacity="0.95"/>
+<ellipse cx="353.27" cy="495.98" rx="10.15" ry="7.05" fill="{{accent_warm}}" opacity="0.95"/>
+<ellipse cx="355.67" cy="479.78" rx="10.15" ry="7.05" fill="{{accent_warm}}" opacity="0.95"/>
+<ellipse cx="370.57" cy="476.29" rx="10.15" ry="7.05" fill="{{accent_warm}}" opacity="0.95"/>
+<circle cx="365.82" cy="489.57" r="6.34" fill="{{glow}}"/>
+</svg>

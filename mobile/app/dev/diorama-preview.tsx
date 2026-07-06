@@ -9,8 +9,10 @@ import {
 } from "react-native";
 
 import { Text as ThemedText, View as ThemedView } from "@/components/Themed";
+import type { SanctuaryZoneId } from "@/src/api/sanctuary";
 import { makeSampleSnapshot } from "@/src/sanctuary/diorama/dev/sampleSnapshot";
-import { DioramaScene } from "@/src/sanctuary/dioramaui/DioramaScene";
+import { BiomeChooserScreen } from "@/src/sanctuary/dioramaui/BiomeChooserScreen";
+import { BiomeScene } from "@/src/sanctuary/dioramaui/BiomeSceneScreen";
 
 type SkiaModule = typeof import("@shopify/react-native-skia");
 
@@ -18,12 +20,14 @@ type SkiaModule = typeof import("@shopify/react-native-skia");
 const TIERS = [0, 1, 3, 5, 10, 20, 50] as const;
 
 /**
- * Dev-only diorama preview (ADR 0012): the REAL DioramaScene rendered
- * from the deterministic sample snapshot -- no auth, no network. This is
- * the eyeball/taste-pass harness: step the tier chips to see dormant
- * silhouettes (tier 0), first wakes, and the fully grown archipelago.
- * Reach it at exp+dragonfly://dev/diorama-preview. Same guarded require
- * as skia-smoke so pre-rebuild clients see a note instead of crashing.
+ * Dev-only diorama preview (ADR 0012 addendum): the REAL chooser + biome
+ * scene flow rendered from the deterministic sample snapshot -- no auth,
+ * no network. This is the eyeball/taste-pass harness: step the tier chips
+ * to see dormant scenes with silhouettes (tier 0), first wakes (step 0 ->
+ * 1 while inside a scene), and fully grown biomes; tap a card to enter
+ * its full-bleed scene, meadow first for the real backdrop art. Reach it
+ * at exp+dragonfly://dev/diorama-preview. Same guarded require as
+ * skia-smoke so pre-rebuild clients see a note instead of crashing.
  */
 export default function DioramaPreviewScreen() {
   let skia: SkiaModule | null = null;
@@ -52,6 +56,7 @@ export default function DioramaPreviewScreen() {
 
 function PreviewBody({ skia }: { skia: SkiaModule }) {
   const [tier, setTier] = useState<number>(20);
+  const [zoneId, setZoneId] = useState<SanctuaryZoneId | null>(null);
   const [size, setSize] = useState<{ w: number; h: number } | null>(null);
   const onLayout = useCallback((e: LayoutChangeEvent) => {
     const { width, height } = e.nativeEvent.layout;
@@ -60,16 +65,26 @@ function PreviewBody({ skia }: { skia: SkiaModule }) {
 
   const snapshot = useMemo(() => makeSampleSnapshot(tier), [tier]);
   const onFirstFrame = useCallback(() => {}, []);
+  const onBack = useCallback(() => setZoneId(null), []);
 
   return (
     <View style={styles.root} onLayout={onLayout}>
       <Stack.Screen options={{ title: "Diorama preview" }} />
-      {size ? (
-        <DioramaScene
+      {zoneId === null ? (
+        <BiomeChooserScreen
+          snapshot={snapshot}
+          onOpenZone={setZoneId}
+          bottomInset={130}
+        />
+      ) : size ? (
+        <BiomeScene
+          key={zoneId}
           skia={skia}
           w={size.w}
           h={size.h}
           snapshot={snapshot}
+          zoneId={zoneId}
+          onBack={onBack}
           onFirstFrame={onFirstFrame}
         />
       ) : null}

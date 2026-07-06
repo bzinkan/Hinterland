@@ -11,6 +11,15 @@
       "notes": "Deterministic, seeded (author/lib/rand.mjs); no external input."
     },
     {
+      "id": "recipes-backdrops",
+      "name": "Generated biome-scene backdrops (author/generate_backdrops.mjs)",
+      "url": null,
+      "license": "OWNED",
+      "sha256": null,
+      "provenance": "author/recipes/backdrops.json + author/generate_backdrops.mjs",
+      "notes": "Deterministic, seeded (author/lib/rand.mjs); no external input. ADR 0012 addendum full-bleed scene bands."
+    },
+    {
       "id": "recipes-sprites",
       "name": "Generated sprites (author/generate_sprites.mjs)",
       "url": null,

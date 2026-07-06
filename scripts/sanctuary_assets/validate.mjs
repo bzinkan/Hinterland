@@ -67,6 +67,7 @@ const assets = await readJson(path.join(HERE, "assets.json"));
 const allowlist = new Set((await readJson(path.join(HERE, "placeholders.json"))).allowlist);
 const layers = assets.entries.filter((entry) => entry.kind === "layer");
 const sprites = assets.entries.filter((entry) => entry.kind === "sprite");
+const backdrops = assets.entries.filter((entry) => entry.kind === "backdrop");
 const byClass = (spriteClass) => sprites.filter((entry) => entry.spriteClass === spriteClass);
 
 // --- gather content icon keys (souvenirs.json is the souvenir domain) -------
@@ -180,6 +181,31 @@ for (const type of ELEMENT_TYPES) {
   if (!fallbackTypes.has(type)) fail(`missing '${type}' fallback sprite`);
 }
 
+// 1f. Backdrop band sets: a zone ships all four scene bands or none (the
+// renderer treats a zone as "migrated" only when its full set exists;
+// build_manifest.mjs enforces the same rule at emit time).
+const SCENE_BANDS = ["far", "mid", "ground", "fore"];
+const backdropZoneBands = new Map();
+for (const entry of backdrops) {
+  if (!SCENE_BANDS.includes(entry.sceneBand)) {
+    fail(`backdrop '${entry.name}' has unknown sceneBand '${entry.sceneBand}'`);
+    continue;
+  }
+  const bands = backdropZoneBands.get(entry.zone) ?? new Set();
+  if (bands.has(entry.sceneBand)) {
+    fail(`backdrop '${entry.name}' duplicates ${entry.zone}/${entry.sceneBand}`);
+  }
+  bands.add(entry.sceneBand);
+  backdropZoneBands.set(entry.zone, bands);
+}
+for (const [zone, bands] of backdropZoneBands) {
+  for (const band of SCENE_BANDS) {
+    if (!bands.has(band)) {
+      fail(`backdrop set for '${zone}' is missing the '${band}' band (all four or none)`);
+    }
+  }
+}
+
 if (failures === 0) {
   ok(
     `coverage: ${contentIconKeys.size} content icon keys, ${souvenirKeys.size} souvenirs, ` +
@@ -190,7 +216,7 @@ if (failures === 0) {
 // 2 + 3 + 4. Files exist, lint clean, within budget.
 let totalBytes = 0;
 const referenced = new Set();
-for (const entry of [...layers, ...sprites]) {
+for (const entry of [...layers, ...sprites, ...backdrops]) {
   referenced.add(entry.out.replace(/\\/g, "/"));
   const filePath = path.join(HERE, entry.out);
   let bytes;
@@ -207,7 +233,12 @@ for (const entry of [...layers, ...sprites]) {
   } else if (bytes > budget.maxKB * 1024) {
     fail(`'${entry.name}' over budget: ${(bytes / 1024).toFixed(2)} KB (max ${budget.maxKB} KB)`);
   }
-  const expectViewBox = entry.kind === "layer" ? "0 0 512 384" : "0 0 128 128";
+  const expectViewBox =
+    entry.kind === "layer"
+      ? "0 0 512 384"
+      : entry.kind === "backdrop"
+        ? "0 0 1024 640"
+        : "0 0 128 128";
   const errors = lintSvgSource(await readFile(filePath, "utf8"), { expectViewBox });
   for (const error of errors) fail(`${entry.out}: ${error}`);
 }
@@ -242,7 +273,7 @@ for (const source of sources) {
     fail(`source '${source.id}' is OWNED but has no provenance (recipe path)`);
   }
 }
-for (const entry of [...layers, ...sprites]) {
+for (const entry of [...layers, ...sprites, ...backdrops]) {
   if (!sourceIds.has(entry.source)) {
     fail(`'${entry.name}' references unknown source '${entry.source}' -- add it to sources.json first`);
   }
@@ -250,10 +281,11 @@ for (const entry of [...layers, ...sprites]) {
 ok(`licenses: ${sources.length} sources, all OWNED/CC0`);
 
 // 6. Manifest drift.
-const { islandLayersTs, spritesTs } = await renderManifests();
+const { islandLayersTs, spritesTs, backdropsTs } = await renderManifests();
 for (const [file, expected] of [
   ["islandLayers.gen.ts", islandLayersTs],
   ["sprites.gen.ts", spritesTs],
+  ["backdrops.gen.ts", backdropsTs],
 ]) {
   let actual = null;
   try {

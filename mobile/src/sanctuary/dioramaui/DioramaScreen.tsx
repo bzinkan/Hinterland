@@ -1,15 +1,26 @@
 /**
- * Sanctuary diorama screen (D7). Owns everything AROUND the canvas:
+ * Sanctuary diorama screen (D7, recomposed by the ADR 0012 addendum).
+ * Owns everything AROUND the canvas:
  *  - the guarded Skia require (a dev client predating the native rebuild
  *    quietly gets the classic screen, never a crash),
  *  - the real data path: useSanctuary -> SanctuarySnapshotDto, with
  *    loading and error states (no sample snapshots),
+ *  - the chooser <-> scene flow: the kid lands on the native biome
+ *    chooser (no canvas) and taps into one zone's full-bleed 2.5D scene;
+ *    Back returns to the chooser (plain local state -- no new routes),
+ *  - the pending-wake ledger: the gate outlives every chooser <-> scene
+ *    switch, so it keeps per-zone dormant history across snapshots and
+ *    records wakes that land while the woken zone's scene is unmounted;
+ *    the next scene mount for such a zone plays the held wake ceremony
+ *    (BiomeScene's initiallyWaking) and reports back via onWakeEnd,
  *  - the render watchdog: 3-strike crash latch + first-frame timeout with
- *    the same semantics as the 3D latch. The canvas subtree sits inside an
- *    error boundary; a crash OR a canvas that never draws within the
- *    timeout records ONE persisted strike (prefs.recordRenderCrash) and
- *    swaps this session to Sanctuary2DScreen. At MAX_RENDER_CRASHES the
- *    tab route pins to the classic screen across launches.
+ *    the same semantics as the 3D latch, armed PER SCENE MOUNT (the
+ *    chooser is plain RN and can never strike). The scene canvas sits
+ *    inside an error boundary; a crash OR a canvas that never draws
+ *    within the timeout records ONE persisted strike
+ *    (prefs.recordRenderCrash) and swaps this session to
+ *    Sanctuary2DScreen. At MAX_RENDER_CRASHES the tab route pins to the
+ *    classic screen across launches.
  *
  * The tab route (app/(tabs)/sanctuary.tsx) only mounts this component
  * when decideSanctuaryDiorama says diorama.
@@ -25,8 +36,10 @@ import {
   type LayoutChangeEvent,
 } from "react-native";
 
+import type { SanctuarySnapshotDto, SanctuaryZoneId } from "@/src/api/sanctuary";
 import { useSanctuaryDioramaPrefs } from "@/src/sanctuary/diorama/prefs";
-import { DioramaScene } from "@/src/sanctuary/dioramaui/DioramaScene";
+import { BiomeChooserScreen } from "@/src/sanctuary/dioramaui/BiomeChooserScreen";
+import { BiomeScene } from "@/src/sanctuary/dioramaui/BiomeSceneScreen";
 import { RenderBoundary } from "@/src/sanctuary/dioramaui/RenderBoundary";
 import {
   FIRST_FRAME_TIMEOUT_MS,
@@ -61,7 +74,48 @@ function DioramaGate({ skia }: { skia: SkiaModule }) {
   const { data, isLoading, isError, error, refetch } = useSanctuary();
   const recordRenderCrash = useSanctuaryDioramaPrefs((s) => s.recordRenderCrash);
 
-  // Watchdog: pure reducer behind refs; one strike max per mount.
+  // Chooser <-> scene flow: null shows the biome chooser.
+  const [zoneId, setZoneId] = useState<SanctuaryZoneId | null>(null);
+  const onBack = useCallback(() => setZoneId(null), []);
+
+  // Pending-wake ledger (the D7 "kid actually sees it" guarantee,
+  // restated for the chooser flow): BiomeScene can only detect a wake as
+  // a prop transition on its own mounted island, so a dormant -> awake
+  // flip that lands while that zone's scene is unmounted (kid on the
+  // chooser, or inside another zone) would otherwise lose the ceremony
+  // forever. The gate outlives those switches: it diffs per-zone dormant
+  // flags across snapshots, records un-celebrated wakes, hands the flag
+  // to the mounting scene (initiallyWaking), and clears it only when the
+  // ceremony has actually played (onWakeEnd) -- so it survives backing
+  // out mid-hold and replays on the next entry. Refs, not state: the
+  // ledger is read at scene mount, never mid-scene.
+  const prevDormantRef = useRef<Map<SanctuaryZoneId, boolean> | null>(null);
+  const pendingWakesRef = useRef<Set<SanctuaryZoneId>>(new Set());
+  useEffect(() => {
+    if (data === undefined) return;
+    const dormantByZone = new Map(
+      data.zones.map((z) => [z.zone_id, !z.unlocked] as const),
+    );
+    // The first snapshot this gate sees only seeds the history: an
+    // already-awake zone is not a fresh wake.
+    const prev = prevDormantRef.current;
+    if (prev !== null) {
+      for (const [zone, dormant] of dormantByZone) {
+        if (prev.get(zone) === true && !dormant) {
+          pendingWakesRef.current.add(zone);
+        } else if (dormant) {
+          // Dormant (or rolled back to dormant): nothing to celebrate.
+          pendingWakesRef.current.delete(zone);
+        }
+      }
+    }
+    prevDormantRef.current = dormantByZone;
+  }, [data]);
+  const onWakeEnd = useCallback(() => {
+    if (zoneId !== null) pendingWakesRef.current.delete(zoneId);
+  }, [zoneId]);
+
+  // Watchdog: pure reducer behind refs; one strike max per scene mount.
   const phaseRef = useRef<WatchdogPhase>("waiting");
   const [struck, setStruck] = useState(false);
   const applyEvent = useCallback(
@@ -77,20 +131,23 @@ function DioramaGate({ skia }: { skia: SkiaModule }) {
     [recordRenderCrash],
   );
 
-  // Arm only while the canvas subtree is actually the rendered branch:
-  // a failed refetch keeps cached data (isError && data defined), but the
-  // render below shows the Retry screen then — a first-frame timeout in
-  // that state would mis-attribute a network condition as a renderer
-  // strike and (at three) permanently pin the kid to the classic screen.
-  const canvasMounted = !struck && data !== undefined && !isError && !isLoading;
+  // Arm only while a scene canvas is actually the rendered branch: the
+  // chooser has no canvas (a timeout there would mis-attribute a browse
+  // as a renderer strike), and a failed refetch keeps cached data
+  // (isError && data defined) but renders the Retry screen. Each scene
+  // mount re-arms from "waiting" -- the reducer stays the one authority
+  // for strike transitions.
+  const canvasMounted =
+    !struck && data !== undefined && !isError && !isLoading && zoneId !== null;
   useEffect(() => {
     if (!canvasMounted) return;
+    phaseRef.current = "waiting";
     const timer = setTimeout(
       () => applyEvent("timeout"),
       FIRST_FRAME_TIMEOUT_MS,
     );
     return () => clearTimeout(timer);
-  }, [canvasMounted, applyEvent]);
+  }, [canvasMounted, zoneId, applyEvent]);
 
   const onFirstFrame = useCallback(() => applyEvent("first-frame"), [applyEvent]);
   const onCrash = useCallback(() => applyEvent("crash"), [applyEvent]);
@@ -128,23 +185,43 @@ function DioramaGate({ skia }: { skia: SkiaModule }) {
     );
   }
 
+  if (zoneId === null) {
+    return <BiomeChooserScreen snapshot={data} onOpenZone={setZoneId} />;
+  }
+
   return (
     <RenderBoundary onCrash={onCrash}>
-      <DioramaBody skia={skia} snapshot={data} onFirstFrame={onFirstFrame} />
+      <SceneBody
+        skia={skia}
+        snapshot={data}
+        zoneId={zoneId}
+        initiallyWaking={pendingWakesRef.current.has(zoneId)}
+        onBack={onBack}
+        onFirstFrame={onFirstFrame}
+        onWakeEnd={onWakeEnd}
+      />
     </RenderBoundary>
   );
 }
 
-/** First layout wins: the camera initializes from it, and the diorama
- * does not chase rotation/resize (same policy as the D4 spike). */
-function DioramaBody({
+/** First layout wins: the scene camera initializes from it, and the
+ * diorama does not chase rotation/resize (same policy as the D4 spike). */
+function SceneBody({
   skia,
   snapshot,
+  zoneId,
+  initiallyWaking,
+  onBack,
   onFirstFrame,
+  onWakeEnd,
 }: {
   skia: SkiaModule;
-  snapshot: Parameters<typeof DioramaScene>[0]["snapshot"];
+  snapshot: SanctuarySnapshotDto;
+  zoneId: SanctuaryZoneId;
+  initiallyWaking: boolean;
+  onBack: () => void;
   onFirstFrame: () => void;
+  onWakeEnd: () => void;
 }) {
   const [size, setSize] = useState<{ w: number; h: number } | null>(null);
   const onLayout = useCallback((e: LayoutChangeEvent) => {
@@ -155,12 +232,17 @@ function DioramaBody({
   return (
     <View style={styles.root} onLayout={onLayout}>
       {size ? (
-        <DioramaScene
+        <BiomeScene
+          key={zoneId}
           skia={skia}
           w={size.w}
           h={size.h}
           snapshot={snapshot}
+          zoneId={zoneId}
+          initiallyWaking={initiallyWaking}
+          onBack={onBack}
           onFirstFrame={onFirstFrame}
+          onWakeEnd={onWakeEnd}
         />
       ) : null}
     </View>

@@ -1,0 +1,43 @@
+{
+  "_comment": "Full-bleed biome scene backdrops (ADR 0012 addendum: chooser + scenes). One object per zone, one sub-object per scene band (far/mid/ground/fore) on the 1024x640 canvas. Art direction: WoW-meadow x Nintendo softness -- rolling hill bands, drifting wildflower meadows, soft distant treeline, big readable painterly shapes; seeded wobble keeps silhouettes organic, 2-stop gradients give form, alpha haze carries depth. Tune HERE and rerun generate_backdrops.mjs -- never hand-edit svg/.",
+  "meadow": {
+    "far": {
+      "ridgeTops": [228, 318],
+      "humps": [5, 4],
+      "humpHeight": [72, 96],
+      "treeline": { "groups": 8, "height": 30, "opacity": 0.34 },
+      "clouds": { "count": 3, "opacity": 0.4 },
+      "hazeTop": 430,
+      "hazeOpacity": 0.55
+    },
+    "mid": {
+      "hillTops": [236, 330],
+      "humps": [4, 3],
+      "humpHeight": [88, 110],
+      "canopyClusters": 5,
+      "canopyRx": 66,
+      "canopyRy": 42,
+      "flowerDrifts": 3,
+      "hazeTop": 500,
+      "hazeOpacity": 0.4
+    },
+    "ground": {
+      "crestY": 178,
+      "crestWobble": 14,
+      "path": { "topX": 640, "topWidth": 26, "bottomX": 380, "bottomWidth": 150 },
+      "mottles": 5,
+      "flowerClusters": 5,
+      "tufts": 8
+    },
+    "fore": {
+      "baseY": 640,
+      "cornerClumps": [
+        { "x": 60, "blades": 9, "height": 150 },
+        { "x": 964, "blades": 8, "height": 130 }
+      ],
+      "edgeBlades": 10,
+      "flowers": 3,
+      "vignetteTop": 520
+    }
+  }
+}
