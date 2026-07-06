@@ -986,7 +986,12 @@ opens a modal with the element title / detail / icon-key.
 
 Remaining work (later PRs):
 
-- Final illustration, audio bed, and soft motion beyond opacity fades.
+- Final illustration, audio bed, and soft motion beyond opacity fades
+  — rendering direction decided in
+  [ADR 0012](adr/0012-sanctuary-2point5d-diorama.md): a Skia-based
+  2.5D layered painterly diorama (supersedes the true-3D track in
+  [ADR 0011](adr/0011-sanctuary-3d-rendering.md), whose implementation
+  is frozen on `feature/sanctuary-3d`).
 - Lottie / Reanimated 3 reveal beat (post-submit celebration; tracked
   separately from this MVP because the dispatcher reveal flow ships
   in the same PR cluster as the on-submit celebration sequence).
@@ -1015,6 +1020,12 @@ MapLibre / OSM surface, **not** a coordinate grid, and **not** a
 geographic map of any kind. Zones are content-authored compositional
 regions, not procedurally placed pins. There are no place names, no
 pins, no overhead view.
+
+The renderer behind this scene is decided in
+[ADR 0012](adr/0012-sanctuary-2point5d-diorama.md): a 2.5D layered
+painterly diorama — seven floating islands in one vista, with
+tap-to-dive into each island. The invariants in this section bind any
+renderer; the RN-primitives 2D screen remains the permanent fallback.
 
 ### tap-to-inspect
 
