@@ -19,6 +19,7 @@ import { env } from "@/src/config/env";
 let app: FirebaseApp | null = null;
 let auth: Auth | null = null;
 let listenerAttached = false;
+let sawFirebaseUser = false;
 
 export function getFirebaseApp(): FirebaseApp {
   if (app) return app;
@@ -47,9 +48,18 @@ export function ensureTokenSync(): void {
 
 async function syncToken(user: User | null): Promise<void> {
   if (!user) {
-    await clearBearerToken();
+    // The listener fires with null at every boot before any sign-in.
+    // Only a real signed-in -> signed-out transition may clear storage:
+    // the stored token is not necessarily Firebase's (kid session JWT,
+    // dev auto-login, pasted dev token), and boot-clearing wiped those
+    // on every dev/preview launch.
+    if (sawFirebaseUser) {
+      sawFirebaseUser = false;
+      await clearBearerToken();
+    }
     return;
   }
+  sawFirebaseUser = true;
   const token = await user.getIdToken();
   await setBearerToken(token);
 }

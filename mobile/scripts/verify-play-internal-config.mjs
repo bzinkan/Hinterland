@@ -38,5 +38,13 @@ assert(
   permissions.has("android.permission.ACCESS_COARSE_LOCATION"),
   "play-internal must explicitly request ACCESS_COARSE_LOCATION",
 );
+// app.config.ts bakes devLoginKey=null for store builds; Expo's public
+// config serializes that null as `{}`. The property that matters: the
+// store artifact must never carry a USABLE key (a non-empty string) --
+// the app's gate (src/auth/devLoginPolicy.ts) ignores anything else.
+assert(
+  typeof extra.devLoginKey !== "string" || extra.devLoginKey.length === 0,
+  "play-internal must never embed a dev-login key",
+);
 
 console.log("play-internal Expo config looks safe.");

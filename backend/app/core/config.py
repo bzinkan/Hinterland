@@ -108,6 +108,17 @@ class Settings(BaseSettings):
             return self.allow_stub_auth
         return self.env == "local"
 
+    # Dev-only auto-login for pre-production mobile builds
+    # (`POST /v1/auth/dev-login`, hidden from the OpenAPI schema). The
+    # dev API and the W1 pilot share one deployment, so this is
+    # FAIL-CLOSED three ways: the flag must be explicitly enabled
+    # (DRAGONFLY_DEV_LOGIN_ENABLED=true), a non-empty shared key must be
+    # configured (DRAGONFLY_DEV_LOGIN_KEY), and `env == "prod"` 404s the
+    # route regardless of both. Enabled-without-key is treated as a
+    # misconfiguration: the route stays 404 and logs a warning.
+    dev_login_enabled: bool = False
+    dev_login_key: str | None = None
+
     # iNaturalist API integration. Token is empty in dev / CI; the iNat client
     # treats absence of a token as "no third-party calls allowed" and CV
     # endpoints return a `cv_unavailable` flag instead of raising.
