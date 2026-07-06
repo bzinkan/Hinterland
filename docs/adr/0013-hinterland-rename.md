@@ -27,32 +27,48 @@ Each of these is a deployed contract. Renaming any of them is its own
 coordinated migration, listed with its owner/trigger below. Do not
 "clean these up" opportunistically.
 
+The migration targets are not open questions: the rebrand +
+Gordi-subscription environment ADR (authored 2026-07-02 in a parallel
+work stream; pending commit — it will take **ADR 0014**, since this
+repo's 0012 was taken by the Sanctuary diorama decision) fixes the new
+identity end-to-end: domain `thehinterlandguide.app`, mobile package
+`app.thehinterlandguide`, app registrations `hinterland-api` /
+`api://hinterland-api`, kid-JWT issuer
+`https://api.thehinterlandguide.app` + audience `hinterland-api` + kid
+`k1-2026-07`, JWKS `/.well-known/hinterland-kid-jwks.json`, QR format
+`hinterland.kid-handoff.v1`, and the `hinterland-dev-rg` environment
+(Gordi subscription, billing-only sharing). The old Dragonfly
+environment stays as reference/rollback and is never renamed in place.
+
 1. **Android/iOS bundle ids `com.dragonfly.app*`.** Play package names
-   are permanent per Console listing — a rename means a NEW Play
-   listing (new package, new tester opt-ins, review restart). Only
-   revisit as an explicit Play-listing decision before any public
-   release; the current Internal Testing pilot keeps the package.
+   are permanent per Console listing. The rebrand plan resolves this
+   deliberately: the new identity ships as a NEW listing under
+   `app.thehinterlandguide` (new package, new tester opt-ins); the
+   current Internal Testing pilot keeps `com.dragonfly.app` until that
+   cutover.
 2. **`DRAGONFLY_*` env var names and the `env_prefix="DRAGONFLY_"` in
    `backend/app/core/config.py`** (including the `dragonfly_*` Settings
    field names they bind to). The deployed Container Apps, jobs, CI
-   workflows, and operator scripts all set these. Migration = a
-   coordinated Container Apps / CI config change with a
-   both-names-accepted overlap window. Comments around them may say
-   Hinterland.
+   workflows, and operator scripts all set these. Migration per the
+   rebrand plan = introduce a `HINTERLAND_` prefix while keeping
+   `DRAGONFLY_` working through an overlap window. Comments around
+   them may say Hinterland.
 3. **Client-coordinated protocol strings:** the deep-link scheme
    `dragonfly` (`exp+dragonfly://…`), the kid QR handoff format
    `dragonfly.kid-handoff.v2`, the JWKS path
    `/.well-known/dragonfly-kid-jwks.json`, and the kid-JWT
    issuer/audience (`https://api.dragonfly-app.net` / `dragonfly-api`).
-   Installed clients validate these exact strings; changing them
-   requires a versioned client rollout (accept-both, then cut over).
+   Installed clients validate these exact strings. The rebrand plan
+   defines their successors (see above); the changeover rides the new
+   environment + new listing rather than mutating the deployed
+   lineage in place.
 4. **Azure resource names** (`dragonfly-dev-rg`, `dragonflyacrdev`,
    `dragonfly-api`, `dragonfly-kv-dev`, `dragonfly-*` jobs/workers,
    Entra app registrations incl. `api://dragonfly-api`) **and the
    `dragonfly-app.net` domain plus every URL on it** (API base,
    parents web, JWT issuer, geocoding/iNat user-agent strings). The
-   in-flight `hinterland-dev-rg` environment migration owns these;
-   until cutover, the old names are the live environment.
+   `hinterland-dev-rg` environment build-out owns these; until
+   cutover, the old names are the live environment.
 5. **`web/` (public landing site).** Deploys automatically to the live
    `dragonfly-app.net` on merge. The public brand cutover (landing
    copy, privacy/terms, social cards, store-facing URLs) is a separate
