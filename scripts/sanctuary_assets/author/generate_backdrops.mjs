@@ -77,28 +77,43 @@ function hazeWash(doc, hazeTop, opacity) {
   );
 }
 
-/** Canopy mass: dark under-blob, gradient body, glow kiss (islands' idiom). */
+/**
+ * Canopy stand: one shadow base, then 2-4 overlapping lumps of varying
+ * height, then one glow kiss. Overlapping masses read as a distant tree
+ * GROUP; a single blob read as a jelly-bean (taste pass i1).
+ */
 function canopyCluster(doc, rng, cx, cy, rx, ry, opacity) {
   doc.add(
     el("path", {
-      d: blobPath(rng, cx + 5, cy + 6, rx, ry, { points: 9, wobble: 0.17 }),
+      d: blobPath(rng, cx + 6, cy + 8, rx * 1.05, ry * 0.9, {
+        points: 9,
+        wobble: 0.17,
+      }),
       fill: token("green_deep"),
-      opacity: fmt(opacity * 0.8),
+      opacity: fmt(Math.min(1, opacity * 0.95)),
     }),
   );
+  const lumps = 2 + Math.floor(rng() * 2);
+  for (let i = 0; i < lumps; i++) {
+    const t = lumps === 1 ? 0 : i / (lumps - 1) - 0.5;
+    const lx = cx + t * rx * 1.1 + (rng() * 2 - 1) * 6;
+    const ly = cy + (rng() * 2 - 1) * ry * 0.25 - (i % 2) * ry * 0.35;
+    const lrx = rx * (0.42 + rng() * 0.3);
+    const lry = ry * (0.6 + rng() * 0.45);
+    doc.add(
+      el("path", {
+        d: blobPath(rng, lx, ly, lrx, lry, { points: 8, wobble: 0.21 }),
+        fill: doc.vGradient(ly - lry, ly + lry, [
+          [token("green_mid")],
+          [token("green_deep")],
+        ]),
+        opacity: fmt(opacity),
+      }),
+    );
+  }
   doc.add(
     el("path", {
-      d: blobPath(rng, cx, cy, rx, ry, { points: 9, wobble: 0.19 }),
-      fill: doc.vGradient(cy - ry, cy + ry, [
-        [token("green_mid")],
-        [token("green_deep")],
-      ]),
-      opacity: fmt(opacity),
-    }),
-  );
-  doc.add(
-    el("path", {
-      d: blobPath(rng, cx - rx * 0.28, cy - ry * 0.42, rx * 0.42, ry * 0.4, {
+      d: blobPath(rng, cx - rx * 0.25, cy - ry * 0.5, rx * 0.4, ry * 0.38, {
         points: 7,
         wobble: 0.2,
       }),
@@ -155,6 +170,48 @@ function paintFar(doc, rng, recipe) {
   const { ridgeTops, humps, humpHeight, treeline, hazeTop, hazeOpacity } =
     recipe;
 
+  // Slow cloud wisps hanging above the ridges. Band-locked, so they
+  // drift at far parallax -- reads as distance, not weather.
+  if (recipe.clouds) {
+    for (let i = 0; i < recipe.clouds.count; i++) {
+      const cx = 80 + rng() * (W - 160);
+      const cy = 70 + rng() * 130;
+      const rx = 60 + rng() * 70;
+      const o = recipe.clouds.opacity * (0.75 + rng() * 0.4);
+      // Nintendo cloud: flat wide base, two puffy domes stacked on top.
+      doc.add(
+        el("ellipse", {
+          cx: fmt(cx),
+          cy: fmt(cy),
+          rx: fmt(rx),
+          ry: fmt(13 + rng() * 6),
+          fill: token("cloud"),
+          opacity: fmt(o),
+        }),
+      );
+      doc.add(
+        el("ellipse", {
+          cx: fmt(cx - rx * 0.3),
+          cy: fmt(cy - 12 - rng() * 5),
+          rx: fmt(rx * 0.42),
+          ry: fmt(15 + rng() * 7),
+          fill: token("cloud"),
+          opacity: fmt(o * 0.95),
+        }),
+      );
+      doc.add(
+        el("ellipse", {
+          cx: fmt(cx + rx * 0.28),
+          cy: fmt(cy - 9 - rng() * 4),
+          rx: fmt(rx * 0.34),
+          ry: fmt(11 + rng() * 6),
+          fill: token("cloud"),
+          opacity: fmt(o * 0.9),
+        }),
+      );
+    }
+  }
+
   // Farthest ridge: barely more than horizon-colored air.
   doc.add(
     el("path", {
@@ -180,20 +237,33 @@ function paintFar(doc, rng, recipe) {
     }),
   );
 
-  // Soft treeline riding the second ridge: a run of small canopy bumps.
-  for (let i = 0; i < treeline.bumps; i++) {
-    const x = (i / (treeline.bumps - 1)) * (W + 24) - 12 + (rng() * 2 - 1) * 10;
-    const y = ridgeTops[1] - humpHeight[1] * 0.2 + (rng() * 2 - 1) * 16;
-    doc.add(
-      el("path", {
-        d: blobPath(rng, x, y, 14 + rng() * 16, treeline.height * (0.6 + rng() * 0.5), {
-          points: 7,
-          wobble: 0.22,
+  // Soft treeline riding the second ridge: clustered STANDS with gaps
+  // between them, not an even picket row (taste pass i1 -- the uniform
+  // run read as bubble wrap). Each stand is 2-4 lumps of varied width,
+  // height, and opacity around a jittered group center.
+  const stands = treeline.groups;
+  for (let g = 0; g < stands; g++) {
+    const gx = ((g + 0.5) / stands) * (W + 24) - 12 + (rng() * 2 - 1) * 34;
+    const lumps = 2 + Math.floor(rng() * 3);
+    const standH = treeline.height * (0.7 + rng() * 0.7);
+    for (let i = 0; i < lumps; i++) {
+      const x = gx + (i - (lumps - 1) / 2) * (18 + rng() * 8);
+      // Hug the ridge crest: bottoms sink into the ridge fill, tops
+      // break the skyline. Wider than tall -- distant broadleaf mass.
+      const y = ridgeTops[1] - humpHeight[1] * 0.12 + (rng() * 2 - 1) * 5;
+      const rx = 16 + rng() * 12;
+      const ry = standH * (0.55 + rng() * 0.35);
+      doc.add(
+        el("path", {
+          d: blobPath(rng, x, y, Math.max(rx, ry * 1.15), ry, {
+            points: 7,
+            wobble: 0.24,
+          }),
+          fill: token("green_deep"),
+          opacity: fmt(treeline.opacity * (1.1 + rng() * 0.35)),
         }),
-        fill: token("green_deep"),
-        opacity: fmt(treeline.opacity),
-      }),
-    );
+      );
+    }
   }
 
   hazeWash(doc, hazeTop, hazeOpacity);
@@ -238,19 +308,21 @@ function paintMid(doc, rng, recipe) {
     }),
   );
 
-  // Canopy clusters strolling the nearer hill's crest.
+  // Canopy stands riding the nearer hill's CREST, tops breaking the
+  // crest line so they silhouette against the far band instead of
+  // dissolving green-on-green mid-slope (taste pass i3).
   for (let i = 0; i < canopyClusters; i++) {
     const t = canopyClusters === 1 ? 0.5 : i / (canopyClusters - 1);
     const cx = t * (W - 80) + 40 + (rng() * 2 - 1) * 30;
-    const cy = hillTops[1] - humpHeight[1] * (0.28 + rng() * 0.3);
+    const cy = hillTops[1] - humpHeight[1] * (0.8 + rng() * 0.3);
     canopyCluster(
       doc,
       rng,
       cx,
       cy,
-      canopyRx * (0.7 + rng() * 0.6),
-      canopyRy * (0.7 + rng() * 0.6),
-      0.9,
+      canopyRx * (0.75 + rng() * 0.55),
+      canopyRy * (0.85 + rng() * 0.55),
+      0.95,
     );
   }
 
@@ -263,7 +335,7 @@ function paintMid(doc, rng, recipe) {
       hillTops[1] + 40 + rng() * 120,
       90 + rng() * 60,
       18 + rng() * 14,
-      10 + Math.floor(rng() * 8),
+      8 + Math.floor(rng() * 5),
       0.55,
     );
   }

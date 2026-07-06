@@ -57,8 +57,10 @@ export const BACKDROP_ASPECT = BACKDROP_ART_PX.height / BACKDROP_ART_PX.width;
  * hairline at the screen bottom.
  */
 export const BAND_BOTTOM_FRACTION: Record<SceneBand, number> = {
-  far: 0.68,
-  mid: 0.84,
+  // Taste pass i1: horizon raised — portrait phones showed ~55% empty
+  // sky; far/mid sit higher so the ridgeline lands near 40-45%.
+  far: 0.62,
+  mid: 0.8,
   ground: 1.02,
   fore: 1.05,
 };
