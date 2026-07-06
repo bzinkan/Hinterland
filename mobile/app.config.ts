@@ -92,6 +92,18 @@ const ENV: Record<AppEnv, EnvConfig> = {
 const env = ENV[APP_ENV];
 const isPlayInternal = APP_ENV === "play-internal";
 
+// Sanctuary 2.5D diorama build flag (ADR 0011/0012). Build-time default
+// only -- runtime overrides (screen reader, Simple view, renderer crash
+// latch) layer on top in src/config/featureFlags.ts. Stays "0" for
+// play-internal/production until the post-pilot flag-flip milestone.
+//
+// Local `expo start` has no eas.json env, so the development environment
+// defaults ON unless explicitly disabled with SANCTUARY_DIORAMA=0.
+const SANCTUARY_DIORAMA =
+  process.env.SANCTUARY_DIORAMA !== undefined
+    ? process.env.SANCTUARY_DIORAMA === "1"
+    : APP_ENV === "development";
+
 function displayName(appEnv: AppEnv): string {
   switch (appEnv) {
     case "production":
@@ -176,6 +188,7 @@ const config: ExpoConfig = {
     updatesChannel: env.updatesChannel,
     firebase: env.firebase,
     entra: env.entra,
+    sanctuaryDiorama: SANCTUARY_DIORAMA,
   },
 };
 
