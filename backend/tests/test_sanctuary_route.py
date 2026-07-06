@@ -14,6 +14,7 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator, Iterator
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
@@ -82,6 +83,13 @@ def _scalars_list(rows: list[object]) -> MagicMock:
     return result
 
 
+def _rows_list(rows: list[object]) -> MagicMock:
+    """Column-tuple SELECT result (``.all()`` directly, no ``.scalars()``)."""
+    result = MagicMock()
+    result.all = MagicMock(return_value=rows)
+    return result
+
+
 def _wire_session(
     fake_session: AsyncMock,
     *,
@@ -89,22 +97,34 @@ def _wire_session(
     zone_states: list[object] | None = None,
     elements: list[object] | None = None,
     events: list[object] | None = None,
+    observations: list[object] | None = None,
+    progress: list[object] | None = None,
 ) -> None:
-    """Sequence the four SELECTs the route issues, in order:
+    """Sequence the SELECTs the route issues, in order:
 
     1. SELECT users WHERE firebase_uid = ?
     2. SELECT sanctuary_zone_state WHERE user_id = ?
     3. SELECT sanctuary_elements   WHERE user_id = ? ORDER BY unlocked_at
     4. SELECT sanctuary_events     WHERE user_id = ? ORDER BY created_at DESC LIMIT 10
+    5. SELECT id, photo_id, moderation_status FROM observations
+       WHERE id IN (...) AND user_id = ?  -- ONLY issued when at least one
+       element row carries a source_observation_id (photo clean-gate)
+    6. SELECT expedition_id, completed_at FROM expedition_progress
+       WHERE user_id = ? AND completed_at IS NOT NULL ORDER BY completed_at
+
+    ``observations`` rows are ``(id, photo_id, moderation_status)`` tuples;
+    ``progress`` rows are ``(expedition_id, completed_at)`` tuples.
     """
-    fake_session.execute = AsyncMock(
-        side_effect=[
-            _scalar(user),
-            _scalars_list(zone_states or []),
-            _scalars_list(elements or []),
-            _scalars_list(events or []),
-        ]
-    )
+    results: list[MagicMock] = [
+        _scalar(user),
+        _scalars_list(zone_states or []),
+        _scalars_list(elements or []),
+        _scalars_list(events or []),
+    ]
+    if any(getattr(row, "source_observation_id", None) for row in elements or []):
+        results.append(_rows_list(observations or []))
+    results.append(_rows_list(progress or []))
+    fake_session.execute = AsyncMock(side_effect=results)
 
 
 def _zone_state(
@@ -853,6 +873,245 @@ def test_soundscape_zone_id_can_be_null_for_ambient_entries(
     body = response.json()
     wind = next(s for s in body["soundscapes"] if s["kind"] == "wind")
     assert wind["zone_id"] is None
+
+
+# ---------------------------------------------------------------------------
+# Group H: photo enrichment (clean-moderation gate, ADR 0012).
+# ---------------------------------------------------------------------------
+
+# Matches the `_element` helper's default source_observation_id.
+_SOURCE_OBS_ID = "01J0OBS00000000000000ULID0"
+_PHOTO_ID = "01J0PHOTO0000000000000ULID"
+
+
+def test_element_photo_id_present_for_clean_observation(
+    monkeypatch: pytest.MonkeyPatch, fake_session: AsyncMock
+) -> None:
+    _stub_token_verifier(monkeypatch)
+    _wire_session(
+        fake_session,
+        user=_user(),
+        elements=[_element(element_id=_MEADOW_COARSE_PLANTAE)],
+        observations=[(_SOURCE_OBS_ID, _PHOTO_ID, "clean")],
+    )
+    for client in _build_client(fake_session):
+        response = client.get("/v1/sanctuary/me", headers={"Authorization": "Bearer fake"})
+    body = response.json()
+    assert body["elements"][0]["photo_id"] == _PHOTO_ID
+
+
+@pytest.mark.parametrize("moderation_status", ["pending", "quarantine", "rejected"])
+def test_element_photo_id_none_when_not_clean(
+    monkeypatch: pytest.MonkeyPatch,
+    fake_session: AsyncMock,
+    moderation_status: str,
+) -> None:
+    """The kid-facing Sanctuary NEVER carries a photo_id for an
+    observation that has not passed moderation -- the clean gate is
+    server-side (the photo-URL endpoint's adult review rules must not
+    leak through this surface)."""
+    _stub_token_verifier(monkeypatch)
+    _wire_session(
+        fake_session,
+        user=_user(),
+        elements=[_element(element_id=_MEADOW_COARSE_PLANTAE)],
+        observations=[(_SOURCE_OBS_ID, _PHOTO_ID, moderation_status)],
+    )
+    for client in _build_client(fake_session):
+        response = client.get("/v1/sanctuary/me", headers={"Authorization": "Bearer fake"})
+    body = response.json()
+    assert body["elements"][0]["photo_id"] is None
+
+
+def test_element_photo_id_none_without_source_observation(
+    monkeypatch: pytest.MonkeyPatch, fake_session: AsyncMock
+) -> None:
+    """No source_observation_id -> photo_id None AND the route skips the
+    observation lookup entirely (five queries, not six)."""
+    _stub_token_verifier(monkeypatch)
+    _wire_session(
+        fake_session,
+        user=_user(),
+        elements=[_element(element_id=_MEADOW_COARSE_PLANTAE, source_observation_id=None)],
+    )
+    for client in _build_client(fake_session):
+        response = client.get("/v1/sanctuary/me", headers={"Authorization": "Bearer fake"})
+    body = response.json()
+    assert body["elements"][0]["photo_id"] is None
+    assert fake_session.execute.await_count == 5
+
+
+def test_element_photo_id_none_for_foreign_observation(
+    monkeypatch: pytest.MonkeyPatch, fake_session: AsyncMock
+) -> None:
+    """Defensive ownership pin: the batched observation query filters on
+    the CURRENT user's id, so an element pointing at another user's
+    observation resolves no photo. The fake returns zero rows (what
+    Postgres would produce under that WHERE); the test also asserts the
+    filter is really in the emitted SQL."""
+    _stub_token_verifier(monkeypatch)
+    _wire_session(
+        fake_session,
+        user=_user(),
+        elements=[_element(element_id=_MEADOW_COARSE_PLANTAE)],
+        observations=[],  # user_id filter excluded the foreign row
+    )
+    for client in _build_client(fake_session):
+        response = client.get("/v1/sanctuary/me", headers={"Authorization": "Bearer fake"})
+    body = response.json()
+    assert body["elements"][0]["photo_id"] is None
+    # Query #5 (index 4) is the observation lookup; it must pin user_id
+    # and read moderation_status.
+    observation_call = fake_session.execute.await_args_list[4]
+    rendered = str(observation_call.args[0]).lower()
+    assert "user_id" in rendered
+    assert "moderation_status" in rendered
+
+
+def test_photo_id_field_is_additive(
+    monkeypatch: pytest.MonkeyPatch, fake_session: AsyncMock
+) -> None:
+    """Existing element fields are untouched; photo_id rides alongside."""
+    _stub_token_verifier(monkeypatch)
+    _wire_session(
+        fake_session,
+        user=_user(),
+        elements=[_element(element_id=_MEADOW_COARSE_PLANTAE, payload={"iconic_taxon": "Plantae"})],
+        observations=[(_SOURCE_OBS_ID, _PHOTO_ID, "clean")],
+    )
+    for client in _build_client(fake_session):
+        response = client.get("/v1/sanctuary/me", headers={"Authorization": "Bearer fake"})
+    element = response.json()["elements"][0]
+    assert element["title"] == "Plants in the meadow"
+    assert element["icon"] == "sanctuary.meadow.plantae"
+    assert element["source_observation_id"] == _SOURCE_OBS_ID
+    assert element["photo_id"] == _PHOTO_ID
+
+
+# ---------------------------------------------------------------------------
+# Group I: expedition souvenirs (read-time, ADR 0012).
+# ---------------------------------------------------------------------------
+
+
+def test_souvenir_appears_for_completed_expedition(
+    monkeypatch: pytest.MonkeyPatch, fake_session: AsyncMock
+) -> None:
+    _stub_token_verifier(monkeypatch)
+    completed_at = datetime(2026, 6, 20, 15, 0, 0, tzinfo=UTC)
+    _wire_session(
+        fake_session,
+        user=_user(),
+        progress=[("backyard_starter", completed_at)],
+    )
+    for client in _build_client(fake_session):
+        response = client.get("/v1/sanctuary/me", headers={"Authorization": "Bearer fake"})
+    body = response.json()
+    assert len(body["souvenirs"]) == 1
+    souvenir = body["souvenirs"][0]
+    assert souvenir["expedition_id"] == "backyard_starter"
+    # Authored zone spread per ADR 0012: the backyard starter souvenir
+    # lands in the meadow.
+    assert souvenir["zone_id"] == "meadow"
+    assert souvenir["icon"] == "sanctuary.souvenir.backyard_starter"
+    assert souvenir["title"]
+    assert souvenir["detail"]
+    assert souvenir["completed_at"] is not None
+
+
+def test_souvenirs_ordered_by_completed_at(
+    monkeypatch: pytest.MonkeyPatch, fake_session: AsyncMock
+) -> None:
+    _stub_token_verifier(monkeypatch)
+    base = datetime(2026, 6, 20, 15, 0, 0, tzinfo=UTC)
+    # The route query orders by completed_at ASC; the fake returns rows
+    # already in that order and the response must preserve it.
+    _wire_session(
+        fake_session,
+        user=_user(),
+        progress=[
+            ("park_starter", base),
+            ("backyard_starter", base + timedelta(days=2)),
+        ],
+    )
+    for client in _build_client(fake_session):
+        response = client.get("/v1/sanctuary/me", headers={"Authorization": "Bearer fake"})
+    body = response.json()
+    assert [s["expedition_id"] for s in body["souvenirs"]] == [
+        "park_starter",
+        "backyard_starter",
+    ]
+
+
+def test_in_progress_expedition_yields_no_souvenir(
+    monkeypatch: pytest.MonkeyPatch, fake_session: AsyncMock
+) -> None:
+    """The progress query itself filters to completed rows -- assert the
+    NOT NULL predicate is in the emitted SQL, and an empty result shape
+    yields an empty shelf."""
+    _stub_token_verifier(monkeypatch)
+    _wire_session(fake_session, user=_user(), progress=[])
+    for client in _build_client(fake_session):
+        response = client.get("/v1/sanctuary/me", headers={"Authorization": "Bearer fake"})
+    body = response.json()
+    assert body["souvenirs"] == []
+    # Query #5 (index 4; no elements so no observation lookup) is the
+    # expedition_progress SELECT.
+    progress_call = fake_session.execute.await_args_list[4]
+    rendered = str(progress_call.args[0]).lower()
+    assert "completed_at is not null" in rendered
+    assert "user_id" in rendered
+
+
+def test_unknown_expedition_id_in_progress_rows_is_skipped(
+    monkeypatch: pytest.MonkeyPatch, fake_session: AsyncMock
+) -> None:
+    """A completed expedition with no authored souvenir (content trails)
+    is silently dropped -- no 500, no fallback entry."""
+    _stub_token_verifier(monkeypatch)
+    completed_at = datetime(2026, 6, 20, 15, 0, 0, tzinfo=UTC)
+    _wire_session(
+        fake_session,
+        user=_user(),
+        progress=[
+            ("ghost_expedition_no_souvenir", completed_at),
+            ("backyard_starter", completed_at + timedelta(days=1)),
+        ],
+    )
+    for client in _build_client(fake_session):
+        response = client.get("/v1/sanctuary/me", headers={"Authorization": "Bearer fake"})
+    body = response.json()
+    assert [s["expedition_id"] for s in body["souvenirs"]] == ["backyard_starter"]
+
+
+def test_empty_state_has_no_souvenirs(
+    monkeypatch: pytest.MonkeyPatch, fake_session: AsyncMock
+) -> None:
+    _stub_token_verifier(monkeypatch)
+    _wire_session(fake_session, user=_user())
+    for client in _build_client(fake_session):
+        response = client.get("/v1/sanctuary/me", headers={"Authorization": "Bearer fake"})
+    assert response.json()["souvenirs"] == []
+
+
+def test_content_loader_tolerates_missing_souvenirs_json(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A deployed backend may run against a content tree authored before
+    souvenirs.json existed -- the loader must yield an empty souvenir
+    index, not raise."""
+    import shutil
+
+    import app.sanctuary.content as content_module
+
+    replica = tmp_path / "sanctuary"
+    shutil.copytree(content_module._CONTENT_ROOT, replica)
+    (replica / "souvenirs.json").unlink()
+    monkeypatch.setattr(content_module, "_CONTENT_ROOT", replica)
+    reset_sanctuary_content_cache()
+
+    content = content_module.get_sanctuary_content()
+    assert content.config.souvenirs == []
+    assert content.souvenir_by_expedition_id == {}
 
 
 def test_current_season_helper_table() -> None:

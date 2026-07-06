@@ -455,6 +455,49 @@ class Soundscape(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# Expedition souvenir (read-time keepsake for a completed expedition)
+# ---------------------------------------------------------------------------
+
+
+class SanctuarySouvenir(BaseModel):
+    """A small keepsake placed in the Sanctuary when an expedition completes.
+
+    Derived at READ time (ADR 0012): ``GET /v1/sanctuary/me`` joins the
+    kid's completed ``expedition_progress`` rows to these authored entries.
+    No new tables, no new writer, no dispatcher change.
+
+    ``expedition_id`` names an expedition under ``content/expeditions/``.
+    It is format-checked here but NOT resolved against expedition content
+    -- expeditions live outside the sanctuary tree, and a deployed backend
+    may carry progress rows for expeditions whose souvenir has not been
+    authored yet (or vice versa). The cross-file existence check lives in
+    ``scripts/validate_content.py``, which sees both trees.
+    """
+
+    id: str
+    expedition_id: str
+    zone: ZoneId
+    icon: Annotated[str, Field(min_length=1, max_length=120)]
+    title: Annotated[str, Field(min_length=1, max_length=60)]
+    detail: Annotated[str, Field(min_length=1, max_length=180)]
+
+    @field_validator("id")
+    @classmethod
+    def id_is_snake_case(cls, v: str) -> str:
+        return _enforce_snake_case(v, "souvenir")
+
+    @field_validator("expedition_id")
+    @classmethod
+    def expedition_id_is_snake_case(cls, v: str) -> str:
+        return _enforce_snake_case(v, f"souvenir expedition_id {v!r}")
+
+    @field_validator("title", "detail")
+    @classmethod
+    def copy_policy(cls, v: str) -> str:
+        return _enforce_copy_policy(v, "souvenir copy")
+
+
+# ---------------------------------------------------------------------------
 # Top-level sanctuary config (whole-tree cross-reference validation)
 # ---------------------------------------------------------------------------
 
@@ -529,6 +572,7 @@ class SanctuaryConfig(BaseModel):
     seasonal_variants: list[SeasonalVariant] = Field(default_factory=list)
     identity_reflections: list[IdentityReflection] = Field(default_factory=list)
     soundscapes: list[Soundscape] = Field(default_factory=list)
+    souvenirs: list[SanctuarySouvenir] = Field(default_factory=list)
 
     @field_validator("zones")
     @classmethod
@@ -650,5 +694,27 @@ class SanctuaryConfig(BaseModel):
                     f"{s.kind!r}/{s.zone!r} (collides with {s.id!r})"
                 )
             sound_kind_zone_seen.add(key)
+
+        # Souvenirs: ids unique; zone must resolve; at most one souvenir
+        # per expedition (the read-time lookup is keyed by expedition_id,
+        # so a duplicate would silently shadow). expedition_id existence
+        # is deliberately NOT checked here -- see the SanctuarySouvenir
+        # docstring; scripts/validate_content.py owns the cross-file check.
+        souvenir_seen: set[str] = set()
+        souvenir_expedition_seen: set[str] = set()
+        for souvenir in self.souvenirs:
+            if souvenir.id in souvenir_seen:
+                raise ValueError(f"duplicate souvenir id: {souvenir.id}")
+            souvenir_seen.add(souvenir.id)
+            if souvenir.zone not in zone_ids:
+                raise ValueError(
+                    f"souvenir {souvenir.id!r} references unknown zone {souvenir.zone!r}"
+                )
+            if souvenir.expedition_id in souvenir_expedition_seen:
+                raise ValueError(
+                    f"duplicate souvenir expedition_id {souvenir.expedition_id!r} "
+                    f"(collides with {souvenir.id!r})"
+                )
+            souvenir_expedition_seen.add(souvenir.expedition_id)
 
         return self

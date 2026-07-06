@@ -29,6 +29,7 @@ from app.models.sanctuary import (
     MysteryCue,
     RelationshipMoment,
     SanctuaryConfig,
+    SanctuarySouvenir,
     SanctuaryZone,
     SeasonalVariant,
     Soundscape,
@@ -59,6 +60,7 @@ _ITEM_MODELS: dict[str, type[BaseModel]] = {
     "seasonal_variants": SeasonalVariant,
     "identity_reflections": IdentityReflection,
     "soundscapes": Soundscape,
+    "souvenirs": SanctuarySouvenir,
 }
 
 
@@ -86,6 +88,11 @@ class SanctuaryContent:
     charismatic_by_id: dict[str, CharismaticUnlock]
     identity_reflections: tuple[IdentityReflection, ...]
     soundscapes: tuple[Soundscape, ...]
+    # Keyed by expedition_id (unique per SanctuaryConfig validation) for
+    # the read-time souvenir join in GET /v1/sanctuary/me. Empty when
+    # souvenirs.json is absent -- content drops can trail the backend
+    # deploy, so a missing file is a valid (souvenir-less) tree.
+    souvenir_by_expedition_id: dict[str, SanctuarySouvenir]
 
 
 _CACHE_LOCK = threading.Lock()
@@ -168,6 +175,10 @@ def _load() -> SanctuaryContent:
     coarse_by_id: dict[str, CoarseUnlock] = {c.id: c for c in config.coarse_unlocks}
     charismatic_by_id: dict[str, CharismaticUnlock] = {c.id: c for c in config.charismatic_unlocks}
 
+    souvenir_by_expedition_id: dict[str, SanctuarySouvenir] = {
+        s.expedition_id: s for s in config.souvenirs
+    }
+
     return SanctuaryContent(
         config=config,
         zone_by_id=zone_by_id,
@@ -182,4 +193,5 @@ def _load() -> SanctuaryContent:
         charismatic_by_id=charismatic_by_id,
         identity_reflections=tuple(config.identity_reflections),
         soundscapes=tuple(config.soundscapes),
+        souvenir_by_expedition_id=souvenir_by_expedition_id,
     )

@@ -1,0 +1,84 @@
+{
+  "souvenirs": [
+    {
+      "id": "souvenir_backyard_starter",
+      "expedition_id": "backyard_starter",
+      "zone": "meadow",
+      "icon": "sanctuary.souvenir.backyard_starter",
+      "title": "A small specimen jar",
+      "detail": "It sits in the meadow grass now, a keepsake from your first real survey. Three living things went into the record, and the Sanctuary has felt different since."
+    },
+    {
+      "id": "souvenir_park_starter",
+      "expedition_id": "park_starter",
+      "zone": "woodland",
+      "icon": "sanctuary.souvenir.park_starter",
+      "title": "A worn field notebook",
+      "detail": "It rests against a woodland log, its pages soft from use. The park turned out to be a whole ecosystem, and you walked it the way a researcher would."
+    },
+    {
+      "id": "souvenir_street_starter",
+      "expedition_id": "street_starter",
+      "zone": "urban",
+      "icon": "sanctuary.souvenir.street_starter",
+      "title": "A chalk mark from the curb",
+      "detail": "A small chalk mark from the day the sidewalk became a study site. The city was alive the whole time, and now the urban zone remembers you noticed."
+    },
+    {
+      "id": "souvenir_school_starter",
+      "expedition_id": "school_starter",
+      "zone": "urban",
+      "icon": "sanctuary.souvenir.school_starter",
+      "title": "A schoolyard survey card",
+      "detail": "A little card from the spot you pass every day. You documented something new there, and quiet corners look different once you have really seen one."
+    },
+    {
+      "id": "souvenir_anywhere_starter",
+      "expedition_id": "anywhere_starter",
+      "zone": "elsewhere",
+      "icon": "sanctuary.souvenir.anywhere_starter",
+      "title": "A pebble from no place special",
+      "detail": "A smooth pebble from wherever you happened to be standing. There is no boring place, and this small stone came back as proof."
+    },
+    {
+      "id": "souvenir_backyard_closeup",
+      "expedition_id": "backyard_closeup",
+      "zone": "soil",
+      "icon": "sanctuary.souvenir.backyard_closeup",
+      "title": "A folding hand lens",
+      "detail": "It waits near the soil, folded shut for now. You surveyed the ground at bug scale, and smaller worlds kept opening the closer you looked."
+    },
+    {
+      "id": "souvenir_park_pollinators",
+      "expedition_id": "park_pollinators",
+      "zone": "meadow",
+      "icon": "sanctuary.souvenir.park_pollinators",
+      "title": "A pressed wildflower",
+      "detail": "A bloom pressed flat to remember your pollinator patrol by. You traced the flowers to the workers, and the meadow hums a little more now."
+    },
+    {
+      "id": "souvenir_street_survivors",
+      "expedition_id": "street_survivors",
+      "zone": "urban",
+      "icon": "sanctuary.souvenir.street_survivors",
+      "title": "A seed from a sidewalk crack",
+      "detail": "A tough little seed from the toughest neighbors on the block. The urban zone keeps it as a reminder that life holds on wherever it lands."
+    },
+    {
+      "id": "souvenir_school_census",
+      "expedition_id": "school_census",
+      "zone": "urban",
+      "icon": "sanctuary.souvenir.school_census",
+      "title": "A corner-to-corner map",
+      "detail": "A small hand-drawn map of the whole grounds. Ecologists call that kind of survey a census, and this one is finished, folded, and kept."
+    },
+    {
+      "id": "souvenir_anywhere_collector",
+      "expedition_id": "anywhere_collector",
+      "zone": "sky",
+      "icon": "sanctuary.souvenir.anywhere_collector",
+      "title": "A kite tail of field tags",
+      "detail": "Four paper tags ride the tail of a small kite, one for each brand-new species from a single outing. The sky keeps it drifting overhead."
+    }
+  ]
+}

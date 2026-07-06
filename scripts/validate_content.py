@@ -38,6 +38,7 @@ from app.models.sanctuary import (  # noqa: E402
     MysteryCue,
     RelationshipMoment,
     SanctuaryConfig,
+    SanctuarySouvenir,
     SanctuaryZone,
     SeasonalVariant,
     Soundscape,
@@ -59,20 +60,26 @@ _SANCTUARY_ITEM_MODELS: dict[str, type[BaseModel]] = {
     "seasonal_variants": SeasonalVariant,
     "identity_reflections": IdentityReflection,
     "soundscapes": Soundscape,
+    "souvenirs": SanctuarySouvenir,
 }
 
 
-def _validate_expeditions(failures: list[tuple[Path, str]]) -> int:
-    """Validate expedition JSON files. Returns the count of files considered."""
+def _validate_expeditions(failures: list[tuple[Path, str]]) -> tuple[int, set[str]]:
+    """Validate expedition JSON files.
+
+    Returns the count of files considered and the set of expedition ids
+    that parsed cleanly (consumed by the souvenir cross-file check).
+    """
     content_root = _REPO_ROOT / "content" / "expeditions"
+    expedition_ids: set[str] = set()
     if not content_root.exists():
         print(f"No expedition content found at {content_root}; nothing to validate.")
-        return 0
+        return 0, expedition_ids
 
     files = sorted(content_root.rglob("*.json"))
     if not files:
         print(f"No expedition JSON files in {content_root}; nothing to validate.")
-        return 0
+        return 0, expedition_ids
 
     for path in files:
         try:
@@ -91,11 +98,16 @@ def _validate_expeditions(failures: list[tuple[Path, str]]) -> int:
         if path.stem != exp.id:
             failures.append((path, f"filename stem '{path.stem}' must equal id '{exp.id}'"))
 
-    return len(files)
+        expedition_ids.add(exp.id)
+
+    return len(files), expedition_ids
 
 
-def _validate_sanctuary(failures: list[tuple[Path, str]]) -> int:
-    """Validate sanctuary JSON files. Returns the count of files considered.
+def _validate_sanctuary(failures: list[tuple[Path, str]]) -> tuple[int, list[SanctuarySouvenir]]:
+    """Validate sanctuary JSON files.
+
+    Returns the count of files considered and the parsed souvenirs
+    (consumed by the expedition cross-file check in ``main``).
 
     Sanctuary content lives at content/sanctuary/<kind>.json -- one file
     per content kind in the flat layout documented in docs/sanctuary.md.
@@ -112,12 +124,12 @@ def _validate_sanctuary(failures: list[tuple[Path, str]]) -> int:
     content_root = _REPO_ROOT / "content" / "sanctuary"
     if not content_root.exists():
         print(f"No sanctuary content found at {content_root}; nothing to validate.")
-        return 0
+        return 0, []
 
     files = sorted(content_root.rglob("*.json"))
     if not files:
         print(f"No sanctuary JSON files in {content_root}; nothing to validate.")
-        return 0
+        return 0, []
 
     # Accumulators for the assembled SanctuaryConfig.
     collected: dict[str, list[Any]] = {kind: [] for kind in _SANCTUARY_ITEM_MODELS}
@@ -217,14 +229,52 @@ def _validate_sanctuary(failures: list[tuple[Path, str]]) -> int:
                 )
             )
 
-    return len(files)
+    return len(files), list(collected["souvenirs"])
+
+
+def _validate_souvenir_expedition_refs(
+    failures: list[tuple[Path, str]],
+    souvenirs: list[SanctuarySouvenir],
+    expedition_ids: set[str],
+) -> None:
+    """Cross-FILE checks the Pydantic models cannot express alone.
+
+    ``SanctuaryConfig`` deliberately does not resolve souvenir
+    ``expedition_id``s (a deployed backend may see content trail), but the
+    repo tree itself must be self-consistent: every authored souvenir must
+    point at a real ``content/expeditions/**`` id, and its icon must
+    follow the ``sanctuary.souvenir.<expedition_id>`` asset-key
+    convention. Zone existence is already enforced by
+    ``SanctuaryConfig.cross_references_resolve``.
+    """
+    souvenirs_path = _REPO_ROOT / "content" / "sanctuary" / "souvenirs.json"
+    for souvenir in souvenirs:
+        if souvenir.expedition_id not in expedition_ids:
+            failures.append(
+                (
+                    souvenirs_path,
+                    f"souvenir {souvenir.id!r} references unknown expedition "
+                    f"{souvenir.expedition_id!r} (no matching file under "
+                    f"content/expeditions/)",
+                )
+            )
+        expected_icon = f"sanctuary.souvenir.{souvenir.expedition_id}"
+        if souvenir.icon != expected_icon:
+            failures.append(
+                (
+                    souvenirs_path,
+                    f"souvenir {souvenir.id!r} icon {souvenir.icon!r} must be "
+                    f"{expected_icon!r} (sanctuary.souvenir.<expedition_id>)",
+                )
+            )
 
 
 def main() -> int:
     failures: list[tuple[Path, str]] = []
 
-    expedition_count = _validate_expeditions(failures)
-    sanctuary_count = _validate_sanctuary(failures)
+    expedition_count, expedition_ids = _validate_expeditions(failures)
+    sanctuary_count, souvenirs = _validate_sanctuary(failures)
+    _validate_souvenir_expedition_refs(failures, souvenirs, expedition_ids)
 
     if failures:
         print(f"\n{len(failures)} content file(s) failed validation:\n")
