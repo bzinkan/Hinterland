@@ -552,11 +552,7 @@ def _dev_auth_allowed(settings: Settings) -> bool:
 
 async def _ensure_dev_auth_subject(session: AsyncSession, settings: Settings) -> None:
     """Ensure the development bypass user can write normal observation rows."""
-    user = (
-        await session.execute(
-            select(models.User).where(models.User.id == settings.dev_auth_user_id)
-        )
-    ).scalar_one_or_none()
+    user, group, membership = await _load_dev_auth_subject(session, settings)
     if user is None:
         session.add(
             models.User(
@@ -568,11 +564,6 @@ async def _ensure_dev_auth_subject(session: AsyncSession, settings: Settings) ->
             )
         )
 
-    group = (
-        await session.execute(
-            select(models.Group).where(models.Group.id == settings.dev_auth_group_id)
-        )
-    ).scalar_one_or_none()
     if group is None:
         session.add(
             models.Group(
@@ -583,14 +574,6 @@ async def _ensure_dev_auth_subject(session: AsyncSession, settings: Settings) ->
             )
         )
 
-    membership = (
-        await session.execute(
-            select(models.Membership).where(
-                models.Membership.user_id == settings.dev_auth_user_id,
-                models.Membership.group_id == settings.dev_auth_group_id,
-            )
-        )
-    ).scalar_one_or_none()
     if membership is None:
         session.add(
             models.Membership(
@@ -605,6 +588,41 @@ async def _ensure_dev_auth_subject(session: AsyncSession, settings: Settings) ->
         await session.commit()
     except IntegrityError:
         await session.rollback()
+        user, group, membership = await _load_dev_auth_subject(session, settings)
+        if user is not None and group is not None and membership is not None:
+            return
+        log.warning(
+            "auth.dev_bootstrap_failed",
+            user_id=settings.dev_auth_user_id,
+            group_id=settings.dev_auth_group_id,
+            exc_info=True,
+        )
+        raise
+
+
+async def _load_dev_auth_subject(
+    session: AsyncSession,
+    settings: Settings,
+) -> tuple[models.User | None, models.Group | None, models.Membership | None]:
+    user = (
+        await session.execute(
+            select(models.User).where(models.User.id == settings.dev_auth_user_id)
+        )
+    ).scalar_one_or_none()
+    group = (
+        await session.execute(
+            select(models.Group).where(models.Group.id == settings.dev_auth_group_id)
+        )
+    ).scalar_one_or_none()
+    membership = (
+        await session.execute(
+            select(models.Membership).where(
+                models.Membership.user_id == settings.dev_auth_user_id,
+                models.Membership.group_id == settings.dev_auth_group_id,
+            )
+        )
+    ).scalar_one_or_none()
+    return user, group, membership
 
 
 async def resolve_current_user_row(

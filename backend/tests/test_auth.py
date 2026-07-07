@@ -38,6 +38,25 @@ def _wire_empty_dev_auth_bootstrap(fake_session: AsyncMock) -> None:
     fake_session.commit = AsyncMock()
 
 
+def _dev_bootstrap_results(
+    *,
+    user: models.User | None,
+    group: models.Group | None,
+    membership: models.Membership | None,
+) -> list[MagicMock]:
+    rows: list[models.User | models.Group | models.Membership | None] = [
+        user,
+        group,
+        membership,
+    ]
+    results: list[MagicMock] = []
+    for row in rows:
+        result = MagicMock()
+        result.scalar_one_or_none = MagicMock(return_value=row)
+        results.append(result)
+    return results
+
+
 def test_me_uses_dev_auth_bypass_without_bearer(fake_session: AsyncMock) -> None:
     app = create_app(
         Settings(env="local", app_version="test", dev_auth_enabled=True)
@@ -59,6 +78,56 @@ def test_me_uses_dev_auth_bypass_without_bearer(fake_session: AsyncMock) -> None
     assert body["group_id"] == "01J0GROUPID00000000000ULID"
     assert fake_session.add.call_count == 3
     fake_session.commit.assert_awaited_once()
+
+
+def test_me_tolerates_parallel_dev_auth_bootstrap_conflict(fake_session: AsyncMock) -> None:
+    app = create_app(
+        Settings(env="local", app_version="test", dev_auth_enabled=True)
+    )
+
+    async def override() -> AsyncIterator[AsyncSession]:
+        yield fake_session
+
+    app.dependency_overrides[get_db_session] = override
+    user = models.User(
+        id="01J0KIDID0000000000000ULID",
+        firebase_uid=None,
+        role="kid",
+        display_name="Dev Explorer",
+    )
+    group = models.Group(
+        id="01J0GROUPID00000000000ULID",
+        name="Dev Backyard",
+        join_code="DEV001",
+        owner_user_id=user.id,
+    )
+    membership = models.Membership(
+        id="01J0MEMBERID0000000000ULID",
+        user_id=user.id,
+        group_id=group.id,
+        role="kid",
+    )
+    fake_session.execute = AsyncMock(
+        side_effect=[
+            *_dev_bootstrap_results(user=None, group=None, membership=None),
+            *_dev_bootstrap_results(user=user, group=group, membership=membership),
+        ]
+    )
+    fake_session.add = MagicMock()
+    fake_session.commit = AsyncMock(
+        side_effect=IntegrityError("INSERT", {}, Exception("duplicate key"))
+    )
+    fake_session.rollback = AsyncMock()
+
+    with TestClient(app) as test_client:
+        response = test_client.get(
+            "/v1/me",
+            headers={"Authorization": "Bearer hinterland-dev-bypass"},
+        )
+
+    assert response.status_code == 200
+    assert response.json()["role"] == "kid"
+    fake_session.rollback.assert_awaited_once()
 
 
 def test_me_rejects_missing_dev_auth_bearer_outside_local() -> None:

@@ -81,6 +81,9 @@ jobs:
           curl --fail --silent --show-error \
             --header "Authorization: Bearer hinterland-dev-bypass" \
             "${API_BASE_URL}/v1/me"
+          curl --fail --silent --show-error \
+            --header "Authorization: Bearer hinterland-dev-bypass" \
+            "${API_BASE_URL}/v1/observations/me"
 
       - name: Authenticated parent/kid smoke
         env:
