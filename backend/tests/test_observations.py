@@ -423,9 +423,7 @@ def test_create_fills_species_name_from_local_cache_when_available(
         )
     )
     membership_result = MagicMock()
-    membership_result.scalar_one_or_none = MagicMock(
-        return_value="01J0MEMBERID0000000000ULID"
-    )
+    membership_result.scalar_one_or_none = MagicMock(return_value="01J0MEMBERID0000000000ULID")
     group_result = MagicMock()
     group_result.scalar_one_or_none = MagicMock(return_value=None)
     fake_session.execute = AsyncMock(
