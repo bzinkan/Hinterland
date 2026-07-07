@@ -55,7 +55,7 @@ const ENTRA_DEV: EntraConfig = {
 
 const ENV: Record<AppEnv, EnvConfig> = {
   development: {
-    apiBaseUrl: "https://api.dragonfly-app.net",
+    apiBaseUrl: "https://api.thehinterlandguide.app",
     bundleIdSuffix: ".dev",
     updatesChannel: "development",
     firebase: FIREBASE_DEV,
@@ -81,7 +81,7 @@ const ENV: Record<AppEnv, EnvConfig> = {
   // internal-testing.md for the warning + recovery path. Points at
   // the dev API since no staging API exists yet.
   "play-internal": {
-    apiBaseUrl: "https://api.dragonfly-app.net",
+    apiBaseUrl: "https://api.thehinterlandguide.app",
     bundleIdSuffix: "",
     updatesChannel: "play-internal",
     firebase: FIREBASE_DEV,

@@ -38,7 +38,7 @@ npm run web           # browser preview at http://localhost:8081
 ```
 
 Defaults to `APP_ENV=development`, which points the API base URL at
-`https://api.dragonfly-app.net`. Other envs:
+`https://api.thehinterlandguide.app`. Other envs:
 
 ```powershell
 $env:APP_ENV="preview";    npm run start
@@ -76,7 +76,7 @@ holds non-route code (API clients, state stores, hooks).
 
 | APP_ENV       | API base URL                          | Bundle ID                  | Update channel |
 | ------------- | ------------------------------------- | -------------------------- | -------------- |
-| `development` | `https://api.dragonfly-app.net`       | `com.dragonfly.app.dev`    | `development`  |
+| `development` | `https://api.thehinterlandguide.app`  | `com.dragonfly.app.dev`    | `development`  |
 | `preview`     | `https://api.staging.dragonfly-app.net` (TBD) | `com.dragonfly.app.staging` | `preview`      |
 | `production`  | `https://api.dragonfly-app.net` (TBD prod URL) | `com.dragonfly.app`        | `production`   |
 
