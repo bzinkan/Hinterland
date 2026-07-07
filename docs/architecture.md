@@ -37,14 +37,21 @@ the adult generates from Classroom.
 1. Kid captures or chooses a photo.
 2. Client calls `POST /v1/photos/presign` and uploads JPEG bytes to
    `pending/<photo_id>.jpg` in the private photos container.
-3. Client calls `POST /v1/observations` with the stable observation shape.
-4. API validates ownership, inserts the observation, and atomically bumps the
+3. Online clients call `POST /v1/photos/{photo_id}/identify` while the photo is
+   still pending. iNaturalist CV returns top suggestions, `no_matches=true`, or
+   `cv_unavailable=true`; the kid can pick a suggestion, type a display-only
+   name, or skip.
+4. Client calls `POST /v1/observations` with the stable observation shape and
+   the chosen `taxon_id`/`species_name` when known.
+5. API validates ownership, inserts the observation, and atomically bumps the
    membership observation counter.
-5. Dispatcher runs after the observation is committed. It invokes Dex,
+6. Dispatcher runs after the observation is committed. It invokes Dex,
    Rarity, Expedition, and World/Sanctuary handlers with exception isolation.
-6. Rewards return to the client for the celebration sequence. Failure in any
+7. Rewards return to the client for the celebration sequence. Failure in any
    handler does not fail submission; replay can recover missing rewards.
-7. Async moderation/iNat work may run later. The kid already saw success.
+8. Async moderation/iNat submit work may run later. Public iNat submission
+   remains disabled until the production risk is closed; the kid already saw
+   success.
 
 The submission endpoint shape is intentionally stable. Add handlers and workers;
 do not keep expanding the endpoint with feature-specific branches.
@@ -96,7 +103,7 @@ truth. Postgres tables are materialized views synced by scripts/CI.
 
 | Dependency | Used For | Failure Mode |
 |---|---|---|
-| iNaturalist CV | Species suggestions | Return `cv_unavailable=true`; kid can choose manually |
+| iNaturalist CV | Species suggestions before final save | Return `cv_unavailable=true`; kid can choose manually/skip. If iNat responds without usable organism suggestions, return `no_matches=true` |
 | iNaturalist submit | Science contribution | Queue/retry later; kid submission already succeeded |
 | Azure AI Content Safety | Photo moderation | Hold/retry pending; do not default-allow |
 | Reverse geocoding | Place names | No-op/cache miss is acceptable |

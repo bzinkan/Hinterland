@@ -3,7 +3,9 @@ from datetime import UTC, datetime, timedelta
 from typing import cast
 from unittest.mock import AsyncMock, MagicMock
 
+import httpx
 import pytest
+import respx
 from fastapi.testclient import TestClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -23,6 +25,8 @@ class _StubSignedUrlGenerator:
 
     def __init__(self) -> None:
         self.calls: list[dict[str, object]] = []
+        self.fetch_calls: list[tuple[str, str]] = []
+        self.bytes_to_return = b"fake-jpeg-bytes"
 
     def generate_put_url(
         self,
@@ -51,8 +55,8 @@ class _StubSignedUrlGenerator:
         return {"Content-Type": content_type, "x-ms-blob-type": "BlockBlob"}
 
     def fetch_object_bytes(self, *, bucket: str, object_name: str) -> bytes:
-        # Not exercised by the presign tests; other tests use their own stub.
-        raise NotImplementedError
+        self.fetch_calls.append((bucket, object_name))
+        return self.bytes_to_return
 
     def copy_object(
         self,
@@ -93,9 +97,15 @@ def _build_client(
     fake_session: AsyncMock,
     *,
     signer: SignedUrlGenerator | None = None,
+    inat_token: str = "test-token",
 ) -> Iterator[TestClient]:
     app = create_app(
-        Settings(env="local", app_version="test", photos_bucket="dragonfly-photos-test")
+        Settings(
+            env="local",
+            app_version="test",
+            photos_bucket="dragonfly-photos-test",
+            inat_oauth_token=inat_token,
+        )
     )
     if signer is not None:
         app.state.signed_url_generator = signer
@@ -504,3 +514,188 @@ def test_photo_url_adult_shared_membership_with_kid_membership_elsewhere(
     )
     response = photos_client.get("/v1/photos/x/url", headers={"Authorization": "Bearer fake"})
     assert response.status_code == 200
+
+
+# ---------------------------------------------------------------------------
+# POST /v1/photos/{id}/identify
+# ---------------------------------------------------------------------------
+
+
+def _pending_photo_row(*, owner: str = _USER_ID, status: str = "pending") -> models.Photo:
+    return models.Photo(
+        id="01J0PHOTOID00000000000ULID",
+        user_id=owner,
+        bucket="dragonfly-photos-test",
+        object_name="pending/01J0PHOTOID00000000000ULID.jpg",
+        status=status,
+        content_type="image/jpeg",
+    )
+
+
+def _wire_photo_identify(
+    fake_session: AsyncMock,
+    *,
+    user: models.User | None,
+    photo: models.Photo | None,
+) -> None:
+    user_result = MagicMock()
+    user_result.scalar_one_or_none = MagicMock(return_value=user)
+    photo_result = MagicMock()
+    photo_result.scalar_one_or_none = MagicMock(return_value=photo)
+
+    side_effects: list[object] = [user_result]
+    if user is not None:
+        side_effects.append(photo_result)
+
+    fake_session.execute = AsyncMock(side_effect=side_effects)
+
+
+def test_photo_identify_requires_bearer(
+    fake_session: AsyncMock,
+    stub_signer: _StubSignedUrlGenerator,
+) -> None:
+    for client in _build_client(fake_session, signer=stub_signer):
+        response = client.post("/v1/photos/01J0PHOTOID00000000000ULID/identify")
+        assert response.status_code == 401
+
+
+def test_photo_identify_403_when_no_postgres_user(
+    monkeypatch: pytest.MonkeyPatch,
+    fake_session: AsyncMock,
+    stub_signer: _StubSignedUrlGenerator,
+) -> None:
+    _stub_token_verifier(monkeypatch)
+    _wire_photo_identify(fake_session, user=None, photo=None)
+    for client in _build_client(fake_session, signer=stub_signer):
+        response = client.post(
+            "/v1/photos/01J0PHOTOID00000000000ULID/identify",
+            headers={"Authorization": "Bearer fake"},
+        )
+        assert response.status_code == 403
+
+
+def test_photo_identify_404_when_photo_missing_or_wrong_owner(
+    monkeypatch: pytest.MonkeyPatch,
+    fake_session: AsyncMock,
+    stub_signer: _StubSignedUrlGenerator,
+) -> None:
+    _stub_token_verifier(monkeypatch)
+    _wire_photo_identify(fake_session, user=_user_row(), photo=None)
+    for client in _build_client(fake_session, signer=stub_signer):
+        response = client.post(
+            "/v1/photos/01J0PHOTOID00000000000ULID/identify",
+            headers={"Authorization": "Bearer fake"},
+        )
+        assert response.status_code == 404
+
+
+def test_photo_identify_409_when_photo_not_pending(
+    monkeypatch: pytest.MonkeyPatch,
+    fake_session: AsyncMock,
+    stub_signer: _StubSignedUrlGenerator,
+) -> None:
+    _stub_token_verifier(monkeypatch)
+    _wire_photo_identify(
+        fake_session,
+        user=_user_row(),
+        photo=_pending_photo_row(status="clean"),
+    )
+    for client in _build_client(fake_session, signer=stub_signer):
+        response = client.post(
+            "/v1/photos/01J0PHOTOID00000000000ULID/identify",
+            headers={"Authorization": "Bearer fake"},
+        )
+        assert response.status_code == 409
+
+
+def test_photo_identify_returns_cv_unavailable_when_no_token(
+    monkeypatch: pytest.MonkeyPatch,
+    fake_session: AsyncMock,
+    stub_signer: _StubSignedUrlGenerator,
+) -> None:
+    _stub_token_verifier(monkeypatch)
+    _wire_photo_identify(fake_session, user=_user_row(), photo=_pending_photo_row())
+    for client in _build_client(fake_session, signer=stub_signer, inat_token=""):
+        response = client.post(
+            "/v1/photos/01J0PHOTOID00000000000ULID/identify",
+            headers={"Authorization": "Bearer fake"},
+        )
+        assert response.status_code == 200
+        body = response.json()
+        assert body["photo_id"] == "01J0PHOTOID00000000000ULID"
+        assert body["cv_unavailable"] is True
+        assert body["no_matches"] is False
+        assert body["suggestions"] == []
+        assert stub_signer.fetch_calls == []
+
+
+@respx.mock
+def test_photo_identify_happy_path_returns_top_suggestions(
+    monkeypatch: pytest.MonkeyPatch,
+    fake_session: AsyncMock,
+    stub_signer: _StubSignedUrlGenerator,
+) -> None:
+    _stub_token_verifier(monkeypatch)
+    _wire_photo_identify(fake_session, user=_user_row(), photo=_pending_photo_row())
+    respx.post("https://api.inaturalist.org/v1/computervision/score_image").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "results": [
+                    {
+                        "combined_score": 91.0,
+                        "taxon": {
+                            "id": 12345,
+                            "name": "Cardinalis cardinalis",
+                            "preferred_common_name": "Northern Cardinal",
+                        },
+                    },
+                    {
+                        "combined_score": 62.0,
+                        "taxon": {
+                            "id": 67890,
+                            "name": "Cardinalis sinuatus",
+                            "preferred_common_name": "Pyrrhuloxia",
+                        },
+                    },
+                ]
+            },
+        )
+    )
+    for client in _build_client(fake_session, signer=stub_signer):
+        response = client.post(
+            "/v1/photos/01J0PHOTOID00000000000ULID/identify",
+            headers={"Authorization": "Bearer fake"},
+        )
+        assert response.status_code == 200
+        body = response.json()
+        assert body["cv_unavailable"] is False
+        assert body["no_matches"] is False
+        assert [s["taxon_id"] for s in body["suggestions"]] == [12345, 67890]
+        assert body["suggestions"][0]["common_name"] == "Northern Cardinal"
+        assert stub_signer.fetch_calls == [
+            ("dragonfly-photos-test", "pending/01J0PHOTOID00000000000ULID.jpg")
+        ]
+
+
+@respx.mock
+def test_photo_identify_returns_no_matches_for_empty_inat_response(
+    monkeypatch: pytest.MonkeyPatch,
+    fake_session: AsyncMock,
+    stub_signer: _StubSignedUrlGenerator,
+) -> None:
+    _stub_token_verifier(monkeypatch)
+    _wire_photo_identify(fake_session, user=_user_row(), photo=_pending_photo_row())
+    respx.post("https://api.inaturalist.org/v1/computervision/score_image").mock(
+        return_value=httpx.Response(200, json={"results": []})
+    )
+    for client in _build_client(fake_session, signer=stub_signer):
+        response = client.post(
+            "/v1/photos/01J0PHOTOID00000000000ULID/identify",
+            headers={"Authorization": "Bearer fake"},
+        )
+        assert response.status_code == 200
+        body = response.json()
+        assert body["cv_unavailable"] is False
+        assert body["no_matches"] is True
+        assert body["suggestions"] == []

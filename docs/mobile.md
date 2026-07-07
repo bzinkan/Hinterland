@@ -32,7 +32,11 @@ The offline flow:
 4. **Background sync.** When the app detects network (`@react-native-community/netinfo`), a background task iterates the queue:
    - Request a presigned PUT URL from `/v1/photos/presign`.
    - Upload the photo file to Cloud Storage via the signed URL.
-   - Call `POST /v1/observations` with the queued payload.
+   - Call `POST /v1/photos/{photo_id}/identify` when the kid is available to
+     choose an iNat suggestion, type a display-only name, or save as unknown on
+     `no_matches=true` / `cv_unavailable=true`.
+   - Call `POST /v1/observations` with the queued payload and any selected
+     `taxon_id` / `species_name`.
    - On success: delete the queue row and the local photo file; show the real celebration if the app is foregrounded.
    - On failure (5xx, network hiccup): increment `attempts`, schedule next retry with exponential backoff up to 1h.
    - On terminal failure (4xx that isn't retriable, e.g. "photo_key not found because we never uploaded it"): surface to the kid's "needs your attention" list in the app, with a one-tap retry.

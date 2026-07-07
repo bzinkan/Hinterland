@@ -14,14 +14,12 @@ import { ApiError } from "@/src/api/client";
 import { reverseGeocode } from "@/src/api/geocode";
 import {
   type CvSuggestion,
-  type ObservationPatch,
   type ObservationReward,
   type PhotoPresignResponse,
   createObservation,
-  identifyObservation,
-  patchObservation,
   presignPhoto,
 } from "@/src/api/observations";
+import { identifyPhoto } from "@/src/api/photos";
 import { queryClient } from "@/src/api/queryClient";
 import {
   UploadHttpError,
@@ -37,17 +35,21 @@ import { SanctuaryRevealModal } from "@/src/sanctuary/SanctuaryRevealModal";
 
 type Phase =
   | { kind: "idle" }
-  | { kind: "uploading"; step: "presign" | "put" | "create" }
-  | { kind: "identifying"; observationId: string }
+  | { kind: "uploading"; step: "presign" | "put" | "identify" | "create" }
   | {
       kind: "picking";
-      observationId: string;
+      photoId: string;
       suggestions: CvSuggestion[];
       cvUnavailable: boolean;
+      noMatches: boolean;
     }
-  | { kind: "patching"; observationId: string }
   | { kind: "done"; observationId: string }
   | { kind: "error"; message: string };
+
+type IdentificationChoice = {
+  taxon_id?: number | null;
+  species_name?: string | null;
+};
 
 /**
  * Server-side progress that survives a failed leg. The phase machine above
@@ -58,9 +60,12 @@ type Phase =
 type SubmitProgress = {
   presigned: PhotoPresignResponse | null;
   uploaded: boolean;
-  observationId: string | null;
-  identify: { suggestions: CvSuggestion[]; cvUnavailable: boolean } | null;
-  pendingPatch: ObservationPatch | null;
+  identify: {
+    suggestions: CvSuggestion[];
+    cvUnavailable: boolean;
+    noMatches: boolean;
+  } | null;
+  pendingCreate: IdentificationChoice | null;
 };
 
 function presignExpired(presigned: PhotoPresignResponse): boolean {
@@ -88,9 +93,8 @@ export default function ObserveSubmitScreen() {
   // Geocoded place_name resolves in parallel with /identify; gets folded
   // into whatever PATCH the kid eventually sends.
   const [placeName, setPlaceName] = useState<string | null>(null);
-  // Dispatcher rewards land on the createObservation response AND on
-  // patchObservation responses when the patch sets/changes taxon_id (the
-  // second dispatch is what advances taxon-based expedition steps).
+  // Dispatcher rewards land on the final createObservation response, after
+  // the kid has picked an iNat suggestion, typed a name, or skipped.
   // Sanctuary rewards drive the reveal modal once we transition to
   // ``done``; expedition rewards drive the inline celebration card.
   const [sanctuaryRewards, setSanctuaryRewards] = useState<ObservationReward[]>([]);
@@ -101,13 +105,11 @@ export default function ObserveSubmitScreen() {
   const progressRef = useRef<SubmitProgress>({
     presigned: null,
     uploaded: false,
-    observationId: null,
     identify: null,
-    pendingPatch: null,
+    pendingCreate: null,
   });
 
-  // Fold dispatcher rewards from a create/patch response into local state.
-  // Accumulates -- the create and the eventual PATCH can each dispatch.
+  // Fold dispatcher rewards from the final create response into local state.
   function collectRewards(rewards: ObservationReward[] | undefined) {
     const sanctuary = selectSanctuaryRewards(rewards);
     if (sanctuary.length > 0) {
@@ -202,64 +204,72 @@ export default function ObserveSubmitScreen() {
     coords !== null;
 
   function finishDone(observationId: string) {
-    progressRef.current.pendingPatch = null;
+    progressRef.current.pendingCreate = null;
     clearDraft();
     // Invalidate here (not just in the modal handlers) -- most kids
     // never see the Sanctuary reveal, and the expedition step counts
     // on the tab are stale the moment a step completes. The Field Journal
     // caches for 30s; without its invalidation the fresh observation
     // doesn't show up until a pull-to-refresh. Sanctuary contributions
-    // happen at identification (the pick that just landed), so its
-    // zone counts changed even when no reveal-worthy reward fired.
+    // happen at final save when a taxon was chosen, so its zone counts
+    // changed even when no reveal-worthy reward fired.
     void queryClient.invalidateQueries({ queryKey: ["expeditions"] });
     void queryClient.invalidateQueries({ queryKey: ["observations", "me"] });
     void queryClient.invalidateQueries({ queryKey: ["sanctuary", "me"] });
     setPhase({ kind: "done", observationId });
   }
 
-  async function sendPatch(obsId: string, payload: ObservationPatch) {
-    // Stashed before the request so a failure can re-send it verbatim
-    // from the Try again button.
-    progressRef.current.pendingPatch = payload;
-    setPhase({ kind: "patching", observationId: obsId });
-    try {
-      const obs = await patchObservation(obsId, payload);
-      collectRewards(obs.rewards);
-      finishDone(obsId);
-    } catch (err) {
-      setPhase({ kind: "error", message: errorMessage(err) });
-    }
+  async function createFinalObservation(choice: IdentificationChoice) {
+    if (!coords) return;
+    const presigned = progressRef.current.presigned;
+    if (!presigned) return;
+
+    // Stashed before the request so Try again can re-send the same final
+    // choice if the create response is lost or the network drops.
+    progressRef.current.pendingCreate = choice;
+    setPhase({ kind: "uploading", step: "create" });
+    const obs = await createObservation({
+      photo_id: presigned.photo_id,
+      latitude: coords.lat,
+      longitude: coords.lng,
+      taxon_id: choice.taxon_id,
+      species_name: choice.species_name,
+      place_name: placeName,
+    });
+    collectRewards(obs.rewards);
+    finishDone(obs.id);
   }
 
   async function pickSuggestion(s: CvSuggestion) {
     if (phase.kind !== "picking") return;
-    // Server auto-fills species_name from species_cache when only
-    // taxon_id is sent (PR #40).
-    await sendPatch(phase.observationId, {
-      taxon_id: s.taxon_id,
-      place_name: placeName,
-    });
+    try {
+      await createFinalObservation({
+        taxon_id: s.taxon_id,
+        species_name: suggestionDisplayName(s),
+      });
+    } catch (err) {
+      setPhase({ kind: "error", message: errorMessage(err) });
+    }
   }
 
   async function pickManual() {
     if (phase.kind !== "picking") return;
     const trimmed = manualSpecies.trim();
     if (!trimmed) return;
-    await sendPatch(phase.observationId, {
-      species_name: trimmed,
-      place_name: placeName,
-    });
+    try {
+      await createFinalObservation({ species_name: trimmed });
+    } catch (err) {
+      setPhase({ kind: "error", message: errorMessage(err) });
+    }
   }
 
   async function pickSkip() {
     if (phase.kind !== "picking") return;
-    if (!placeName) {
-      // Nothing to PATCH; skip straight to done. No response to harvest
-      // rewards from, but the create may have advanced an expedition.
-      finishDone(phase.observationId);
-      return;
+    try {
+      await createFinalObservation({});
+    } catch (err) {
+      setPhase({ kind: "error", message: errorMessage(err) });
     }
-    await sendPatch(phase.observationId, { place_name: placeName });
   }
 
   /**
@@ -273,101 +283,82 @@ export default function ObserveSubmitScreen() {
     if (!coords || !displayPhoto) return;
     const p = progressRef.current;
     try {
-      // A species pick failed mid-PATCH: re-send it and finish.
-      if (p.observationId && p.pendingPatch) {
-        const payload = p.pendingPatch;
-        setPhase({ kind: "patching", observationId: p.observationId });
-        const obs = await patchObservation(p.observationId, payload);
-        collectRewards(obs.rewards);
-        finishDone(p.observationId);
+      // A final save failed after the kid picked/manual/skipped:
+      // re-send the exact same create payload.
+      if (p.pendingCreate) {
+        await createFinalObservation(p.pendingCreate);
         return;
       }
 
       // Identify already completed: drop straight back into picking.
-      if (p.observationId && p.identify) {
+      if (p.presigned && p.identify) {
         setPhase({
           kind: "picking",
-          observationId: p.observationId,
+          photoId: p.presigned.photo_id,
           suggestions: p.identify.suggestions,
           cvUnavailable: p.identify.cvUnavailable,
+          noMatches: p.identify.noMatches,
         });
         return;
       }
 
-      let observationId = p.observationId;
-      if (observationId === null) {
-        // Snapshot the photo so the done UI survives clearDraft().
-        setSubmittedPhoto(displayPhoto);
+      // Snapshot the photo so the done UI survives clearDraft().
+      setSubmittedPhoto(displayPhoto);
 
-        let presigned = p.presigned;
-        // Presign fresh, or re-presign when the SAS sat in an error state
-        // past expiry. A superseded pending photo row never gets an
-        // observation and is cleaned up with other upload orphans.
-        if (!presigned || presignExpired(presigned)) {
-          setPhase({ kind: "uploading", step: "presign" });
-          presigned = await presignPhoto();
-          p.presigned = presigned;
-          p.uploaded = false;
-        }
-
-        if (!p.uploaded) {
-          setPhase({ kind: "uploading", step: "put" });
-          try {
-            await putPhotoToSignedUrl(
-              presigned.upload_url,
-              displayPhoto.localUri,
-              presigned.required_headers ?? legacyPutHeaders(presigned.content_type),
-            );
-          } catch (err) {
-            // 403 = storage rejected the SAS (expired server-side, or a
-            // slow device clock fooled presignExpired). Forget this
-            // presign so the next Try again mints a fresh one instead of
-            // looping on the same dead URL.
-            if (err instanceof UploadHttpError && err.status === 403) {
-              p.presigned = null;
-              p.uploaded = false;
-            }
-            throw err;
-          }
-          p.uploaded = true;
-        }
-
-        setPhase({ kind: "uploading", step: "create" });
-        const obs = await createObservation({
-          photo_id: presigned.photo_id,
-          latitude: coords.lat,
-          longitude: coords.lng,
-        });
-        observationId = obs.id;
-        p.observationId = observationId;
-
-        // Stash dispatcher rewards so the reveal modal and the
-        // expedition celebration can render when we transition to
-        // ``done``. ``rewards`` is optional on the wire (empty
-        // list when the dispatcher emitted nothing); the helpers
-        // handle the missing-field case.
-        collectRewards(obs.rewards);
-
-        // Fire geocode in parallel; result folded into the
-        // eventual PATCH. Failure is non-fatal.
-        void reverseGeocode(coords.lat, coords.lng)
-          .then((r) => setPlaceName(r.place_name))
-          .catch(() => {
-            /* ignore */
-          });
+      let presigned = p.presigned;
+      // Presign fresh, or re-presign when the SAS sat in an error state
+      // past expiry. A superseded pending photo row never gets an
+      // observation and is cleaned up with other upload orphans.
+      if (!presigned || presignExpired(presigned)) {
+        setPhase({ kind: "uploading", step: "presign" });
+        presigned = await presignPhoto();
+        p.presigned = presigned;
+        p.uploaded = false;
       }
 
-      setPhase({ kind: "identifying", observationId });
-      const ident = await identifyObservation(observationId);
+      if (!p.uploaded) {
+        setPhase({ kind: "uploading", step: "put" });
+        try {
+          await putPhotoToSignedUrl(
+            presigned.upload_url,
+            displayPhoto.localUri,
+            presigned.required_headers ?? legacyPutHeaders(presigned.content_type),
+          );
+        } catch (err) {
+          // 403 = storage rejected the SAS (expired server-side, or a
+          // slow device clock fooled presignExpired). Forget this
+          // presign so the next Try again mints a fresh one instead of
+          // looping on the same dead URL.
+          if (err instanceof UploadHttpError && err.status === 403) {
+            p.presigned = null;
+            p.uploaded = false;
+          }
+          throw err;
+        }
+        p.uploaded = true;
+      }
+
+      // Fire geocode in parallel; result is folded into final create if
+      // it resolves before the kid picks/manual/skips. Failure is non-fatal.
+      void reverseGeocode(coords.lat, coords.lng)
+        .then((r) => setPlaceName(r.place_name))
+        .catch(() => {
+          /* ignore */
+        });
+
+      setPhase({ kind: "uploading", step: "identify" });
+      const ident = await identifyPhoto(presigned.photo_id);
       p.identify = {
         suggestions: ident.suggestions,
         cvUnavailable: ident.cv_unavailable,
+        noMatches: ident.no_matches,
       };
       setPhase({
         kind: "picking",
-        observationId,
+        photoId: presigned.photo_id,
         suggestions: ident.suggestions,
         cvUnavailable: ident.cv_unavailable,
+        noMatches: ident.no_matches,
       });
     } catch (err) {
       setPhase({ kind: "error", message: errorMessage(err) });
@@ -415,18 +406,6 @@ export default function ObserveSubmitScreen() {
           <Text style={styles.value}>{stepLabel(phase.step)}…</Text>
         </View>
       )}
-      {phase.kind === "identifying" && (
-        <View style={styles.row}>
-          <ActivityIndicator />
-          <Text style={styles.value}>asking iNaturalist…</Text>
-        </View>
-      )}
-      {phase.kind === "patching" && (
-        <View style={styles.row}>
-          <ActivityIndicator />
-          <Text style={styles.value}>saving your pick…</Text>
-        </View>
-      )}
       {/* Expedition celebration -- an inline card, not a modal, so it
           stays visible after the Sanctuary reveal closes (and renders
           when no reveal fires at all). Title/detail come straight from
@@ -463,6 +442,20 @@ export default function ObserveSubmitScreen() {
               Couldn&apos;t reach iNaturalist. Type your own or skip.
             </Text>
           )}
+          {phase.noMatches && (
+            <Text style={styles.help}>
+              No matches from iNaturalist. Type your own ID or save it as an
+              unknown organism.
+            </Text>
+          )}
+          {!phase.cvUnavailable &&
+            !phase.noMatches &&
+            phase.suggestions.length === 0 && (
+              <Text style={styles.help}>
+                No suggestions came back. You can still type your own ID or
+                skip.
+              </Text>
+            )}
           {phase.suggestions.map((s) => (
             <Pressable
               key={s.taxon_id}
@@ -520,7 +513,7 @@ export default function ObserveSubmitScreen() {
       <View style={styles.actions}>
         <Pressable
           style={[styles.button, styles.buttonGhost]}
-          onPress={() => router.back()}
+          onPress={phase.kind === "done" ? handleDone : () => router.back()}
         >
           <Text style={styles.buttonText}>
             {phase.kind === "done" ? "Done" : "Cancel"}
@@ -553,15 +546,21 @@ export default function ObserveSubmitScreen() {
   );
 }
 
-function stepLabel(step: "presign" | "put" | "create"): string {
+function stepLabel(step: "presign" | "put" | "identify" | "create"): string {
   switch (step) {
     case "presign":
       return "Requesting upload URL";
     case "put":
       return "Uploading photo";
+    case "identify":
+      return "Asking iNaturalist";
     case "create":
       return "Saving observation";
   }
+}
+
+function suggestionDisplayName(s: CvSuggestion): string | null {
+  return s.common_name ?? s.scientific_name ?? null;
 }
 
 function errorMessage(err: unknown): string {

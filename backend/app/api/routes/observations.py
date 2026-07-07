@@ -139,6 +139,18 @@ async def _observation_for_photo(session: AsyncSession, photo_id: str) -> models
     ).scalar_one_or_none()
 
 
+async def _cached_species_display_name(session: AsyncSession, taxon_id: int) -> str | None:
+    """Best-effort local display name for a taxon without calling iNat."""
+    row = (
+        await session.execute(
+            select(models.SpeciesCache).where(models.SpeciesCache.taxon_id == taxon_id)
+        )
+    ).scalar_one_or_none()
+    if row is None:
+        return None
+    return row.common_name or row.scientific_name
+
+
 @router.post(
     "",
     response_model=ObservationResponse,
@@ -190,6 +202,10 @@ async def create_observation(
             detail=f"Photo is in status {photo.status}, not pending",
         )
 
+    species_name = payload.species_name
+    if payload.taxon_id is not None and species_name is None:
+        species_name = await _cached_species_display_name(session, payload.taxon_id)
+
     # Atomic counter bump on the membership row. If the user isn't in this
     # group, RETURNING comes back empty and we 403 before inserting the
     # observation row.
@@ -222,7 +238,7 @@ async def create_observation(
         longitude=payload.longitude,
         geohash4=geohash4,
         taxon_id=payload.taxon_id,
-        species_name=payload.species_name,
+        species_name=species_name,
         place_name=payload.place_name,
         # Created-with-taxon counts as the first assignment: the
         # create-time dispatch runs with this taxon, so a later
@@ -420,6 +436,7 @@ class IdentifyResponse(BaseModel):
     observation_id: str
     suggestions: list[CvSuggestionDTO]
     cv_unavailable: bool = False
+    no_matches: bool = False
 
 
 @router.post("/{observation_id}/identify", response_model=IdentifyResponse)
@@ -483,6 +500,7 @@ async def identify_observation(
         "observations.identify.scored",
         observation_id=observation_id,
         suggestion_count=len(suggestions),
+        no_matches=len(suggestions) == 0,
     )
     return IdentifyResponse(
         observation_id=observation_id,
@@ -495,6 +513,7 @@ async def identify_observation(
             )
             for s in suggestions
         ],
+        no_matches=len(suggestions) == 0,
     )
 
 

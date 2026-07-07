@@ -14,6 +14,37 @@ Until the Hinterland iNat OAuth app is approved (eligibility ~early August), the
 
 That's it. The script writes the JWT to Key Vault, rolls the Container App revision, and prints when the new token expires.
 
+## Current targets
+
+The script defaults to the current Dragonfly-compatible dev API target:
+
+```bash
+INAT_REFRESH_VAULT=dragonfly-kv-dev
+INAT_REFRESH_APP=dragonfly-api
+INAT_REFRESH_RG=dragonfly-dev-rg
+INAT_REFRESH_SECRET=inat-oauth-token
+```
+
+For The Hinterland Guide dev environment, override the Azure resource names
+without changing the API environment variable. The Container App still receives
+the secret as `DRAGONFLY_INAT_OAUTH_TOKEN` while the backend settings layer uses
+the Dragonfly-compatible variable name:
+
+```bash
+INAT_REFRESH_VAULT=hinterland-kv-dev \
+INAT_REFRESH_APP=hinterland-api \
+INAT_REFRESH_RG=hinterland-dev-rg \
+  bash scripts/refresh-inat-token.sh --clipboard
+```
+
+Smoke after every rotation:
+
+1. Submit a real plant/animal photo in the mobile dev app.
+2. Confirm the API logs contain `observations.identify.scored`.
+3. Confirm the submit screen shows visible iNat suggestions before final save.
+4. Submit a non-organism image and confirm the screen shows the no-match path
+   with **Type my own** and **Skip for now**.
+
 ## Making the rotation a habit
 
 Pick whichever fits your day:

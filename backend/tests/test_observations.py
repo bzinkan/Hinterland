@@ -12,7 +12,7 @@ from app.api.routes import observations as observations_routes
 from app.core.config import Settings
 from app.db import models
 from app.db.session import get_db_session
-from app.dispatcher.types import Reward
+from app.dispatcher.types import Context, Reward
 from app.main import create_app
 from tests.helpers.auth import stub_token_verifier
 
@@ -362,6 +362,107 @@ def test_create_without_taxon_leaves_first_assignment_marker_null(
     obs: models.Observation = fake_session.add.call_args.args[0]
     assert obs.taxon_id is None
     assert obs.taxon_first_assigned_at is None
+
+
+def test_create_manual_species_has_no_species_rewards(
+    monkeypatch: pytest.MonkeyPatch,
+    observations_client: TestClient,
+    fake_session: AsyncMock,
+) -> None:
+    _stub_token_verifier(monkeypatch)
+    _wire_session(
+        fake_session,
+        user=_user_row(),
+        photo=_photo_row(),
+        membership_id="01J0MEMBERID0000000000ULID",
+    )
+
+    async def fake_dispatch(ctx: Context, handlers: object) -> list[Reward]:
+        assert ctx.observation.taxon_id is None
+        assert ctx.observation.species_name == "Mystery green sprout"
+        return []
+
+    monkeypatch.setattr(observations_routes, "dispatch", fake_dispatch)
+
+    response = observations_client.post(
+        "/v1/observations",
+        json={
+            "photo_id": _PHOTO_ID,
+            "latitude": 39.1031,
+            "longitude": -84.5120,
+            "species_name": "Mystery green sprout",
+        },
+        headers={"Authorization": "Bearer fake"},
+    )
+
+    assert response.status_code == 201
+    body = response.json()
+    assert body["taxon_id"] is None
+    assert body["species_name"] == "Mystery green sprout"
+    assert body["rewards"] == []
+
+
+def test_create_fills_species_name_from_local_cache_when_available(
+    monkeypatch: pytest.MonkeyPatch,
+    observations_client: TestClient,
+    fake_session: AsyncMock,
+) -> None:
+    _stub_token_verifier(monkeypatch)
+    user_result = MagicMock()
+    user_result.scalar_one_or_none = MagicMock(return_value=_user_row())
+    photo_result = MagicMock()
+    photo_result.scalar_one_or_none = MagicMock(return_value=_photo_row())
+    cache_result = MagicMock()
+    cache_result.scalar_one_or_none = MagicMock(
+        return_value=models.SpeciesCache(
+            taxon_id=555,
+            scientific_name="Acer rubrum",
+            common_name="Red Maple",
+            iconic_taxon="Plantae",
+            source_payload={},
+        )
+    )
+    membership_result = MagicMock()
+    membership_result.scalar_one_or_none = MagicMock(
+        return_value="01J0MEMBERID0000000000ULID"
+    )
+    group_result = MagicMock()
+    group_result.scalar_one_or_none = MagicMock(return_value=None)
+    fake_session.execute = AsyncMock(
+        side_effect=[
+            user_result,
+            photo_result,
+            cache_result,
+            membership_result,
+            group_result,
+        ]
+    )
+    fake_session.add = MagicMock()
+    fake_session.commit = AsyncMock()
+    fake_session.refresh = AsyncMock()
+
+    async def fake_dispatch(ctx: Context, handlers: object) -> list[Reward]:
+        assert ctx.observation.taxon_id == 555
+        assert ctx.observation.species_name == "Red Maple"
+        return []
+
+    monkeypatch.setattr(observations_routes, "dispatch", fake_dispatch)
+
+    response = observations_client.post(
+        "/v1/observations",
+        json={
+            "photo_id": _PHOTO_ID,
+            "latitude": 39.1031,
+            "longitude": -84.5120,
+            "taxon_id": 555,
+        },
+        headers={"Authorization": "Bearer fake"},
+    )
+
+    assert response.status_code == 201
+    body = response.json()
+    assert body["taxon_id"] == 555
+    assert body["species_name"] == "Red Maple"
 
 
 def test_create_201_with_empty_rewards_when_dispatch_fails(

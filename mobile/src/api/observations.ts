@@ -130,6 +130,7 @@ export type IdentifyResponse = {
   observation_id: string;
   suggestions: CvSuggestion[];
   cv_unavailable: boolean;
+  no_matches: boolean;
 };
 
 export function identifyObservation(observationId: string): Promise<IdentifyResponse> {

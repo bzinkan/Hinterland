@@ -187,6 +187,7 @@ def test_identify_returns_cv_unavailable_when_no_token(
         assert response.status_code == 200
         body = response.json()
         assert body["cv_unavailable"] is True
+        assert body["no_matches"] is False
         assert body["suggestions"] == []
         # Storage was never read -- short-circuited before any iNat work.
         assert storage.fetch_calls == []
@@ -232,6 +233,7 @@ def test_identify_happy_path_returns_top_3(
         assert response.status_code == 200
         body = response.json()
         assert body["cv_unavailable"] is False
+        assert body["no_matches"] is False
         assert len(body["suggestions"]) == 2
         assert body["suggestions"][0]["taxon_id"] == 12345
         assert body["suggestions"][0]["common_name"] == "Northern Cardinal"
@@ -257,6 +259,7 @@ def test_identify_returns_cv_unavailable_on_inat_5xx(
         assert response.status_code == 200
         body = response.json()
         assert body["cv_unavailable"] is True
+        assert body["no_matches"] is False
         assert body["suggestions"] == []
 
 
@@ -279,4 +282,5 @@ def test_identify_returns_empty_on_inat_4xx(
         body = response.json()
         # iNat said "no idea" -- the call succeeded, just empty.
         assert body["cv_unavailable"] is False
+        assert body["no_matches"] is True
         assert body["suggestions"] == []

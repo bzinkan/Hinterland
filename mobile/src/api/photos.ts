@@ -1,4 +1,5 @@
 import { apiRequest } from "@/src/api/client";
+import type { CvSuggestion } from "@/src/api/observations";
 
 // ---------------------------------------------------------------------------
 // GET /v1/photos/{id}/url
@@ -19,4 +20,17 @@ export type PhotoUrlResponse = {
 
 export function getPhotoUrl(photoId: string): Promise<PhotoUrlResponse> {
   return apiRequest<PhotoUrlResponse>(`/v1/photos/${photoId}/url`);
+}
+
+export type PhotoIdentifyResponse = {
+  photo_id: string;
+  suggestions: CvSuggestion[];
+  cv_unavailable: boolean;
+  no_matches: boolean;
+};
+
+export function identifyPhoto(photoId: string): Promise<PhotoIdentifyResponse> {
+  return apiRequest<PhotoIdentifyResponse>(`/v1/photos/${photoId}/identify`, {
+    method: "POST",
+  });
 }
