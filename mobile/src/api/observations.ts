@@ -181,3 +181,15 @@ export function listMyObservations(
     `/v1/observations/me${query ? `?${query}` : ""}`,
   );
 }
+
+// ---------------------------------------------------------------------------
+// GET /v1/observations/{id}
+// ---------------------------------------------------------------------------
+
+export type ObservationDetail = ObservationListItem & {
+  rewards: ObservationReward[];
+};
+
+export function getObservation(observationId: string): Promise<ObservationDetail> {
+  return apiRequest<ObservationDetail>(`/v1/observations/${observationId}`);
+}

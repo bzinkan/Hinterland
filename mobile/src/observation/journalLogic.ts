@@ -8,6 +8,11 @@
  * approved, quarantine = awaiting adult review, deleted = rejected.
  */
 
+import type { DexListItem } from "@/src/api/dex";
+
+export const DEFAULT_JOURNAL_MODE = "photos" as const;
+
+export type JournalMode = "photos" | "species";
 export type PhotoDisplayMode = "image" | "reviewing" | "removed";
 
 export function photoDisplayMode(photoStatus: string): PhotoDisplayMode {
@@ -40,7 +45,29 @@ export function isAwaitingModeration(photoStatus: string): boolean {
 /** Card caption. Kids often skip the species pick; "Mystery find" reads
  * better than a null. */
 export function journalCaption(speciesName: string | null): string {
-  return speciesName ?? "Mystery find";
+  const trimmed = speciesName?.trim();
+  return trimmed ? trimmed : "Mystery find";
+}
+
+export function speciesDisplayName(item: DexListItem): string {
+  return (
+    item.common_name?.trim() ||
+    item.species_name?.trim() ||
+    item.scientific_name?.trim() ||
+    `Taxon ${item.taxon_id}`
+  );
+}
+
+export function speciesSubtitle(item: DexListItem): string {
+  const parts = [
+    item.scientific_name?.trim(),
+    item.iconic_taxon?.trim(),
+  ].filter(Boolean);
+  return parts.length > 0 ? parts.join(" - ") : "Verified species";
+}
+
+export function findCountLabel(count: number): string {
+  return `${count} ${count === 1 ? "find" : "finds"}`;
 }
 
 /**

@@ -116,7 +116,7 @@ These are not aspirational; the app must meet them on a 3-year-old mid-range And
 - **Camera ready-to-shoot:** under 1 second from tapping "take photo" to live preview. `expo-camera` is preinitialized on the observation screen's mount, not on tap.
 - **Photo capture + local save:** under 2 seconds total from shutter to "next step" being tappable.
 - **Upload photo size:** max 1600px on the longest edge, JPEG quality 0.8. `expo-image-manipulator` resizes after capture. Original is discarded — we do not upload 12MP phone camera originals, and we do not keep them locally.
-- **Dex scrolling:** 60fps with 500 entries. Use `FlashList` (Shopify's virtualized list) rather than `FlatList` — we hit 500 entries easily for an engaged kid, and `FlatList` drops frames at that size.
+- **Dex scrolling:** 60fps with 500 entries. The current Field Journal Species segment uses `FlatList` as placeholder UI; switch it to `FlashList` (Shopify's virtualized list) before real Dex volume, because an engaged kid can reach 500 entries and `FlatList` drops frames at that size.
 - **Celebration animation:** 2-second sequence max. Reanimated 3 + Lottie for the particle effects. No layout thrashing, no JS-thread animation, all transforms run on the UI thread.
 - **App startup to role picker:** under 2 seconds cold start on our target device. Splash screen is `expo-splash-screen`, dismissed immediately after the initial navigation render — not on a timer.
 

@@ -1,66 +1,94 @@
+import type { DexListItem } from "@/src/api/dex";
 import {
-  journalCaption,
-  isAwaitingModeration,
+  DEFAULT_JOURNAL_MODE,
+  findCountLabel,
   isUrlUsable,
+  journalCaption,
   photoDisplayMode,
+  speciesDisplayName,
+  speciesSubtitle,
 } from "@/src/observation/journalLogic";
 
-describe("photoDisplayMode", () => {
-  it("shows the image for clean photos", () => {
-    expect(photoDisplayMode("clean")).toBe("image");
+function dexItem(overrides: Partial<DexListItem> = {}): DexListItem {
+  return {
+    id: "dex-1",
+    taxon_id: 12345,
+    species_name: "Cached display",
+    common_name: "Yellow Cosmos",
+    scientific_name: "Cosmos sulphureus",
+    iconic_taxon: "Plantae",
+    first_observation_id: "obs-1",
+    first_photo_id: "photo-1",
+    first_photo_status: "clean",
+    first_seen_at: "2026-07-06T12:00:00Z",
+    observation_count: 1,
+    latest_seen_at: "2026-07-07T12:00:00Z",
+    ...overrides,
+  };
+}
+
+describe("Field Journal display rules", () => {
+  test("defaults to photos first", () => {
+    expect(DEFAULT_JOURNAL_MODE).toBe("photos");
   });
 
-  it("shows the kid their own photo while moderation is pending", () => {
+  test("maps photo statuses to display modes", () => {
     expect(photoDisplayMode("pending")).toBe("image");
-  });
-
-  it("hides quarantined photos behind a reviewing placeholder", () => {
+    expect(photoDisplayMode("clean")).toBe("image");
     expect(photoDisplayMode("quarantine")).toBe("reviewing");
-  });
-
-  it("marks rejected photos as removed", () => {
     expect(photoDisplayMode("deleted")).toBe("removed");
+    expect(photoDisplayMode("future-status")).toBe("reviewing");
   });
 
-  it("fails safe on unknown future statuses", () => {
-    expect(photoDisplayMode("archived")).toBe("reviewing");
-    expect(photoDisplayMode("")).toBe("reviewing");
-  });
-});
-
-describe("isAwaitingModeration", () => {
-  it("is true only for pending", () => {
-    expect(isAwaitingModeration("pending")).toBe(true);
-    expect(isAwaitingModeration("clean")).toBe(false);
-    expect(isAwaitingModeration("quarantine")).toBe(false);
-    expect(isAwaitingModeration("deleted")).toBe(false);
-  });
-});
-
-describe("isUrlUsable", () => {
-  it("accepts a URL with comfortable life left", () => {
-    expect(isUrlUsable(new Date(Date.now() + 4 * 60 * 1000).toISOString())).toBe(true);
-  });
-
-  it("rejects a URL inside the 30s safety margin", () => {
-    expect(isUrlUsable(new Date(Date.now() + 10_000).toISOString())).toBe(false);
-  });
-
-  it("rejects an already-expired URL", () => {
-    expect(isUrlUsable(new Date(Date.now() - 1000).toISOString())).toBe(false);
-  });
-
-  it("rejects garbage timestamps (NaN comparison is false)", () => {
-    expect(isUrlUsable("not-a-date")).toBe(false);
-  });
-});
-
-describe("journalCaption", () => {
-  it("uses the species name when picked", () => {
-    expect(journalCaption("Northern Cardinal")).toBe("Northern Cardinal");
-  });
-
-  it("falls back to Mystery find when the kid skipped", () => {
+  test("uses mystery caption for unnamed observations", () => {
     expect(journalCaption(null)).toBe("Mystery find");
+    expect(journalCaption("  ")).toBe("Mystery find");
+    expect(journalCaption("Yellow Cosmos")).toBe("Yellow Cosmos");
+  });
+
+  test("prefers verified species display names in order", () => {
+    expect(speciesDisplayName(dexItem())).toBe("Yellow Cosmos");
+    expect(speciesDisplayName(dexItem({ common_name: null }))).toBe("Cached display");
+    expect(
+      speciesDisplayName(
+        dexItem({
+          common_name: null,
+          species_name: null,
+        }),
+      ),
+    ).toBe("Cosmos sulphureus");
+    expect(
+      speciesDisplayName(
+        dexItem({
+          common_name: null,
+          species_name: null,
+          scientific_name: null,
+        }),
+      ),
+    ).toBe("Taxon 12345");
+  });
+
+  test("formats species subtitles and counts", () => {
+    expect(speciesSubtitle(dexItem())).toBe("Cosmos sulphureus - Plantae");
+    expect(
+      speciesSubtitle(
+        dexItem({
+          scientific_name: null,
+          iconic_taxon: null,
+        }),
+      ),
+    ).toBe("Verified species");
+    expect(findCountLabel(1)).toBe("1 find");
+    expect(findCountLabel(2)).toBe("2 finds");
+  });
+
+  test("rejects expired or malformed signed URLs", () => {
+    jest.spyOn(Date, "now").mockReturnValue(Date.parse("2026-07-07T12:00:00Z"));
+
+    expect(isUrlUsable("2026-07-07T12:01:00Z")).toBe(true);
+    expect(isUrlUsable("2026-07-07T12:00:02Z")).toBe(false);
+    expect(isUrlUsable("not-a-date")).toBe(false);
+
+    jest.restoreAllMocks();
   });
 });

@@ -1,10 +1,5 @@
-import PlaceholderScreen from "@/components/PlaceholderScreen";
+import { Redirect } from "expo-router";
 
 export default function DexScreen() {
-  return (
-    <PlaceholderScreen
-      title="Dex"
-      body="Your collected species will live here."
-    />
-  );
+  return <Redirect href="/" />;
 }

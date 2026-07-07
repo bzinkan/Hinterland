@@ -792,3 +792,87 @@ def test_list_rejects_malformed_cursor(
         headers={"Authorization": "Bearer fake"},
     )
     assert response.status_code == 422
+
+
+# ---------------------------------------------------------------------------
+# GET /v1/observations/{id}
+# ---------------------------------------------------------------------------
+
+
+def _wire_get_observation(
+    fake_session: AsyncMock,
+    *,
+    user: models.User | None,
+    row: tuple[models.Observation, models.Photo] | None = None,
+) -> None:
+    user_result = MagicMock()
+    user_result.scalar_one_or_none = MagicMock(return_value=user)
+
+    detail_result = MagicMock()
+    detail_result.one_or_none = MagicMock(return_value=row)
+
+    side_effects: list[Any] = [user_result]
+    if user is not None:
+        side_effects.append(detail_result)
+
+    fake_session.execute = AsyncMock(side_effect=side_effects)
+
+
+def test_get_observation_requires_bearer_token(observations_client: TestClient) -> None:
+    response = observations_client.get("/v1/observations/01J0OBS00000000000000003")
+    assert response.status_code == 401
+
+
+def test_get_observation_404_when_missing_or_wrong_owner(
+    monkeypatch: pytest.MonkeyPatch,
+    observations_client: TestClient,
+    fake_session: AsyncMock,
+) -> None:
+    _stub_token_verifier(monkeypatch)
+    _wire_get_observation(fake_session, user=_user_row(), row=None)
+
+    response = observations_client.get(
+        "/v1/observations/01J0OBS00000000000000003",
+        headers={"Authorization": "Bearer fake"},
+    )
+
+    assert response.status_code == 404
+
+
+def test_get_observation_returns_detail_with_photo_and_rewards(
+    monkeypatch: pytest.MonkeyPatch,
+    observations_client: TestClient,
+    fake_session: AsyncMock,
+) -> None:
+    _stub_token_verifier(monkeypatch)
+    obs, photo = _obs_with_photo(
+        "01J0OBS00000000000000003",
+        taxon_id=12345,
+        species_name="Yellow Cosmos",
+    )
+    obs.rewards = [
+        {
+            "type": "first_find",
+            "title": "First find",
+            "detail": "New species for your Dex.",
+            "icon": "sparkle",
+            "weight": 80,
+            "payload": {"taxon_id": 12345},
+        }
+    ]
+    _wire_get_observation(fake_session, user=_user_row(), row=(obs, photo))
+
+    response = observations_client.get(
+        "/v1/observations/01J0OBS00000000000000003",
+        headers={"Authorization": "Bearer fake"},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["id"] == "01J0OBS00000000000000003"
+    assert body["photo_id"] == photo.id
+    assert body["photo_object_name"] == photo.object_name
+    assert body["photo_status"] == "pending"
+    assert body["taxon_id"] == 12345
+    assert body["species_name"] == "Yellow Cosmos"
+    assert body["rewards"][0]["type"] == "first_find"

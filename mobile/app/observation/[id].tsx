@@ -31,16 +31,16 @@ import {
   factsAreEmpty,
   worldwideLine,
 } from "@/src/observation/speciesFactsLogic";
+import { useObservationDetail } from "@/src/observation/useObservationDetail";
 import { usePhotoUrl } from "@/src/observation/usePhotoUrl";
 import { useSpeciesFacts } from "@/src/observation/useSpeciesFacts";
 
 /**
  * Full-size view of one observation, opened from the Field Journal.
  *
- * Data comes straight out of the ["observations","me"] infinite-query
- * cache -- the Field Journal just rendered this item, so a second fetch would
- * be pure latency. Deep links to ids that aren't cached get a gentle
- * bounce back to the Field Journal instead of a spinner that can't resolve.
+ * Field Journal navigation usually has the ["observations","me"] cache ready,
+ * so the cached item renders immediately. Deep links and app restarts fetch
+ * GET /v1/observations/{id} so saved entries still open reliably.
  */
 function findCachedObservation(id: string): ObservationListItem | null {
   const data = queryClient.getQueryData<{
@@ -60,7 +60,11 @@ function suggestionDisplayName(s: CvSuggestion): string | null {
 
 export default function ObservationDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
-  const item = typeof id === "string" ? findCachedObservation(id) : null;
+  const observationId = typeof id === "string" ? id : null;
+  const cachedItem =
+    observationId !== null ? findCachedObservation(observationId) : null;
+  const detailQuery = useObservationDetail(observationId);
+  const item = detailQuery.data ?? cachedItem;
 
   // Set when the kid identifies a Mystery find right here. The cached
   // list item is a non-reactive snapshot, so this local override makes
@@ -73,23 +77,42 @@ export default function ObservationDetailScreen() {
   } | null>(null);
 
   if (!item) {
+    const isLoading = observationId !== null && detailQuery.isPending;
     return (
       <View style={styles.center}>
         <Stack.Screen options={{ title: "Observation" }} />
-        <Text style={styles.body}>
-          Couldn&apos;t find that entry. Open it from your Field Journal.
-        </Text>
-        <Pressable
-          style={[styles.button, styles.buttonGhost]}
-          onPress={() => router.back()}
-        >
-          <Text style={styles.buttonText}>Back</Text>
-        </Pressable>
+        {isLoading ? (
+          <ActivityIndicator />
+        ) : (
+          <>
+            <Text style={styles.body}>
+              {detailQuery.isError
+                ? detailErrorMessage(detailQuery.error)
+                : "Couldn't find that entry. Open it from your Field Journal."}
+            </Text>
+            {detailQuery.isError ? (
+              <Pressable
+                style={[styles.button, styles.buttonGhost]}
+                onPress={() => void detailQuery.refetch()}
+              >
+                <Text style={styles.buttonText}>Retry</Text>
+              </Pressable>
+            ) : (
+              <Pressable
+                style={[styles.button, styles.buttonGhost]}
+                onPress={() => router.back()}
+              >
+                <Text style={styles.buttonText}>Back</Text>
+              </Pressable>
+            )}
+          </>
+        )}
       </View>
     );
   }
 
   const mode = photoDisplayMode(item.photo_status);
+  const itemId = item.id;
   const ts = new Date(item.created_at);
   const effectiveTaxonId = identified ? identified.taxonId : item.taxon_id;
   const effectiveSpecies = identified
@@ -107,6 +130,12 @@ export default function ObservationDetailScreen() {
     // expedition -- and since Sanctuary contributions happen at
     // identification, the Sanctuary is exactly what just changed.
     void queryClient.invalidateQueries({ queryKey: ["observations", "me"] });
+    void queryClient.invalidateQueries({
+      queryKey: ["observations", "detail", itemId],
+    });
+    if (taxonId !== null) {
+      void queryClient.invalidateQueries({ queryKey: ["dex", "me"] });
+    }
     void queryClient.invalidateQueries({ queryKey: ["expeditions"] });
     void queryClient.invalidateQueries({ queryKey: ["sanctuary", "me"] });
   }
@@ -489,6 +518,15 @@ function IdentifySection({
 }
 
 function identifyErrorMessage(err: unknown): string {
+  if (err instanceof ApiError) return `${err.status}: ${err.message}`;
+  if (err instanceof Error) return err.message;
+  return String(err);
+}
+
+function detailErrorMessage(err: unknown): string {
+  if (err instanceof ApiError && err.status === 404) {
+    return "Couldn't find that entry. Open it from your Field Journal.";
+  }
   if (err instanceof ApiError) return `${err.status}: ${err.message}`;
   if (err instanceof Error) return err.message;
   return String(err);

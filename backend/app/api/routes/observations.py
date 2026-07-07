@@ -91,6 +91,14 @@ class RewardDTO(BaseModel):
             payload=dict(reward.payload),
         )
 
+    @classmethod
+    def from_payload(cls, payload: dict[str, object]) -> RewardDTO | None:
+        try:
+            return cls.model_validate(payload)
+        except Exception:
+            log.warning("observations.reward_payload_invalid")
+            return None
+
 
 class ObservationResponse(BaseModel):
     id: str
@@ -322,8 +330,8 @@ async def create_observation(
 # ---------------------------------------------------------------------------
 
 # Page size bounds. 50 is the largest single batch we'll ever serve to the
-# kid app -- the Dex tab uses FlashList virtualization (per docs/mobile.md)
-# and pages by 20 by default. Higher caps invite accidental N+1 fetches.
+# kid app -- the Field Journal pages by 20 by default. Higher caps invite
+# accidental N+1 thumbnail fetches.
 _DEFAULT_LIMIT = 20
 _MAX_LIMIT = 50
 
@@ -360,6 +368,10 @@ class ObservationListResponse(BaseModel):
             "Pass back as `before` to fetch the next page. Null when this is the last page."
         ),
     )
+
+
+class ObservationDetailResponse(ObservationListItem):
+    rewards: list[RewardDTO] = Field(default_factory=list)
 
 
 @router.get("/me", response_model=ObservationListResponse)
@@ -410,6 +422,53 @@ async def list_my_observations(
     return ObservationListResponse(
         items=items,
         next_cursor=items[-1].id if has_more and items else None,
+    )
+
+
+@router.get("/{observation_id}", response_model=ObservationDetailResponse)
+async def get_observation(
+    observation_id: str,
+    current_user: CurrentUserDep,
+    session: DbSessionDep,
+) -> ObservationDetailResponse:
+    user_row = await resolve_current_user_row(session, current_user)
+
+    obs_photo = (
+        await session.execute(
+            select(models.Observation, models.Photo)
+            .join(models.Photo, models.Observation.photo_id == models.Photo.id)
+            .where(
+                models.Observation.id == observation_id,
+                models.Observation.user_id == user_row.id,
+            )
+        )
+    ).one_or_none()
+    if obs_photo is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Observation not found")
+
+    obs, photo = obs_photo
+    rewards = [
+        dto
+        for payload in (obs.rewards or [])
+        if isinstance(payload, dict)
+        for dto in [RewardDTO.from_payload(payload)]
+        if dto is not None
+    ]
+    return ObservationDetailResponse(
+        id=obs.id,
+        user_id=obs.user_id,
+        group_id=obs.group_id,
+        photo_id=obs.photo_id,
+        photo_object_name=photo.object_name,
+        photo_status=photo.status,
+        latitude=obs.latitude,
+        longitude=obs.longitude,
+        geohash4=obs.geohash4,
+        taxon_id=obs.taxon_id,
+        species_name=obs.species_name,
+        place_name=obs.place_name,
+        created_at=obs.created_at,
+        rewards=rewards,
     )
 
 

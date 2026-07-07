@@ -246,6 +246,9 @@ export default function ObserveSubmitScreen() {
       species_name: choice.species_name,
       place_name: placeName,
     });
+    if (obs.taxon_id !== null) {
+      void queryClient.invalidateQueries({ queryKey: ["dex", "me"] });
+    }
     collectRewards(obs.rewards);
     finishDone(obs.id);
   }

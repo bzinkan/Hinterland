@@ -1,4 +1,5 @@
-import { router } from "expo-router";
+import FontAwesome from "@expo/vector-icons/FontAwesome";
+import { router, type Href } from "expo-router";
 import { useCallback, useState } from "react";
 import {
   ActivityIndicator,
@@ -12,71 +13,82 @@ import {
 import DesktopContainer from "@/components/DesktopContainer";
 import { Text, View } from "@/components/Themed";
 import { ApiError } from "@/src/api/client";
+import type { DexListItem } from "@/src/api/dex";
 import type { ObservationListItem } from "@/src/api/observations";
 import { queryClient } from "@/src/api/queryClient";
 import {
-  journalCaption,
+  DEFAULT_JOURNAL_MODE,
+  findCountLabel,
   isAwaitingModeration,
   isUrlUsable,
+  journalCaption,
   photoDisplayMode,
+  speciesDisplayName,
+  speciesSubtitle,
+  type JournalMode,
 } from "@/src/observation/journalLogic";
+import { useMyDex } from "@/src/observation/useMyDex";
 import { useMyObservations } from "@/src/observation/useMyObservations";
 import { usePhotoUrl } from "@/src/observation/usePhotoUrl";
 
 export default function FieldJournalScreen() {
-  const query = useMyObservations();
+  const [mode, setMode] = useState<JournalMode>(DEFAULT_JOURNAL_MODE);
+  const observations = useMyObservations();
+  const dex = useMyDex();
 
-  const items = query.data?.pages.flatMap((p) => p.items) ?? [];
+  const photoItems = observations.data?.pages.flatMap((p) => p.items) ?? [];
+  const speciesItems = dex.data?.pages.flatMap((p) => p.items) ?? [];
 
   const onRefresh = useCallback(() => {
-    void query.refetch();
-    // The thumbnails are separate ["photo-url", id] queries; without this
-    // an errored thumb survives pull-to-refresh (only active ones matter
-    // -- off-screen queries refetch on their own remount).
+    void observations.refetch();
+    void dex.refetch();
     void queryClient.refetchQueries({ queryKey: ["photo-url"], type: "active" });
-  }, [query]);
+  }, [dex, observations]);
 
-  if (query.isPending) {
+  const header = (
+    <JournalHeader
+      mode={mode}
+      onModeChange={setMode}
+      photoCount={formatLoadedCount(photoItems.length, observations.hasNextPage)}
+      speciesCount={formatLoadedCount(speciesItems.length, dex.hasNextPage)}
+    />
+  );
+
+  if (mode === "species") {
     return (
       <DesktopContainer>
-        <View style={styles.center}>
-          <ActivityIndicator />
-        </View>
-      </DesktopContainer>
-    );
-  }
-
-  if (query.isError) {
-    const err = query.error;
-    const isUnauthed = err instanceof ApiError && err.status === 401;
-    return (
-      <DesktopContainer>
-        <View style={styles.center}>
-          <Text style={styles.heading}>
-            {isUnauthed ? "Not signed in" : "Couldn't open your Field Journal"}
-          </Text>
-          <Text style={styles.body}>
-            {isUnauthed
-              ? "Open Settings and sign in, then come back."
-              : err.message}
-          </Text>
-          <Pressable style={[styles.button, styles.buttonGhost]} onPress={onRefresh}>
-            <Text style={styles.buttonText}>Retry</Text>
-          </Pressable>
-        </View>
-      </DesktopContainer>
-    );
-  }
-
-  if (items.length === 0) {
-    return (
-      <DesktopContainer>
-        <View style={styles.center}>
-          <Text style={styles.heading}>Your Field Journal is empty</Text>
-          <Text style={styles.body}>
-            Tap the Observe tab to log your first discovery.
-          </Text>
-        </View>
+        <FlatList
+          data={speciesItems}
+          keyExtractor={(item) => item.id}
+          numColumns={2}
+          columnWrapperStyle={styles.gridRow}
+          contentContainerStyle={styles.list}
+          refreshControl={
+            <RefreshControl
+              refreshing={dex.isRefetching || observations.isRefetching}
+              onRefresh={onRefresh}
+            />
+          }
+          ListHeaderComponent={header}
+          ListEmptyComponent={
+            <JournalBodyState
+              pending={dex.isPending}
+              error={dex.error}
+              emptyTitle="No species yet"
+              emptyBody="Choose an iNaturalist match when saving a photo to add it here."
+              onRetry={onRefresh}
+            />
+          }
+          renderItem={({ item }) => <SpeciesCard item={item} />}
+          ListFooterComponent={
+            dex.hasNextPage ? (
+              <LoadMoreButton
+                loading={dex.isFetchingNextPage}
+                onPress={() => void dex.fetchNextPage()}
+              />
+            ) : null
+          }
+        />
       </DesktopContainer>
     );
   }
@@ -84,30 +96,148 @@ export default function FieldJournalScreen() {
   return (
     <DesktopContainer>
       <FlatList
-        data={items}
+        data={photoItems}
         keyExtractor={(item) => item.id}
         numColumns={2}
         columnWrapperStyle={styles.gridRow}
         contentContainerStyle={styles.list}
         refreshControl={
-          <RefreshControl refreshing={query.isRefetching} onRefresh={onRefresh} />
+          <RefreshControl
+            refreshing={observations.isRefetching || dex.isRefetching}
+            onRefresh={onRefresh}
+          />
+        }
+        ListHeaderComponent={header}
+        ListEmptyComponent={
+          <JournalBodyState
+            pending={observations.isPending}
+            error={observations.error}
+            emptyTitle="Your Field Journal is empty"
+            emptyBody="Tap the Observe tab to log your first discovery."
+            onRetry={onRefresh}
+          />
         }
         renderItem={({ item }) => <JournalCard item={item} />}
         ListFooterComponent={
-          query.hasNextPage ? (
-            <Pressable
-              style={[styles.button, styles.buttonGhost, styles.loadMore]}
-              disabled={query.isFetchingNextPage}
-              onPress={() => void query.fetchNextPage()}
-            >
-              <Text style={styles.buttonText}>
-                {query.isFetchingNextPage ? "Loading…" : "Load more"}
-              </Text>
-            </Pressable>
+          observations.hasNextPage ? (
+            <LoadMoreButton
+              loading={observations.isFetchingNextPage}
+              onPress={() => void observations.fetchNextPage()}
+            />
           ) : null
         }
       />
     </DesktopContainer>
+  );
+}
+
+function JournalHeader({
+  mode,
+  onModeChange,
+  photoCount,
+  speciesCount,
+}: {
+  mode: JournalMode;
+  onModeChange: (mode: JournalMode) => void;
+  photoCount: string;
+  speciesCount: string;
+}) {
+  return (
+    <View style={styles.header}>
+      <Text style={styles.title}>Field Journal</Text>
+      <View style={styles.statsRow}>
+        <Stat label="Photos" value={photoCount} />
+        <Stat label="Species" value={speciesCount} />
+      </View>
+      <View style={styles.segment}>
+        <SegmentButton
+          active={mode === "photos"}
+          label="Photos"
+          onPress={() => onModeChange("photos")}
+        />
+        <SegmentButton
+          active={mode === "species"}
+          label="Species"
+          onPress={() => onModeChange("species")}
+        />
+      </View>
+    </View>
+  );
+}
+
+function Stat({ label, value }: { label: string; value: string }) {
+  return (
+    <View style={styles.stat}>
+      <Text style={styles.statValue}>{value}</Text>
+      <Text style={styles.statLabel}>{label}</Text>
+    </View>
+  );
+}
+
+function SegmentButton({
+  active,
+  label,
+  onPress,
+}: {
+  active: boolean;
+  label: string;
+  onPress: () => void;
+}) {
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityState={{ selected: active }}
+      style={[styles.segmentButton, active && styles.segmentButtonActive]}
+      onPress={onPress}
+    >
+      <Text style={[styles.segmentText, active && styles.segmentTextActive]}>{label}</Text>
+    </Pressable>
+  );
+}
+
+function JournalBodyState({
+  pending,
+  error,
+  emptyTitle,
+  emptyBody,
+  onRetry,
+}: {
+  pending: boolean;
+  error: Error | null;
+  emptyTitle: string;
+  emptyBody: string;
+  onRetry: () => void;
+}) {
+  if (pending) {
+    return (
+      <View style={styles.center}>
+        <ActivityIndicator />
+      </View>
+    );
+  }
+
+  if (error) {
+    const isUnauthed = error instanceof ApiError && error.status === 401;
+    return (
+      <View style={styles.center}>
+        <Text style={styles.heading}>
+          {isUnauthed ? "Not signed in" : "Couldn't open your Field Journal"}
+        </Text>
+        <Text style={styles.body}>
+          {isUnauthed ? "Open Settings and sign in, then come back." : error.message}
+        </Text>
+        <Pressable style={[styles.button, styles.buttonGhost]} onPress={onRetry}>
+          <Text style={styles.buttonText}>Retry</Text>
+        </Pressable>
+      </View>
+    );
+  }
+
+  return (
+    <View style={styles.center}>
+      <Text style={styles.heading}>{emptyTitle}</Text>
+      <Text style={styles.body}>{emptyBody}</Text>
+    </View>
   );
 }
 
@@ -118,7 +248,7 @@ function JournalCard({ item }: { item: ObservationListItem }) {
   return (
     <Pressable
       style={styles.card}
-      onPress={() => router.push(`/observation/${item.id}`)}
+      onPress={() => router.push(observationHref(item.id))}
     >
       {mode === "image" ? (
         <JournalThumb
@@ -126,23 +256,44 @@ function JournalCard({ item }: { item: ObservationListItem }) {
           checking={isAwaitingModeration(item.photo_status)}
         />
       ) : (
-        <View style={styles.thumbPlaceholder}>
-          <Text style={styles.placeholderGlyph}>
-            {mode === "reviewing" ? "🔍" : "🚫"}
-          </Text>
-          <Text style={styles.placeholderText}>
-            {mode === "reviewing"
-              ? "An adult is checking this photo"
-              : "Photo removed"}
-          </Text>
-        </View>
+        <UnavailableThumb mode={mode} />
       )}
-      <Text style={styles.species} numberOfLines={1}>
+      <Text style={styles.cardTitle} numberOfLines={1}>
         {journalCaption(item.species_name)}
       </Text>
-      <Text style={styles.meta} numberOfLines={1}>
-        {ts.toLocaleDateString()}
-        {item.place_name ? ` · ${item.place_name}` : ""}
+      <Text style={styles.cardMeta} numberOfLines={1}>
+        {formatDate(ts)}
+        {item.place_name ? ` - ${item.place_name}` : ""}
+      </Text>
+    </Pressable>
+  );
+}
+
+function SpeciesCard({ item }: { item: DexListItem }) {
+  const mode = photoDisplayMode(item.first_photo_status);
+  const firstSeen = new Date(item.first_seen_at);
+
+  return (
+    <Pressable
+      style={styles.card}
+      onPress={() => router.push(observationHref(item.first_observation_id))}
+    >
+      {mode === "image" ? (
+        <JournalThumb
+          photoId={item.first_photo_id}
+          checking={isAwaitingModeration(item.first_photo_status)}
+        />
+      ) : (
+        <UnavailableThumb mode={mode} />
+      )}
+      <Text style={styles.cardTitle} numberOfLines={1}>
+        {speciesDisplayName(item)}
+      </Text>
+      <Text style={styles.cardMeta} numberOfLines={1}>
+        {speciesSubtitle(item)}
+      </Text>
+      <Text style={styles.cardMeta} numberOfLines={1}>
+        {findCountLabel(item.observation_count)} - first seen {formatDate(firstSeen)}
       </Text>
     </Pressable>
   );
@@ -156,15 +307,10 @@ function JournalThumb({
   checking: boolean;
 }) {
   const urlQuery = usePhotoUrl(photoId, true);
-  // One silent re-mint when the image bytes fail to load (typically the
-  // moderation worker moved the blob out from under a cached URL); after
-  // that, show the placeholder instead of error-looping.
   const [loadRetried, setLoadRetried] = useState(false);
   const [loadFailed, setLoadFailed] = useState(false);
 
   if (urlQuery.isError || loadFailed) {
-    // URL mint or image load failed (offline, blob missing). Tappable
-    // placeholder; pull-to-refresh also retries active photo-url queries.
     return (
       <Pressable
         style={styles.thumbPlaceholder}
@@ -174,14 +320,12 @@ function JournalThumb({
           void urlQuery.refetch();
         }}
       >
-        <Text style={styles.placeholderGlyph}>🌿</Text>
+        <FontAwesome name="refresh" size={24} color="#fff" />
         <Text style={styles.placeholderText}>Tap to retry</Text>
       </Pressable>
     );
   }
 
-  // Pending, or a cache hit whose SAS already expired (the background
-  // refetch is re-minting) -- never hand an expired URL to <Image>.
   if (urlQuery.isPending || !isUrlUsable(urlQuery.data.expires_at)) {
     return (
       <View style={styles.thumbPlaceholder}>
@@ -209,22 +353,129 @@ function JournalThumb({
       />
       {checking && (
         <View style={styles.checkingBadge}>
-          <Text style={styles.checkingBadgeText}>checking…</Text>
+          <Text style={styles.checkingBadgeText}>checking...</Text>
         </View>
       )}
     </View>
   );
 }
 
+function UnavailableThumb({ mode }: { mode: "reviewing" | "removed" }) {
+  return (
+    <View style={styles.thumbPlaceholder}>
+      <FontAwesome
+        name={mode === "reviewing" ? "search" : "ban"}
+        size={24}
+        color="#fff"
+      />
+      <Text style={styles.placeholderText}>
+        {mode === "reviewing" ? "An adult is checking this photo" : "Photo removed"}
+      </Text>
+    </View>
+  );
+}
+
+function LoadMoreButton({
+  loading,
+  onPress,
+}: {
+  loading: boolean;
+  onPress: () => void;
+}) {
+  return (
+    <Pressable
+      style={[styles.button, styles.buttonGhost, styles.loadMore]}
+      disabled={loading}
+      onPress={onPress}
+    >
+      <Text style={styles.buttonText}>{loading ? "Loading..." : "Load more"}</Text>
+    </Pressable>
+  );
+}
+
+function formatLoadedCount(count: number, hasMore: boolean): string {
+  return `${count}${hasMore ? "+" : ""}`;
+}
+
+function formatDate(date: Date): string {
+  if (Number.isNaN(date.getTime())) return "Unknown date";
+  return date.toLocaleDateString();
+}
+
+function observationHref(id: string): Href {
+  return {
+    pathname: "/observation/[id]",
+    params: { id },
+  } as unknown as Href;
+}
+
 const styles = StyleSheet.create({
   list: {
     padding: 12,
+    paddingBottom: 28,
+  },
+  header: {
+    paddingTop: 8,
+    paddingBottom: 16,
+  },
+  title: {
+    fontSize: 26,
+    fontWeight: "700",
+  },
+  statsRow: {
+    flexDirection: "row",
+    gap: 10,
+    marginTop: 12,
+  },
+  stat: {
+    flex: 1,
+    borderColor: "rgba(255,255,255,0.16)",
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 8,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+  },
+  statValue: {
+    fontSize: 18,
+    fontWeight: "700",
+  },
+  statLabel: {
+    fontSize: 12,
+    opacity: 0.62,
+    marginTop: 2,
+  },
+  segment: {
+    flexDirection: "row",
+    borderColor: "rgba(255,255,255,0.16)",
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 8,
+    padding: 3,
+    marginTop: 12,
+  },
+  segmentButton: {
+    flex: 1,
+    minHeight: 36,
+    borderRadius: 6,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  segmentButtonActive: {
+    backgroundColor: "#2f6feb",
+  },
+  segmentText: {
+    fontSize: 14,
+    fontWeight: "600",
+    opacity: 0.72,
+  },
+  segmentTextActive: {
+    opacity: 1,
+    color: "#fff",
   },
   gridRow: {
     gap: 12,
   },
   center: {
-    flex: 1,
+    minHeight: 260,
     alignItems: "center",
     justifyContent: "center",
     padding: 24,
@@ -233,6 +484,7 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: "600",
     marginBottom: 8,
+    textAlign: "center",
   },
   body: {
     fontSize: 14,
@@ -242,9 +494,6 @@ const styles = StyleSheet.create({
   },
   card: {
     flex: 1,
-    // Without the cap, a lone card in the last row of an odd-length list
-    // flexes to the full row width (giant square). ~6px wider than paired
-    // cards because of the 12px gap; imperceptible.
     maxWidth: "50%",
     marginBottom: 16,
   },
@@ -265,14 +514,11 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     padding: 12,
-  },
-  placeholderGlyph: {
-    fontSize: 28,
-    marginBottom: 6,
+    gap: 8,
   },
   placeholderText: {
     fontSize: 12,
-    opacity: 0.7,
+    opacity: 0.72,
     textAlign: "center",
   },
   checkingBadge: {
@@ -288,14 +534,14 @@ const styles = StyleSheet.create({
     fontSize: 10,
     color: "#fff",
   },
-  species: {
+  cardTitle: {
     fontSize: 14,
-    fontWeight: "500",
-    marginTop: 6,
+    fontWeight: "600",
+    marginTop: 7,
   },
-  meta: {
+  cardMeta: {
     fontSize: 11,
-    opacity: 0.6,
+    opacity: 0.62,
     marginTop: 2,
   },
   button: {

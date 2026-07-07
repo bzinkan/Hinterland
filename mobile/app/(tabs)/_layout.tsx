@@ -53,7 +53,7 @@ export default function TabLayout() {
         options={{
           title: "Dex",
           tabBarIcon: ({ color }) => <TabBarIcon name="book" color={color} />,
-          href: IS_WEB ? null : "/dex",
+          href: null,
         }}
       />
       <Tabs.Screen
