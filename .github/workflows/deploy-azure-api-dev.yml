@@ -65,10 +65,11 @@ jobs:
       - name: Run Alembic migrations
         run: |
           set -euo pipefail
-          az containerapp exec \
-            --name "${AZURE_CONTAINER_APP}" \
-            --resource-group "${AZURE_RESOURCE_GROUP}" \
-            --command "/app/.venv/bin/alembic upgrade head"
+          # `az containerapp exec` opens an SSH-like session and currently
+          # expects stdin to be a TTY. GitHub Actions does not provide one, so
+          # run it under `script` to allocate a pseudo-terminal while preserving
+          # the child command exit code with `-e`.
+          script -q -e -c "az containerapp exec --name '${AZURE_CONTAINER_APP}' --resource-group '${AZURE_RESOURCE_GROUP}' --command '/app/.venv/bin/alembic upgrade head'" /dev/null
 
       - name: Start expedition content sync job
         # The image IS the content version; the manual Container Apps Job
