@@ -17,6 +17,8 @@ Start with these files, in this order:
 7. `docs/mobile.md` for Expo/mobile constraints.
 8. `docs/adr/` for decisions that must not be casually reversed. Most active:
    - [ADR 0010](docs/adr/0010-azure-target-architecture.md) — Azure target architecture (Entra External Identities, Hinterland-signed kid JWTs, Azure Postgres, Blob Storage, Container Apps, Key Vault, Azure AI Content Safety, Azure Monitor). Supersedes ADR 0005, 0008, and 0009.
+   - [ADR 0012](docs/adr/0012-sanctuary-2point5d-diorama.md) — the Sanctuary renders as a 2.5D Skia diorama (SkPicture-only, palette-token SVG art, `SANCTUARY_DIORAMA` flag, `Sanctuary2DScreen` permanent fallback). Its addendum records the composition pivot: biome CHOOSER + full-bleed per-biome scenes; the 7-island archipelago vista is retired. Supersedes ADR 0011 (true-3D track, frozen on `feature/sanctuary-3d`).
+   - [ADR 0013](docs/adr/0013-hinterland-rename.md) — the Hinterland rename layers: which identifiers renamed (user-facing copy/docs) and which DELIBERATELY stay `dragonfly` (bundle ids, `DRAGONFLY_*` env vars, scheme/QR/JWKS/JWT strings, Azure resources, domain, EAS slug, storage keys). Read before renaming ANYTHING. The Sanctuary guide mascot is a dragonfly (the insect) and never renames.
    - [ADR 0006](docs/adr/0006-ingest-pipelines.md) — Ingest pipelines are explicit, replayable, and audited via `ingest_runs`.
    - [ADR 0007](docs/adr/0007-internal-ai-agent-tooling.md) — Multi-agent AI is internal/adult-only; never on a kid-facing request path.
    - [ADR 0002](docs/adr/0002-no-runtime-llm.md) — Kid-facing runtime LLM calls remain forbidden.
@@ -74,6 +76,31 @@ logic in `mobile/src/observation/journalLogic.ts`). The Sanctuary's
 event-timeline panel is labeled **"Story"** in the UI — its API field
 stays `journal[]` (wire contract; do not rename). Historical phase logs
 below still say "Home tab" / "gallery"; leave them as history.
+
+Sanctuary (2026-07-06): the Sanctuary tab renders the 2.5D diorama
+behind `SANCTUARY_DIORAMA` (default ON for `development`, OFF for
+store builds): a native **biome chooser** (7 palette-derived cards) →
+per-biome **full-bleed layered scene** (`mobile/src/sanctuary/dioramaui/`,
+pure core in `mobile/src/sanctuary/diorama/`). Render contract: SkPicture
+replay only (no per-frame SVG DOM), all color through palette-token
+substitution, dormant zones = baked desaturated slots, wake lerp is
+focus-gated, watchdog/crash-latch falls back to the untouched
+`Sanctuary2DScreen`. Art is deterministic generated SVG
+(`scripts/sanctuary_assets/`; recipes → generator → `*.gen.ts`; CI
+regenerates and diffs). Meadow has real full-scene backdrop bands; the
+other six zones render their island art in-scene as a documented
+interim until each gets its backdrop. Dev harnesses (no auth needed):
+`exp+dragonfly://dev/diorama-preview` (tier stepper + chooser + scenes
+from a sample snapshot — the art taste-pass loop), `dev/diorama-spike`
+(frozen D4 perf spike), `dev/skia-smoke`.
+
+Dev auto-login (2026-07-06): pre-production builds (`development` /
+`preview`) silently mint a sandbox kid session at boot via
+`POST /v1/auth/dev-login` — fail-closed (404 unless
+`DRAGONFLY_DEV_LOGIN_ENABLED` + key set on the deployment; hard-404 when
+`env=prod`; store builds bake no key). See `mobile/src/auth/devSession.ts`
+and the route in `backend/app/api/routes/auth.py`. Store builds keep the
+real QR-handoff flow untouched.
 
 Current backend baseline:
 
@@ -355,6 +382,76 @@ Exit criteria:
 
 **Status:** ✅ Met 2026-05-10 from the code's perspective. PRs #59-62 shipped: signed-GET photo URL + mobile review queue UI consuming the Phase 8 review_queue endpoints (PR #59), `admin/sweep_stale_reviews.py` auto-rejecting reviews open >30 days per `docs/moderation.md` (PR #60), `observations.dispatched_at` column + Alembic migration + `admin/dispatcher_replay.py` re-dispatching crashed observations per `docs/dispatcher.md` snapshot 11 (PR #61), three Cloud Monitoring alarms (api p95 latency / Cloud SQL CPU / Cloud Run instance count) + a 2x2 dogfood dashboard for the closed-beta period (PR #62), privacy policy DRAFT + app-store compliance checklist + risk doc capturing the human-action items that gate the actual beta launch. **The Phase 11 exit criteria ("first closed-beta group is invited" + "at least one real kid submits at least one real outdoor observation") are NOT met by code alone** -- they need: lawyer review of the privacy policy, resolution of risks 0001-0004, Terraform apply of the new monitoring resources, Cloud Scheduler wiring of the three new admin tasks, app-store submissions, beta-tester onboarding sessions. All captured with an ordered checklist in [risk 0005](docs/risks/0005-beta-launch-human-action-items.md).
 
+### Post-Phase-11 Log (Azure era → Hinterland)
+
+Dated continuation of the execution log above. Same rule applies: this
+is history; the sections at the top of the file govern active work.
+
+**2026-06-02 → 06-03 — Azure migration (ADR 0010).** Full platform move
+off GCP driven by the Microsoft for Startups credit: Container Apps API
+(`dragonfly-api` → `api.dragonfly-app.net`), Azure Postgres Flexible
+Server, Blob Storage, Key Vault, Service Bus + 6 Container Apps Jobs,
+Entra External Identities for adults, Hinterland-signed RS256 kid JWTs
+(QR handoff → `/v1/auth/kid-exchange`). GCP mostly decommissioned
+(`infra-azure/phase-10-gcp-decommission.md`); deploys are manual
+`az acr build` from the repo root + `az containerapp update` (the
+GitHub deploy workflow's steps are the runbook; its secrets were never
+configured).
+
+**2026-06-10 → 06-11 — Expedition live-flow fixes (#127) + Sanctuary 3D
+track (ADR 0011).** Five dispatcher/expedition correctness fixes
+(re-dispatch on first taxon assignment, replay gate, ancestor_ids,
+richer `/me`, mobile celebration + detail screen); backend deployed.
+In parallel the true-3D Sanctuary track (three.js/R3F/expo-gl) reached
+M2 + look-dev on `feature/sanctuary-3d` — later frozen as reference by
+the 2.5D pivot; its GL dependencies never enter `main`.
+
+**2026-07-02 — Expedition roadmap complete (#145–#154).** Ten PRs:
+restart-in-place, trophy shelf + environment chips, funnel analytics
+job, sync packaging (deploy procedure now builds from the repo ROOT so
+content ships in the image), author-time LLM drafter, tier-2 expedition
+ladder, `rarity_cache.iconic_taxon`, geohash4 passive relevance ranking
+(downrank-never-hide), COPPA purge of expedition progress on account
+deletion, locked progress writers. Photo upload vs Azure Blob fixed
+(#128) + Field Journal photo gallery (#156).
+
+**2026-07-05 → 07-06 — Sanctuary 2.5D diorama (ADR 0012), D1–D7.**
+Brian's call: 2.5D, not 3D. ADR + pure-core port (#164, #165), art
+system (#166: zero-dep deterministic SVG generator, 88 assets, palette
+tokens, CI drift gate), backend photo-on-tap clean-gate + read-time
+expedition souvenirs (#167, schema-regen hotfix #168), native deps +
+dev client (#169, #171: skia 2.2.12 + expo-audio, mic permission
+blocked on ALL profiles), D4 spike **GO** (#172: S21U 60fps / TTI
+126ms / +34MB; the A/B proved SkPicture caching is load-bearing on
+mid-range — 24.5→54.1fps on a 2-core emulator), full diorama screen
+(#173: 7-island vista, dive, token-baked dormant palette, focus-gated
+wake, watchdog latch, TalkBack proxies).
+
+**2026-07-06 — Hinterland rename, layer 1 (#170, ADR 0013).** All
+user-facing copy, living docs, comments, display names → Hinterland
+(short form). Layer-2 identifiers deliberately keep `dragonfly` per the
+ADR's keep-list; their migration rides the future `hinterland-dev-rg`
+environment cutover (rebrand/environment ADR pending as 0014). The
+dragonfly mascot keeps its name forever.
+
+**2026-07-06 — Dev auto-login (#174).** Pre-production builds sign in
+silently at boot (fail-closed gated endpoint + sandbox kid lineage +
+silent mobile bootstrap; store builds bake no key). Drive-by fix: the
+Firebase token-sync listener no longer wipes stored sessions on its
+boot-time null event. Deployment of the flag/key to the dev Container
+App is an operator action.
+
+**2026-07-06 — Sanctuary composition pivot (#175, ADR 0012 addendum).**
+The archipelago vista is retired: kids CHOOSE a biome (native card
+list) and enter it as a full-bleed layered 2.5D scene (WoW-zone-vista ×
+Nintendo bands; sprites remapped onto the ground plane; wake ceremonies
+held until the kid actually enters the zone). New `backdrop` asset kind
+through the deterministic pipeline; meadow shipped with three on-device
+taste iterations (horizon, clouds, treeline stands, crest canopies).
+Remaining six biome backdrops land zone-by-zone; D9 (photo pane +
+souvenir render), D10 (soundscapes, default-off), D11 (polish + flag
+checkpoint) follow, rescoped to the biome-scene composition.
+
 ### 12. Phase 2
 
 Goal: deepen engagement without disrupting Phase 1 loops.
@@ -362,7 +459,7 @@ Goal: deepen engagement without disrupting Phase 1 loops.
 Candidates:
 
 - Territory map using MapLibre/OSM rendering.
-- Sanctuary / open-world layer with `WorldHandler` — full Phase 2 product + architecture contract in [`docs/sanctuary.md`](docs/sanctuary.md). The `WORLD#` phrasing kept here is conceptual only; the real persistence is Postgres tables (indicative: `sanctuary_zone_state`, `sanctuary_unlocks`, `sanctuary_content`) per ADR 0005.
+- Sanctuary / open-world layer — **no longer a candidate: shipped and evolving.** Backend + content per [`docs/sanctuary.md`](docs/sanctuary.md); renderer per ADR 0012 + addendum (biome chooser + full-bleed 2.5D scenes). See the post-Phase-11 log below and the Repository Reality Check above for current state.
 - Offline tile bundles.
 - Push notifications, transactional only.
 - Teacher dashboard beyond review queue.
