@@ -218,14 +218,19 @@ function JournalBodyState({
 
   if (error) {
     const isUnauthed = error instanceof ApiError && error.status === 401;
+    if (isUnauthed) {
+      return (
+        <View style={styles.center}>
+          <Text style={styles.heading}>{emptyTitle}</Text>
+          <Text style={styles.body}>{emptyBody}</Text>
+        </View>
+      );
+    }
+
     return (
       <View style={styles.center}>
-        <Text style={styles.heading}>
-          {isUnauthed ? "Not signed in" : "Couldn't open your Field Journal"}
-        </Text>
-        <Text style={styles.body}>
-          {isUnauthed ? "Open Settings and sign in, then come back." : error.message}
-        </Text>
+        <Text style={styles.heading}>Couldn't open your Field Journal</Text>
+        <Text style={styles.body}>{error.message}</Text>
         <Pressable style={[styles.button, styles.buttonGhost]} onPress={onRetry}>
           <Text style={styles.buttonText}>Retry</Text>
         </Pressable>
