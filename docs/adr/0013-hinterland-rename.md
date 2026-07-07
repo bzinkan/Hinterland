@@ -48,11 +48,11 @@ environment stays as reference/rollback and is never renamed in place.
    cutover.
 2. **`DRAGONFLY_*` env var names and the `env_prefix="DRAGONFLY_"` in
    `backend/app/core/config.py`** (including the `dragonfly_*` Settings
-   field names they bind to). The deployed Container Apps, jobs, CI
-   workflows, and operator scripts all set these. Migration per the
-   rebrand plan = introduce a `HINTERLAND_` prefix while keeping
-   `DRAGONFLY_` working through an overlap window. Comments around
-   them may say Hinterland.
+   field names they bind to). `HINTERLAND_` env vars are now accepted by
+   the settings layer for the Gordi Container Apps environment, including
+   the renamed kid-JWT/dev-auth keys. `DRAGONFLY_` remains supported and
+   takes precedence during the overlap window. Comments around these
+   compatibility names may say Hinterland.
 3. **Client-coordinated protocol strings:** the deep-link scheme
    `dragonfly` (`exp+dragonfly://…`), the kid QR handoff format
    `dragonfly.kid-handoff.v2`, the JWKS path
