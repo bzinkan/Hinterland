@@ -1,9 +1,7 @@
 name: Deploy parents web to Azure Static Web Apps (dev)
 
-# Phase 8 of the GCP -> Azure migration. Builds the Expo web bundle from
-# mobile/ and ships it to Azure Static Web Apps site `dragonfly-parents-swa`.
-# Runs alongside the existing Firebase Hosting deploy workflow during the
-# Phase 9 DNS cutover; the Firebase workflow is removed in Phase 10.
+# Azure-only parents web deploy. Builds the Expo web bundle from mobile/ and
+# ships it to Azure Static Web Apps site `hinterland-parents-swa`.
 
 on:
   push:
@@ -42,7 +40,7 @@ jobs:
       - name: Export web bundle
         run: npx expo export --platform web
 
-      - name: Deploy to dragonfly-parents-swa
+      - name: Deploy to hinterland-parents-swa
         uses: Azure/static-web-apps-deploy@v1
         with:
           azure_static_web_apps_api_token: ${{ secrets.AZURE_PARENTS_SWA_TOKEN }}

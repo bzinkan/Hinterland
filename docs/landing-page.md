@@ -1,7 +1,7 @@
 # Dragonfly Landing Page Plan
 
 This document defines the first-pass planning and copy foundation for a
-legitimate public landing page at `https://dragonfly-app.net`.
+legitimate public landing page at `https://thehinterlandguide.app`.
 
 It is a planning document only. It does not implement the website, add
 dependencies, or finalize legal copy. Legal, privacy, store, and compliance
@@ -276,8 +276,8 @@ Footer links:
 
 Footer contact:
 
-- Support: `support@dragonfly-app.net`
-- Privacy: `privacy@dragonfly-app.net`
+- Support: `support@thehinterlandguide.app`
+- Privacy: `privacy@thehinterlandguide.app`
 
 ### FAQ answers
 
@@ -396,9 +396,8 @@ Needed URLs:
 - `/contact` or a clear contact block
 
 Current implementation target: `web/public/` already serves the static
-landing/legal pages, with Firebase Hosting and Azure Static Web Apps deploy
-workflows present. A follow-up implementation PR should update those static
-files rather than create a new app framework.
+landing/legal pages through Azure Static Web Apps. A follow-up implementation
+PR should update those static files rather than create a new app framework.
 
 Legal copy must be reviewed before production/public launch. For now, pages can
 be accurate pilot-facing drafts, but they must not claim attorney review,
@@ -407,8 +406,8 @@ those claims are true.
 
 The footer should make support easy to find:
 
-- `support@dragonfly-app.net` for general help
-- `privacy@dragonfly-app.net` for privacy requests
+- `support@thehinterlandguide.app` for general help
+- `privacy@thehinterlandguide.app` for privacy requests
 
 Before closed/public store tracks, confirm both inboxes are live and monitored.
 
@@ -416,7 +415,7 @@ Before closed/public store tracks, confirm both inboxes are live and monitored.
 
 Use a low-risk pilot CTA for the first implementation.
 
-Recommended first pass: a `mailto:` link to `support@dragonfly-app.net` with
+Recommended first pass: a `mailto:` link to `support@thehinterlandguide.app` with
 the pre-filled subject `Dragonfly pilot access request`.
 
 The first mailto body should ask only for adult contact and pilot logistics:
@@ -478,7 +477,7 @@ Avoid collecting:
 Update `web/public/index.html` to the approved structure in this document.
 Keep it static HTML/CSS. Do not add dependencies. Replace overclaiming iNat copy
 with pilot-safe language. Ensure the page remains deployable by the existing
-Firebase Hosting and Azure Static Web Apps workflows.
+Azure Static Web Apps workflow.
 
 ### PR 2: Content pages
 
@@ -509,7 +508,7 @@ legal review before those are true.
 ### PR 5: Deploy verification
 
 Verify the static landing site deploys cleanly to the active hosting path for
-`dragonfly-app.net` and `www.dragonfly-app.net`. Confirm:
+`thehinterlandguide.app` and `www.thehinterlandguide.app`. Confirm:
 
 - `/` returns HTTP 200
 - `/privacy` returns HTTP 200

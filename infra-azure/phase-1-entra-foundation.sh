@@ -24,10 +24,21 @@
 #
 # Prerequisites: az CLI authenticated against BOTH tenants
 # (management 3b7e8876-fd7e-4b71-b14f-f1bf9beb8e05 and CIAM
-# dfd7ebb4-0b29-42cb-aa05-e5e0124bab8f) as brian@dragonfly-app.net.
+# dfd7ebb4-0b29-42cb-aa05-e5e0124bab8f) as an account with admin access
+# to both tenants.
 # openssl must be on PATH for kid JWT keypair generation.
 
 set -euo pipefail
+
+cat >&2 <<'MSG'
+FATAL: phase-1-entra-foundation.sh is a historical Dragonfly bootstrap script.
+
+The active Hinterland app registrations, tenant, Key Vault, and kid-token
+settings are recorded in infra-azure/entra/manifest.json. ADR 0014 removed the
+old Firebase/GCP rollback path and this script still contains Dragonfly-era
+tenant/resource identifiers, so it must not be run for current environments.
+MSG
+exit 1
 
 # ---------------------------------------------------------------------------
 # Variables
@@ -37,8 +48,8 @@ MGMT_SUB="5a04114f-9102-4e0b-828b-b385096edfbc"
 MGMT_TENANT="3b7e8876-fd7e-4b71-b14f-f1bf9beb8e05"
 CIAM_TENANT="dfd7ebb4-0b29-42cb-aa05-e5e0124bab8f"
 # Az treats the CIAM tenant id as a placeholder "subscription" so that
-# `--subscription $CIAM_PLACEHOLDER_SUB` routes to the brian@dragonfly-app.net
-# credential in that tenant for `az rest` calls.
+# `--subscription $CIAM_PLACEHOLDER_SUB` routes to the credential in that tenant
+# for `az rest` calls.
 CIAM_PLACEHOLDER_SUB="$CIAM_TENANT"
 
 RG="dragonfly-dev-rg"
@@ -214,7 +225,7 @@ cat > "$REDIRECTS_FILE" <<'EOF'
 {
   "spa": {
     "redirectUris": [
-      "https://parents.dragonfly-app.net/auth/callback",
+      "https://parents.thehinterlandguide.app/auth/callback",
       "http://localhost:8081/auth/callback",
       "http://localhost:19006/auth/callback"
     ]

@@ -98,7 +98,6 @@ module = [
     "azure.keyvault.*",
     "azure.servicebus.*",
     "azure.storage.*",
-    "firebase_admin.*",
     "geohash.*",
     "google.auth.*",
     "google.cloud.*",

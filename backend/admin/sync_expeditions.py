@@ -19,7 +19,7 @@ IS the content version. Per docs/expedition-authoring.md:
   get "revived" without anyone noticing it didn't happen.
 
 In Azure this runs as the manual Container Apps Job
-`dragonfly-sync-expeditions`, started after each deploy (see
+`hinterland-sync-expeditions`, started after each deploy when provisioned (see
 docs/runbook.md). Local dev goes through the scripts/sync_expeditions.py
 shim, which points `DRAGONFLY_CONTENT_ROOT` at the repo checkout:
 

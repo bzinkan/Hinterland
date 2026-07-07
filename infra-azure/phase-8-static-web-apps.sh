@@ -2,8 +2,8 @@
 # Phase 8 -- Azure Static Web Apps for Hinterland frontends.
 #
 # Provisions:
-#   - dragonfly-landing-swa  -> serves dragonfly-app.net + www (web/public)
-#   - dragonfly-parents-swa  -> serves parents.dragonfly-app.net (mobile web bundle)
+#   - hinterland-landing-swa -> serves thehinterlandguide.app + www (web/public)
+#   - hinterland-parents-swa -> serves parents.thehinterlandguide.app (mobile web bundle)
 #   - 4 KV secrets capturing the default hostnames + the deployment tokens.
 #
 # Idempotent.
@@ -11,21 +11,21 @@
 # Run with:
 #   bash infra-azure/phase-8-static-web-apps.sh
 #
-# Prerequisites: az CLI authenticated against management tenant
-# 3b7e8876-fd7e-4b71-b14f-f1bf9beb8e05 (brian@dragonfly-app.net).
+# Prerequisites: az CLI authenticated against the Azure tenant with access to
+# the target resource group.
 # Also: gh CLI authenticated against the bzinkan/Hinterland repo so
 # the deployment tokens can be written to GitHub Actions secrets.
 
 set -euo pipefail
 
-MGMT_SUB="5a04114f-9102-4e0b-828b-b385096edfbc"
-MGMT_TENANT="3b7e8876-fd7e-4b71-b14f-f1bf9beb8e05"
-RG="dragonfly-dev-rg"
+MGMT_SUB="3ac5dfb0-91b7-47d3-8187-9dc8d6305e96"
+MGMT_TENANT="18dbd7fa-c411-49bc-82fc-9ccaa26e3404"
+RG="hinterland-dev-rg"
 LOCATION="eastus2"
-KV_NAME="dragonfly-kv-dev"
+KV_NAME="hinterland-kv-dev"
 
-LANDING_SWA="dragonfly-landing-swa"
-PARENTS_SWA="dragonfly-parents-swa"
+LANDING_SWA="hinterland-landing-swa"
+PARENTS_SWA="hinterland-parents-swa"
 
 assert_tenant() {
   local expected="$1"
@@ -50,7 +50,7 @@ ensure_swa() {
       --subscription "$MGMT_SUB" \
       --location "$LOCATION" \
       --sku Free \
-      --tags project=dragonfly env=dev managed-by=cli \
+      --tags project=hinterland env=dev managed-by=cli \
       --output none
   fi
 }
@@ -93,5 +93,5 @@ echo "done."
 echo "  Landing SWA:  https://${LANDING_HOST}"
 echo "  Parents SWA:  https://${PARENTS_HOST}"
 echo
-echo "Custom domain wiring (apex + www + parents) lands in Phase 9 along"
-echo "with the Cloud DNS repoint."
+echo "Custom domains should be bound to the Azure-backed thehinterlandguide.app"
+echo "records before this host is used for app/store links."

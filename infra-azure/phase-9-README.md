@@ -17,29 +17,29 @@ Closes the **infra-azure** half of Risk 0002 (async safety/science pipeline) and
 MSYS_NO_PATHCONV=1 bash infra-azure/phase-9-async-pipeline.sh
 
 # Populate the 3 KV placeholder secrets out of band:
-az keyvault secret set --vault-name dragonfly-kv-dev --name inat-oauth-token        --value "<from iNat>"
-az keyvault secret set --vault-name dragonfly-kv-dev --name content-safety-endpoint --value "https://<your-cs>.cognitiveservices.azure.com/"
-az keyvault secret set --vault-name dragonfly-kv-dev --name content-safety-key      --value "<from Azure portal>"
+az keyvault secret set --vault-name hinterland-kv-dev --name inat-oauth-token        --value "<from iNat>"
+az keyvault secret set --vault-name hinterland-kv-dev --name content-safety-endpoint --value "https://<your-cs>.cognitiveservices.azure.com/"
+az keyvault secret set --vault-name hinterland-kv-dev --name content-safety-key      --value "<from Azure portal>"
 
 # Restart the Container App so the new env-vars + secret refs pick up
 az containerapp revision restart \
-  --name dragonfly-api \
-  --resource-group dragonfly-dev-rg
+  --name hinterland-api \
+  --resource-group hinterland-dev-rg
 
-# Wire the alerts (set DRAGONFLY_ALERT_EMAIL or accept the default)
-MSYS_NO_PATHCONV=1 DRAGONFLY_ALERT_EMAIL=you@example.com bash infra-azure/phase-9-monitoring.sh
+# Wire the alerts (set HINTERLAND_ALERT_EMAIL or accept the default)
+MSYS_NO_PATHCONV=1 HINTERLAND_ALERT_EMAIL=you@example.com bash infra-azure/phase-9-monitoring.sh
 ```
 
 ## Verifications (Stream D)
 
 | What | How | Pass criterion |
 |---|---|---|
-| Event Grid → SB → moderation worker | Submit/upload one observation through the normal presign path so a DB photo row exists and Blob lands under `photos/pending/` | Within ~30 s: `az containerapp job execution list --name dragonfly-moderation-worker --resource-group dragonfly-dev-rg` shows a successful execution; `observations.moderation_status` flips to `clean` or `quarantine` |
+| Event Grid -> SB -> moderation worker | Submit/upload one observation through the normal presign path so a DB photo row exists and Blob lands under `photos/pending/` | Within ~30 s: `az containerapp job execution list --name hinterland-moderation-job --resource-group hinterland-dev-rg` shows a successful execution; `observations.moderation_status` flips to `clean` or `quarantine` |
 | Service Bus → iNat submit | Submit one observation via the mobile app (after iNat OAuth token is live) | iNat dashboard shows the observation within ~5 min; `inat_submit_outbox.status='submitted'` |
-| Each cron job | `az containerapp job start --name dragonfly-rarity-refresh --resource-group dragonfly-dev-rg` (repeat for sweep, replay, dispatcher_replay) | Each exits 0 |
+| Each cron job | `az containerapp job start --name hinterland-rarity-refresh --resource-group hinterland-dev-rg` (repeat for sweep, replay, dispatcher replay) | Each exits 0 |
 | Cron schedules fire | Wait for next `*/15` or `0 3 * * *` tick | Execution visible in `az containerapp job execution list` |
 | Dispatcher p95 alert | Temporarily lower the threshold in [`phase-9-monitoring.sh`](phase-9-monitoring.sh), then replay/submit observations until `dispatcher.complete` logs are emitted | Alert email arrives within 10 min |
-| DLQ depth alert | Use Azure Portal Service Bus Explorer, or a one-off SDK sender, to send `<malformed>` to `inat-submit`, then start `dragonfly-inat-submit-worker` | Worker dead-letters the parse failure immediately; alert email arrives within 10 min after DLQ count goes positive |
+| DLQ depth alert | Use Azure Portal Service Bus Explorer, or a one-off SDK sender, to send `<malformed>` to `inat-submit`, then start `hinterland-inat-job` | Worker dead-letters the parse failure immediately; alert email arrives within 10 min after DLQ count goes positive |
 
 ## What still needs human action (outside this script)
 

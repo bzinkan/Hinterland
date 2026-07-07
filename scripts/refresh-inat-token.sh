@@ -40,12 +40,12 @@
 # 1. Parse + validate the token (3-part JWT shape; expiry > now).
 # 2. Write it to Key Vault via a temp file so the token never appears
 #    in shell history or the process list. Defaults are
-#    `dragonfly-kv-dev/inat-oauth-token`; set INAT_REFRESH_VAULT for
-#    Hinterland or other environments.
+#    `hinterland-kv-dev/inat-oauth-token`; set INAT_REFRESH_VAULT for
+#    other environments.
 # 3. Roll the Container App revision so the new secret value picks up.
-#    Defaults are `dragonfly-api` in `dragonfly-dev-rg`; set
-#    INAT_REFRESH_APP / INAT_REFRESH_RG for Hinterland or other
-#    environments. (Revision-suffix forces a fresh deploy.)
+#    Defaults are `hinterland-api` in `hinterland-dev-rg`; set
+#    INAT_REFRESH_APP / INAT_REFRESH_RG for other environments.
+#    (Revision-suffix forces a fresh deploy.)
 # 4. Print the next-rotation timestamp so the operator knows when
 #    they'll need to run this again.
 #
@@ -61,10 +61,10 @@ set -euo pipefail
 
 # Defaults can be overridden by env vars (e.g. when promoting to a
 # different RG/vault per environment).
-VAULT_NAME="${INAT_REFRESH_VAULT:-dragonfly-kv-dev}"
+VAULT_NAME="${INAT_REFRESH_VAULT:-hinterland-kv-dev}"
 SECRET_NAME="${INAT_REFRESH_SECRET:-inat-oauth-token}"
-APP_NAME="${INAT_REFRESH_APP:-dragonfly-api}"
-RG="${INAT_REFRESH_RG:-dragonfly-dev-rg}"
+APP_NAME="${INAT_REFRESH_APP:-hinterland-api}"
+RG="${INAT_REFRESH_RG:-hinterland-dev-rg}"
 
 usage() {
   cat >&2 <<EOF

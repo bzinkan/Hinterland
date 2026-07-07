@@ -50,15 +50,15 @@ proceed.
 
 ```sh
 # /health
-curl -sS https://api.dragonfly-app.net/health
+curl -sS https://api.thehinterlandguide.app/health
 # Expect: {"status":"ok","env":"prod","version":"0.1.0"}
 
 # JWKS endpoint -- proves the Phase 6a kid-JWT path is wired
-curl -sS https://api.dragonfly-app.net/.well-known/dragonfly-kid-jwks.json | jq .
+curl -sS https://api.thehinterlandguide.app/.well-known/dragonfly-kid-jwks.json | jq .
 # Expect: {"keys":[{"kty":"RSA","kid":"k1-2026-06",...}]}
 
 # Azure parent/kid smoke (parent signup -> group -> kid -> handoff flow)
-DRAGONFLY_API_BASE_URL=https://api.dragonfly-app.net \
+DRAGONFLY_API_BASE_URL=https://api.thehinterlandguide.app \
 DRAGONFLY_SMOKE_ENTRA_BEARER="<access-token>" \
   python scripts/smoke_azure_parent_kid.py
 # Expect: ALL CHECKS PASSED -- Azure parent/kid handoff flow works end-to-end.

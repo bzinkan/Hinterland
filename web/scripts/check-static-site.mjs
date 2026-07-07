@@ -23,7 +23,7 @@ const favicon = read("public/favicon.svg");
 const touchIconPng = readBinary("public/apple-touch-icon.png");
 
 const failures = [];
-const pilotMailtoSubject = "mailto:support@dragonfly-app.net?subject=Dragonfly%20pilot%20access%20request";
+const pilotMailtoSubject = "mailto:support@thehinterlandguide.app?subject=Dragonfly%20pilot%20access%20request";
 const pilotMailtoFields = [
   "Parent%2Fguardian%20name%3A",
   "Email%3A",
@@ -126,20 +126,20 @@ expectIncludes("public/index.html", "Turn backyard curiosity into real science."
 expectIncludes("public/index.html", "curious explorers of all ages");
 expectIncludes("public/index.html", "<title>Dragonfly &mdash; Real nature, real science for curious kids</title>");
 expectIncludes("public/index.html", 'content="Dragonfly is a field app for kids ages 9&ndash;12. Kids log real outdoor observations, build a personal Dex, complete nature expeditions, and grow their own Sanctuary."');
-expectIncludes("public/index.html", '<link rel="canonical" href="https://dragonfly-app.net/">');
+expectIncludes("public/index.html", '<link rel="canonical" href="https://thehinterlandguide.app/">');
 expectIncludes("public/index.html", '<meta name="robots" content="index,follow">');
 expectIncludes("public/index.html", '<meta name="theme-color" content="#2f6f4e">');
 expectIncludes("public/index.html", '<meta property="og:title" content="Dragonfly &mdash; Turn backyard curiosity into real science">');
 expectIncludes("public/index.html", '<meta property="og:description" content="An invite-only field app where kids make real nature observations and grow a living Sanctuary from what they discover.">');
-expectIncludes("public/index.html", '<meta property="og:image" content="https://dragonfly-app.net/social-card.png">');
+expectIncludes("public/index.html", '<meta property="og:image" content="https://thehinterlandguide.app/social-card.png">');
 expectIncludes("public/index.html", '<meta name="twitter:card" content="summary_large_image">');
 expectIncludes("public/index.html", '<meta name="twitter:title" content="Dragonfly &mdash; Turn backyard curiosity into real science">');
-expectIncludes("public/index.html", '<meta name="twitter:image" content="https://dragonfly-app.net/social-card.png">');
+expectIncludes("public/index.html", '<meta name="twitter:image" content="https://thehinterlandguide.app/social-card.png">');
 expectIncludes("public/index.html", '<link rel="apple-touch-icon" href="/apple-touch-icon.png">');
 expectIncludes("public/index.html", '<link rel="manifest" href="/site.webmanifest">');
 expectIncludes("public/index.html", '<script type="application/ld+json">');
 expectIncludes("public/index.html", '"@type": "Organization"');
-expectIncludes("public/index.html", '"url": "https://dragonfly-app.net/"');
+expectIncludes("public/index.html", '"url": "https://thehinterlandguide.app/"');
 expectIncludes("public/index.html", 'scroll-padding-top: 96px;');
 expectIncludes("public/index.html", 'scroll-margin-top: 96px;');
 expectIncludes("public/index.html", '@media (prefers-reduced-motion: reduce)');
@@ -168,8 +168,8 @@ expectIncludes("public/index.html", "What data does Dragonfly collect?");
 expectIncludes("public/index.html", "Can teachers use Dragonfly?");
 expectIncludes("public/index.html", "Is Dragonfly available now?");
 expectIncludes("public/index.html", "How do I get support?");
-expectIncludes("public/index.html", "support@dragonfly-app.net");
-expectIncludes("public/index.html", "privacy@dragonfly-app.net");
+expectIncludes("public/index.html", "support@thehinterlandguide.app");
+expectIncludes("public/index.html", "privacy@thehinterlandguide.app");
 expectIncludes("public/index.html", 'href="/privacy"');
 expectIncludes("public/index.html", 'href="/terms"');
 expectIncludes("public/index.html", 'href="/support"');
@@ -184,7 +184,7 @@ expectIncludes("public/privacy.html", "Kid display name or nickname");
 expectIncludes("public/privacy.html", "No ads.");
 expectIncludes("public/privacy.html", "No selling or renting personal data.");
 expectIncludes("public/privacy.html", "iNaturalist public submission is pilot-limited");
-expectIncludes("public/privacy.html", "privacy@dragonfly-app.net");
+expectIncludes("public/privacy.html", "privacy@thehinterlandguide.app");
 expectIncludes("public/privacy.html", "Last updated: June 10, 2026.");
 
 expectIncludes("public/terms.html", "Dragonfly is a beta/pilot product");
@@ -192,9 +192,9 @@ expectIncludes("public/terms.html", "Kids should use Dragonfly only with adult p
 expectIncludes("public/terms.html", "No emergency or safety use");
 expectIncludes("public/terms.html", "Do not upload harmful, inappropriate");
 expectIncludes("public/terms.html", "No public social network features");
-expectIncludes("public/terms.html", "support@dragonfly-app.net");
+expectIncludes("public/terms.html", "support@thehinterlandguide.app");
 
-expectIncludes("public/support.html", "support@dragonfly-app.net");
+expectIncludes("public/support.html", "support@thehinterlandguide.app");
 expectIncludes("public/support.html", "Device model");
 expectIncludes("public/support.html", "Android version");
 expectIncludes("public/support.html", "Wrong account data visible");
@@ -202,8 +202,8 @@ expectIncludes("public/support.html", "A photo or privacy concern");
 expectIncludes("public/support.html", 'href="/privacy"');
 expectIncludes("public/support.html", 'href="/contact"');
 
-expectIncludes("public/contact.html", "support@dragonfly-app.net");
-expectIncludes("public/contact.html", "privacy@dragonfly-app.net");
+expectIncludes("public/contact.html", "support@thehinterlandguide.app");
+expectIncludes("public/contact.html", "privacy@thehinterlandguide.app");
 expectIncludes("public/contact.html", "Request pilot access");
 expectIncludes("public/contact.html", pilotMailtoSubject);
 expectIncludes("public/contact.html", "Parent%2Fguardian%20name%3A%0D%0AEmail%3A");
@@ -212,15 +212,15 @@ expectIncludes("public/contact.html", "Dragonfly is in a small supervised pilot.
 expectIncludes("public/contact.html", "Dragonfly is in limited Android testing");
 
 for (const [file, url] of [
-  ["public/privacy.html", "https://dragonfly-app.net/privacy"],
-  ["public/terms.html", "https://dragonfly-app.net/terms"],
-  ["public/support.html", "https://dragonfly-app.net/support"],
-  ["public/contact.html", "https://dragonfly-app.net/contact"],
+  ["public/privacy.html", "https://thehinterlandguide.app/privacy"],
+  ["public/terms.html", "https://thehinterlandguide.app/terms"],
+  ["public/support.html", "https://thehinterlandguide.app/support"],
+  ["public/contact.html", "https://thehinterlandguide.app/contact"],
 ]) {
   expectIncludes(file, `<link rel="canonical" href="${url}">`);
   expectIncludes(file, '<meta name="robots" content="index,follow">');
   expectIncludes(file, '<meta name="theme-color" content="#2f6f4e">');
-  expectIncludes(file, '<meta property="og:image" content="https://dragonfly-app.net/social-card.png">');
+  expectIncludes(file, '<meta property="og:image" content="https://thehinterlandguide.app/social-card.png">');
   expectIncludes(file, '<meta name="twitter:card" content="summary_large_image">');
   expectIncludes(file, '<link rel="apple-touch-icon" href="/apple-touch-icon.png">');
   expectIncludes(file, '<link rel="manifest" href="/site.webmanifest">');
@@ -314,7 +314,7 @@ expectPngDimensions("public/apple-touch-icon.png", touchIconPng, 180, 180);
 for (const text of [
   "User-agent: *",
   "Allow: /",
-  "Sitemap: https://dragonfly-app.net/sitemap.xml",
+  "Sitemap: https://thehinterlandguide.app/sitemap.xml",
 ]) {
   if (!robots.includes(text)) {
     failures.push(`public/robots.txt is missing: ${text}`);
@@ -322,11 +322,11 @@ for (const text of [
 }
 
 for (const url of [
-  "https://dragonfly-app.net/",
-  "https://dragonfly-app.net/privacy",
-  "https://dragonfly-app.net/terms",
-  "https://dragonfly-app.net/support",
-  "https://dragonfly-app.net/contact",
+  "https://thehinterlandguide.app/",
+  "https://thehinterlandguide.app/privacy",
+  "https://thehinterlandguide.app/terms",
+  "https://thehinterlandguide.app/support",
+  "https://thehinterlandguide.app/contact",
 ]) {
   if (!sitemap.includes(`<loc>${url}</loc>`)) {
     failures.push(`public/sitemap.xml is missing ${url}`);

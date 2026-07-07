@@ -16,18 +16,18 @@ Related docs:
 
 ## 1. Public URL Availability
 
-- [ ] Homepage returns HTTP 200: `https://dragonfly-app.net/`
-- [ ] Privacy returns HTTP 200: `https://dragonfly-app.net/privacy`
-- [ ] Terms returns HTTP 200: `https://dragonfly-app.net/terms`
-- [ ] Support returns HTTP 200: `https://dragonfly-app.net/support`
-- [ ] Contact returns HTTP 200: `https://dragonfly-app.net/contact`
-- [ ] HTTPS certificate is valid for `dragonfly-app.net`.
-- [ ] HTTPS certificate is valid for `www.dragonfly-app.net`, if that URL is
+- [ ] Homepage returns HTTP 200: `https://thehinterlandguide.app/`
+- [ ] Privacy returns HTTP 200: `https://thehinterlandguide.app/privacy`
+- [ ] Terms returns HTTP 200: `https://thehinterlandguide.app/terms`
+- [ ] Support returns HTTP 200: `https://thehinterlandguide.app/support`
+- [ ] Contact returns HTTP 200: `https://thehinterlandguide.app/contact`
+- [ ] HTTPS certificate is valid for `thehinterlandguide.app`.
+- [ ] HTTPS certificate is valid for `www.thehinterlandguide.app`, if that URL is
       used in any store field or support email.
 - [ ] Public pages load without an auth wall, invite code, tester account, or
       app install.
 - [ ] Public pages load in a private/incognito browser session.
-- [ ] `cd web && npm run smoke:live` passes against `https://dragonfly-app.net`.
+- [ ] `cd web && npm run smoke:live` passes against `https://thehinterlandguide.app`.
 
 ## 2. Copy Accuracy
 
@@ -53,12 +53,12 @@ Related docs:
 ## 3. Google Play Readiness
 
 - [ ] Privacy URL is ready for the Play Console privacy policy field:
-      `https://dragonfly-app.net/privacy`.
+      `https://thehinterlandguide.app/privacy`.
 - [ ] Support URL is ready for Play Console support/contact fields:
-      `https://dragonfly-app.net/support` or `https://dragonfly-app.net/contact`.
-- [ ] `support@dragonfly-app.net` is live, monitored, and suitable for Play
+      `https://thehinterlandguide.app/support` or `https://thehinterlandguide.app/contact`.
+- [ ] `support@thehinterlandguide.app` is live, monitored, and suitable for Play
       Console support contact.
-- [ ] `privacy@dragonfly-app.net` is live and monitored for privacy requests.
+- [ ] `privacy@thehinterlandguide.app` is live and monitored for privacy requests.
 - [ ] App name in Play Console matches the current listing plan. Production
       listing name: `Hinterland` (renamed per ADR 0013; update the Console
       listing if it was created as `Dragonfly`); internal tester device
@@ -78,7 +78,7 @@ Related docs:
 ## 4. Pilot Readiness
 
 - [ ] `Request pilot access` CTA works.
-- [ ] CTA opens an email to `support@dragonfly-app.net`.
+- [ ] CTA opens an email to `support@thehinterlandguide.app`.
 - [ ] CTA subject is `Dragonfly pilot access request`.
 - [ ] CTA body asks for adult contact and pilot logistics only.
 - [ ] CTA does not request a child's full name.
@@ -102,9 +102,9 @@ Related docs:
 - [ ] Footer links and support/privacy email addresses wrap legibly.
 - [ ] Link preview metadata is present: title, description, Open Graph, Twitter
       card, and social image.
-- [ ] `https://dragonfly-app.net/sitemap.xml` includes homepage, privacy,
+- [ ] `https://thehinterlandguide.app/sitemap.xml` includes homepage, privacy,
       terms, support, and contact URLs.
-- [ ] `https://dragonfly-app.net/robots.txt` allows normal indexing and points
+- [ ] `https://thehinterlandguide.app/robots.txt` allows normal indexing and points
       at the sitemap.
 - [ ] Favicon loads.
 - [ ] Touch icon / app icon metadata exists.

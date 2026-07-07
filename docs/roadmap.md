@@ -24,18 +24,19 @@ Required before any kid sees the build:
 
 ### 1. Platform Hygiene
 
-- Keep ADR 0010 as source of truth.
-- Disable old Cloud Run deployment paths.
+- Keep ADR 0010 and ADR 0014 as source of truth.
+- Disable old Cloud Run and Firebase/GCP deployment paths.
 - Maintain Azure API deploy workflow: ACR build, Container Apps update,
   Alembic migration, public smoke, optional authenticated smoke.
-- Keep GCP/Firebase only where ADR 0010 explicitly preserves them for
-  residual hosting/DNS/rollback.
+- Keep `infra-gcp/` and old ADRs as historical reference only; active hosting,
+  auth, API, storage, DNS/deploy, and CI paths are Azure-only.
 
 ### 2. Auth And Pilot Flow
 
 - Production API accepts Entra adult tokens and Hinterland kid JWTs.
 - Route code resolves authenticated users through `resolve_current_user_row`.
-- Native Android play-internal/production does not issue Firebase ID tokens.
+- Native Android play-internal/production does not issue third-party auth SDK
+  tokens.
 - Kids sign in by scanning `dragonfly.kid-handoff.v2` QR payloads.
 - Account deletion request exists at `DELETE /v1/me` and is wired in Settings.
 
@@ -44,7 +45,7 @@ Required before any kid sees the build:
 - Resolve Risk 0007 with Option B for Play Internal: coarse-only location.
 - Publish lawyer-reviewed privacy policy and Terms before closed/public store
   tracks.
-- Set up `support@dragonfly-app.net` and `privacy@dragonfly-app.net`.
+- Set up `support@thehinterlandguide.app` and `privacy@thehinterlandguide.app`.
 - Document deletion follow-up for linked kids/photos/iNat contributions.
 
 ### 4. Science And Safety Pipeline

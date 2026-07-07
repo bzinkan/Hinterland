@@ -7,7 +7,7 @@ Actions secret because Entra CIAM interactive sign-in is intentionally not
 automated in repo code.
 
 Environment:
-    DRAGONFLY_API_BASE_URL        default: https://api.dragonfly-app.net
+    DRAGONFLY_API_BASE_URL        default: https://api.thehinterlandguide.app
     DRAGONFLY_SMOKE_ENTRA_BEARER  required: Entra access token for a parent
     DRAGONFLY_SMOKE_PARENT_NAME   default: Smoke Test Parent
     DRAGONFLY_SMOKE_KID_NAME      default: Sparrow
@@ -25,7 +25,7 @@ import urllib.request
 from typing import Any
 
 API_BASE = os.environ.get(
-    "DRAGONFLY_API_BASE_URL", "https://api.dragonfly-app.net"
+    "DRAGONFLY_API_BASE_URL", "https://api.thehinterlandguide.app"
 ).rstrip("/")
 PARENT_BEARER = os.environ.get("DRAGONFLY_SMOKE_ENTRA_BEARER", "").strip()
 PARENT_NAME = os.environ.get("DRAGONFLY_SMOKE_PARENT_NAME", "Smoke Test Parent")

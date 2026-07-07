@@ -12,7 +12,7 @@ Related reading:
   for the production blockers.
 - [`landing-pre-play-checklist.md`](landing-pre-play-checklist.md)
   for the final public URL, landing copy, support, and privacy checks before
-  using `dragonfly-app.net` in Play Console fields.
+  using `thehinterlandguide.app` in Play Console fields.
 - [`one-week-kid-pilot-checklist.md`](one-week-kid-pilot-checklist.md)
   for the day-by-day pilot checklist this doc feeds.
 - [`risks/0007-google-play-families-location-policy.md`](risks/0007-google-play-families-location-policy.md)
@@ -87,7 +87,7 @@ Expected build properties:
 - App version: `0.1.0` (the `version` field in `mobile/app.config.ts`)
 - Version code: auto-incremented by EAS (the `play-internal` profile
   has `autoIncrement: true`)
-- Target API URL: `https://api.dragonfly-app.net` (the dev API; no
+- Target API URL: `https://api.thehinterlandguide.app` (the dev API; no
   staging API exists yet, per the brief)
 
 ### Final build commands
@@ -138,9 +138,9 @@ Working directory: `mobile/`.
      source — EAS manages it remotely via `appVersionSource:
      "remote"` + `autoIncrement: true`).
    - [ ] `extra.appEnv` is `play-internal`.
-   - [ ] `extra.apiBaseUrl` is `https://api.dragonfly-app.net`.
+   - [ ] `extra.apiBaseUrl` is `https://api.thehinterlandguide.app`.
    - [ ] `extra.updatesChannel` is `play-internal`.
-   - [ ] `extra.firebase` and `extra.entra` are populated.
+   - [ ] `extra.entra` is populated and no Firebase config is present.
 
    If `android.package` is anything other than `com.dragonfly.app`:
    STOP. You are in the wrong `APP_ENV`. Re-run with

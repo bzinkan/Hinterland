@@ -1,9 +1,4 @@
 import { router, Stack } from "expo-router";
-import { FirebaseError } from "firebase/app";
-import {
-  createUserWithEmailAndPassword,
-  signInWithEmailAndPassword,
-} from "firebase/auth";
 import { useState } from "react";
 import {
   ActivityIndicator,
@@ -11,63 +6,25 @@ import {
   Platform,
   Pressable,
   StyleSheet,
-  TextInput,
 } from "react-native";
 
 import DesktopContainer from "@/components/DesktopContainer";
 import { Text, View } from "@/components/Themed";
-import { parentSignup } from "@/src/api/auth";
-import { getFirebaseAuth } from "@/src/auth/firebase";
 import { signIn as msalSignIn } from "@/src/auth/msal";
-import { env } from "@/src/config/env";
 
-type Mode = "sign-in" | "sign-up";
 const IS_WEB = Platform.OS === "web";
-const NATIVE_FIREBASE_PARENT_ENABLED =
-  !IS_WEB && (env.appEnv === "development" || env.appEnv === "preview");
+const PARENTS_WEB_URL = "https://parents.thehinterlandguide.app";
 
 export default function SignInScreen() {
-  const [mode, setMode] = useState<Mode>("sign-in");
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [displayName, setDisplayName] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  async function handleSubmit() {
-    const trimmedEmail = email.trim();
-    if (!trimmedEmail || !password) return;
-    if (mode === "sign-up" && !displayName.trim()) {
-      setError("Please enter a display name.");
-      return;
-    }
-    setBusy(true);
-    setError(null);
-    try {
-      const auth = getFirebaseAuth();
-      if (mode === "sign-up") {
-        await createUserWithEmailAndPassword(auth, trimmedEmail, password);
-        // onIdTokenChanged in firebase.ts has now written the bearer
-        // token to storage, so this authenticated call will succeed.
-        await parentSignup(displayName.trim());
-      } else {
-        await signInWithEmailAndPassword(auth, trimmedEmail, password);
-      }
-      router.replace("/");
-    } catch (err: unknown) {
-      setError(humanizeAuthError(err));
-    } finally {
-      setBusy(false);
-    }
-  }
 
   async function handleMsalSignIn() {
     setBusy(true);
     setError(null);
     try {
       await msalSignIn();
-      // loginRedirect navigates away; the rest of the flow is handled
-      // by ensureTokenSync()'s handleRedirectPromise on return.
+      // loginRedirect navigates away; ensureTokenSync() handles the return.
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : String(err));
       setBusy(false);
@@ -82,7 +39,8 @@ export default function SignInScreen() {
           <Text style={styles.title}>Welcome to Hinterland</Text>
           <Text style={styles.subtitle}>
             Hinterland parent and teacher accounts sign in with Microsoft
-            Entra. Kids get a join code from you and never enter an email.
+            Entra. Kids get a QR code from their adult and never enter an
+            email.
           </Text>
 
           {error && <Text style={styles.error}>{error}</Text>}
@@ -107,174 +65,42 @@ export default function SignInScreen() {
     );
   }
 
-  if (!NATIVE_FIREBASE_PARENT_ENABLED) {
-    return (
-      <DesktopContainer>
-        <Stack.Screen options={{ title: "Sign in" }} />
-        <View style={styles.container}>
-          <Text style={styles.title}>Sign in</Text>
-          <Text style={styles.subtitle}>
-            Parent and teacher setup happens on the parents web app. Kids use
-            the QR code shown by their adult.
-          </Text>
-
-          {error && <Text style={styles.error}>{error}</Text>}
-
-          <Pressable
-            style={[styles.button, styles.buttonPrimary]}
-            onPress={() => router.push("/kid-handoff")}
-          >
-            <Text style={styles.buttonText}>Scan kid QR</Text>
-          </Pressable>
-
-          <Pressable
-            style={[styles.button, styles.buttonGhost]}
-            onPress={() => {
-              void Linking.openURL("https://parents.dragonfly-app.net");
-            }}
-          >
-            <Text style={styles.buttonText}>Open parent setup</Text>
-          </Pressable>
-        </View>
-      </DesktopContainer>
-    );
-  }
-
   return (
     <DesktopContainer>
-      <Stack.Screen
-        options={{ title: mode === "sign-in" ? "Sign in" : "Create account" }}
-      />
+      <Stack.Screen options={{ title: "Sign in" }} />
       <View style={styles.container}>
-        <Text style={styles.title}>
-          {mode === "sign-in" ? "Welcome back" : "Create a parent account"}
-        </Text>
+        <Text style={styles.title}>Sign in</Text>
         <Text style={styles.subtitle}>
-          Development parent sign-in uses the legacy Firebase path. Play
-          Internal and production use the parents web app plus kid QR handoff.
+          Parent and teacher setup happens on the parents web app. Kids use
+          the QR code shown by their adult.
         </Text>
-
-        {mode === "sign-up" && (
-          <>
-            <Text style={styles.label}>Display name</Text>
-            <TextInput
-              style={styles.input}
-              value={displayName}
-              onChangeText={setDisplayName}
-              placeholder="Mr. Smith"
-              placeholderTextColor="#999"
-              autoCapitalize="words"
-              autoCorrect={false}
-            />
-          </>
-        )}
-
-        <Text style={styles.label}>Email</Text>
-        <TextInput
-          style={styles.input}
-          value={email}
-          onChangeText={setEmail}
-          placeholder="you@example.com"
-          placeholderTextColor="#999"
-          autoCapitalize="none"
-          autoCorrect={false}
-          keyboardType="email-address"
-          textContentType="emailAddress"
-        />
-
-        <Text style={styles.label}>Password</Text>
-        <TextInput
-          style={styles.input}
-          value={password}
-          onChangeText={setPassword}
-          placeholder="••••••••"
-          placeholderTextColor="#999"
-          autoCapitalize="none"
-          autoCorrect={false}
-          secureTextEntry
-          textContentType={mode === "sign-up" ? "newPassword" : "password"}
-        />
 
         {error && <Text style={styles.error}>{error}</Text>}
 
         <Pressable
-          style={[styles.button, styles.buttonPrimary, busy && styles.buttonDisabled]}
-          disabled={busy || !email.trim() || !password}
-          onPress={handleSubmit}
+          style={[styles.button, styles.buttonPrimary]}
+          onPress={() => router.push("/kid-handoff")}
         >
-          {busy ? (
-            <ActivityIndicator color="#fff" />
-          ) : (
-            <Text style={styles.buttonText}>
-              {mode === "sign-in" ? "Sign in" : "Create account"}
-            </Text>
-          )}
+          <Text style={styles.buttonText}>Scan kid QR</Text>
         </Pressable>
 
         <Pressable
           style={[styles.button, styles.buttonGhost]}
-          onPress={() => router.push("/kid-handoff")}
-        >
-          <Text style={styles.buttonText}>Kid: scan handoff QR</Text>
-        </Pressable>
-
-        <Pressable
-          style={styles.linkButton}
           onPress={() => {
-            setMode(mode === "sign-in" ? "sign-up" : "sign-in");
-            setError(null);
+            void Linking.openURL(PARENTS_WEB_URL);
           }}
         >
-          <Text style={styles.linkText}>
-            {mode === "sign-in"
-              ? "New here? Create an account."
-              : "Already have an account? Sign in."}
-          </Text>
+          <Text style={styles.buttonGhostText}>Open parent setup</Text>
         </Pressable>
       </View>
     </DesktopContainer>
   );
 }
 
-function humanizeAuthError(err: unknown): string {
-  if (err instanceof FirebaseError) {
-    switch (err.code) {
-      case "auth/invalid-credential":
-      case "auth/wrong-password":
-      case "auth/user-not-found":
-        return "Wrong email or password.";
-      case "auth/email-already-in-use":
-        return "That email is already registered. Try signing in instead.";
-      case "auth/weak-password":
-        return "Password must be at least 6 characters.";
-      case "auth/invalid-email":
-        return "That doesn't look like a valid email.";
-      case "auth/network-request-failed":
-        return "Network error. Check your connection and try again.";
-      default:
-        return err.message;
-    }
-  }
-  if (err instanceof Error) return err.message;
-  return String(err);
-}
-
 const styles = StyleSheet.create({
   container: { flex: 1, padding: 24 },
   title: { fontSize: 22, fontWeight: "600", marginBottom: 6 },
   subtitle: { fontSize: 13, opacity: 0.7, marginBottom: 20 },
-  label: { fontSize: 13, fontWeight: "600", opacity: 0.7, marginTop: 12 },
-  input: {
-    width: "100%",
-    minHeight: 44,
-    borderColor: "#888",
-    borderWidth: StyleSheet.hairlineWidth,
-    borderRadius: 6,
-    paddingHorizontal: 10,
-    marginTop: 6,
-    fontSize: 14,
-    color: "#fff",
-  },
   error: { color: "#f87171", marginTop: 12, fontSize: 13 },
   button: {
     paddingHorizontal: 16,
@@ -291,6 +117,5 @@ const styles = StyleSheet.create({
   },
   buttonDisabled: { opacity: 0.4 },
   buttonText: { fontSize: 14, color: "#fff", fontWeight: "500" },
-  linkButton: { marginTop: 16, alignItems: "center" },
-  linkText: { fontSize: 13, color: "#2f6feb" },
+  buttonGhostText: { fontSize: 14, color: "#1f2937", fontWeight: "500" },
 });

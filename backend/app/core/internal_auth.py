@@ -97,7 +97,7 @@ def verify_google_oidc_token(token: str, audience: str) -> dict[str, Any]:
     # Lazy import keeps the dependency optional at import time -- the
     # local dev path imports `internal_auth` without google-auth
     # installed. `google-auth` is a small (~1MB) JWT-verifying library
-    # that does not pull in the broader google-cloud / firebase-admin
+    # that does not pull in broader cloud-provider admin SDKs
     # surface that Phase 11b removed.
     try:
         from google.auth.transport.requests import Request as GoogleRequest

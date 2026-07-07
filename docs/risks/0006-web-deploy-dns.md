@@ -1,5 +1,10 @@
 # Risk 0006: Web deploy DNS + hosting site (human action)
 
+> **Historical / superseded by ADR 0014.** This risk records the old Firebase
+> Hosting and `dragonfly-app.net` setup. Active parents and landing deploys now
+> use Azure Static Web Apps and `thehinterlandguide.app`; do not follow the
+> Firebase steps below for new work.
+
 - **Status:** Resolved 2026-05-12
 - **Date filed:** 2026-05-10
 - **Source:** Web adult dashboard follow-up 4 ("separate deploy at parents.dragonfly-app.net")

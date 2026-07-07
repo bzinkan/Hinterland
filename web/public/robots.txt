@@ -1,4 +1,4 @@
 User-agent: *
 Allow: /
 
-Sitemap: https://dragonfly-app.net/sitemap.xml
+Sitemap: https://thehinterlandguide.app/sitemap.xml

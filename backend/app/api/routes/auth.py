@@ -149,13 +149,13 @@ async def parent_signup(
        (`users.entra_oid`).
 
     Idempotent: if a `users` row already exists for this entra_oid, the
-    existing row is returned and no new `users` row is created. For
-    back-compat with legacy Firebase rows we also fall back to looking
-    up by `firebase_uid` when the caller has no Entra OID -- this keeps
-    the existing test stubs working through Phase 6a.
+    existing row is returned and no new `users` row is created. For legacy row
+    compatibility we also fall back to looking up by `firebase_uid` when the
+    caller has no Entra OID -- this keeps existing test stubs working until the
+    column is removed by a future audited migration.
     """
     # Resolve the Entra OID. In production this comes from the verified
-    # token; in legacy/test paths the stub puts the Firebase uid into
+    # token; legacy/test paths may put the compatibility uid into
     # current_user.uid with entra_oid=None.
     entra_oid = current_user.entra_oid
 
@@ -164,8 +164,7 @@ async def parent_signup(
             select(models.User).where(models.User.entra_oid == entra_oid)
         )
     else:
-        # Back-compat: legacy stub-token path -- fall back to firebase_uid
-        # lookup so the existing test surface keeps passing.
+        # Back-compat: legacy stub-token path.
         result = await session.execute(
             select(models.User).where(models.User.firebase_uid == current_user.uid)
         )
@@ -184,7 +183,7 @@ async def parent_signup(
         )
         return UserResponse.from_model(existing)
 
-    # New row: Entra-only, no Firebase identity for fresh signups.
+    # New row: Entra-only, no legacy external identity for fresh signups.
     new_user = models.User(
         id=str(ULID()),
         firebase_uid=None,
@@ -194,7 +193,7 @@ async def parent_signup(
     if entra_oid is not None:
         new_user.entra_oid = entra_oid
     else:
-        # Legacy stub path: keep the Firebase uid populated so the existing
+        # Legacy stub path: keep the compatibility uid populated so existing
         # test assertions that read `added_user.firebase_uid` still see a
         # value. Real Entra signups land in the branch above.
         new_user.firebase_uid = current_user.uid
@@ -238,8 +237,8 @@ async def _link_latest_consent_to_parent(
     The "newest unlinked" rule keeps the join stable when a parent
     re-consents (e.g. after a policy bump): an already-linked older row
     stays put; the fresh one threads through. Email matching is
-    case-insensitive because Entra normalises but historical Firebase
-    tokens may not.
+    case-insensitive because Entra normalises but historical identity rows may
+    not.
     """
     stmt = (
         select(models.ParentConsentRecord)
@@ -650,7 +649,7 @@ class ConsentRequest(BaseModel):
 
     # Lightweight regex check -- avoids pulling in email-validator just
     # for one endpoint. Real semantic validation happens via Entra at
-    # signup time (or Firebase during the legacy fallback path).
+    # signup time.
     email: str = Field(..., pattern=r"^[^@\s]+@[^@\s]+\.[^@\s]+$", max_length=320)
     kid_display_name: str | None = Field(default=None, max_length=80)
     policy_version: str | None = None

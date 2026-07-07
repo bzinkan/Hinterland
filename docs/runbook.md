@@ -1,15 +1,15 @@
 # Hinterland Azure Runbook
 
-ADR 0010 makes Azure the active runtime. GCP Cloud Run/Cloud SQL/Cloud Tasks
-instructions are historical unless explicitly called out as residual DNS or
-Firebase Hosting work.
+ADR 0010 makes Azure the active runtime. ADR 0014 removes the old GCP/Firebase
+rollback path. GCP Cloud Run/Cloud SQL/Cloud Tasks/Firebase instructions are
+historical only and must not be used as deploy gates.
 
 ## Public Smoke
 
 ```bash
-curl -fsS https://api.dragonfly-app.net/health
-curl -fsS https://api.dragonfly-app.net/ready
-curl -fsS https://api.dragonfly-app.net/.well-known/dragonfly-kid-jwks.json
+curl -fsS https://api.thehinterlandguide.app/health
+curl -fsS https://api.thehinterlandguide.app/ready
+curl -fsS https://api.thehinterlandguide.app/.well-known/dragonfly-kid-jwks.json
 ```
 
 Expected:
@@ -20,7 +20,7 @@ Expected:
 
 The public landing/support/legal site has its own deploy and smoke checklist in
 [`landing-deploy-runbook.md`](landing-deploy-runbook.md). Use it after landing
-PRs merge and before putting `https://dragonfly-app.net` URLs into Google Play
+PRs merge and before putting `https://thehinterlandguide.app` URLs into Google Play
 Console fields.
 
 ## Authenticated Parent/Kid Smoke
@@ -29,7 +29,7 @@ The Azure smoke does not automate Entra interactive sign-in. Supply an Entra
 access token for a test parent via env var:
 
 ```bash
-DRAGONFLY_API_BASE_URL=https://api.dragonfly-app.net \
+DRAGONFLY_API_BASE_URL=https://api.thehinterlandguide.app \
 DRAGONFLY_SMOKE_ENTRA_BEARER="<access-token>" \
 python scripts/smoke_azure_parent_kid.py
 ```
@@ -43,7 +43,7 @@ Flow:
 5. `POST /v1/auth/kid-exchange`
 6. `GET /v1/me` as the kid
 
-The legacy `scripts/smoke_phase4.py` is Firebase-era only. Do not use it as a
+The old Phase 4 Firebase smoke path has been removed. Do not recreate it as a
 deploy gate for the Azure runtime.
 
 ## Deploy API Dev
@@ -60,12 +60,12 @@ Required GitHub secrets:
 Workflow shape:
 
 1. Authenticate with Azure federated identity.
-2. Build backend image in ACR `dragonflyacrdev` (build context = repo root so
+2. Build backend image in ACR `hinterlandacrdev` (build context = repo root so
    `content/expeditions/` ships inside the image).
-3. Update Container App `dragonfly-api` in resource group `dragonfly-dev-rg`.
+3. Update Container App `hinterland-api` in resource group `hinterland-dev-rg`.
 4. Run `alembic upgrade head`.
-5. Point the `dragonfly-sync-expeditions` Container Apps Job at the new image,
-   then start it.
+5. Point the expedition content sync job at the new image, then start it when
+   that optional job is provisioned.
 6. Smoke public probes.
 7. Run authenticated smoke when the token secret is configured.
 
@@ -74,22 +74,22 @@ root so the expedition content ships inside the image):
 
 ```bash
 az acr build \
-  --registry dragonflyacrdev \
-  --image dragonfly-api:<git-sha> \
+  --registry hinterlandacrdev \
+  --image hinterland-api:<git-sha> \
   --file backend/Dockerfile \
   .
 
 az containerapp update \
-  --name dragonfly-api \
-  --resource-group dragonfly-dev-rg \
-  --image dragonflyacrdev.azurecr.io/dragonfly-api:<git-sha>
+  --name hinterland-api \
+  --resource-group hinterland-dev-rg \
+  --image hinterlandacrdev.azurecr.io/hinterland-api:<git-sha>
 
 az containerapp job update \
-  --name dragonfly-sync-expeditions \
-  --resource-group dragonfly-dev-rg \
-  --image dragonflyacrdev.azurecr.io/dragonfly-api:<git-sha>
+  --name hinterland-sync-expeditions \
+  --resource-group hinterland-dev-rg \
+  --image hinterlandacrdev.azurecr.io/hinterland-api:<git-sha>
 
-az containerapp job start -n dragonfly-sync-expeditions -g dragonfly-dev-rg
+az containerapp job start -n hinterland-sync-expeditions -g hinterland-dev-rg
 ```
 
 Run the sync job after every deploy: the image IS the expedition content
@@ -100,14 +100,9 @@ without it re-syncs the previous image's content. Do not pass `--image` on
 `job start` instead: start-time container overrides replace the whole
 template, dropping the job's env vars and command.
 
-The old Cloud Run workflow is a manual no-op. If a Cloud Run service was
-accidentally recreated, delete it only after the no-op workflow has landed.
-
-```bash
-gcloud run services delete dragonfly-api \
-  --project dragonflyapp-495423 \
-  --region us-central1
-```
+The old Cloud Run workflow is a manual no-op. If a GCP service is accidentally
+recreated, treat it as an incident and decommission it under ADR 0014 after the
+Azure API smoke checks still pass.
 
 ## Local Database And Migrations
 
@@ -142,7 +137,7 @@ The config check must verify:
 Then run the physical-device script in
 [`android-internal-pilot-test-script.md`](android-internal-pilot-test-script.md).
 For `play-internal` and production, native adult setup is web-first through
-`https://parents.dragonfly-app.net`; kids sign in through the native QR handoff
+`https://parents.thehinterlandguide.app`; kids sign in through the native QR handoff
 screen.
 
 ## Moderation
@@ -209,7 +204,7 @@ The app-visible endpoint is:
 ```bash
 curl -X DELETE \
   -H "Authorization: Bearer <token>" \
-  https://api.dragonfly-app.net/v1/me
+  https://api.thehinterlandguide.app/v1/me
 ```
 
 Immediate effect: sets `users.disabled_at`, busts the auth cache, and returns

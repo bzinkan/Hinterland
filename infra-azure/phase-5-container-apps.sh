@@ -38,6 +38,16 @@
 
 set -euo pipefail
 
+cat >&2 <<'EOF'
+FATAL: infra-azure/phase-5-container-apps.sh is historical only.
+
+ADR 0014 removed the Firebase/GCP rollback path. Do not run this bootstrap
+script; it provisions Dragonfly-era resources and stale Firebase/GCP env vars.
+Use .github/workflows/deploy-azure-api-dev.yml and the current
+hinterland-dev-rg resources instead.
+EOF
+exit 1
+
 MGMT_SUB="5a04114f-9102-4e0b-828b-b385096edfbc"
 MGMT_TENANT="3b7e8876-fd7e-4b71-b14f-f1bf9beb8e05"
 RG="dragonfly-dev-rg"

@@ -167,7 +167,7 @@ repo (private spreadsheet, per the pilot checklist).
   is fixed; no action needed from you; thank you for the time you
   already gave us.
 - [ ] Do NOT include: PII of the affected child (no name, no photo,
-  no location), root-cause speculation ("we think it's a Firebase
+  no location), root-cause speculation ("we think it's an auth provider
   bug..."), or internal links (no Slack, no Jira, no GitHub issue
   URLs, no Cloud Logging / Application Insights deep links).
 

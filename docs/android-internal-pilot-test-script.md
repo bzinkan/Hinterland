@@ -41,7 +41,7 @@ Internal testing track. No classroom rollout. No public release.
   - `env: play-internal` (must NOT read `development` on a tester
     device; `play-internal` is the discriminator for the Play
     Internal track build).
-  - `API: https://api.dragonfly-app.net`.
+  - `API: https://api.thehinterlandguide.app`.
   - `updates channel: play-internal`. The `updates channel` row is
     the most reliable discriminator — it is sourced verbatim from
     the `play-internal` branch of `app.config.ts`. Use this row as
@@ -52,13 +52,13 @@ Internal testing track. No classroom rollout. No public release.
   health from a desktop terminal:
 
   ```sh
-  curl -sS https://api.dragonfly-app.net/health
+  curl -sS https://api.thehinterlandguide.app/health
   # Expect: {"status":"ok","env":"prod","version":"0.1.0"}
   ```
 
 - [ ] Create or sign in to the parent account from the parents web app
-  at `https://parents.dragonfly-app.net`. The native `play-internal`
-  build does not use Firebase parent sign-in.
+  at `https://parents.thehinterlandguide.app`. The native `play-internal`
+  build does not use native adult password sign-in.
 - [ ] Record consent. Open the public `/consent` page (the
   parents-facing web host — verify the host returns 200 first via
   `curl -I` if the URL has changed since

@@ -16,19 +16,19 @@ That's it. The script writes the JWT to Key Vault, rolls the Container App revis
 
 ## Current targets
 
-The script defaults to the current Dragonfly-compatible dev API target:
+The script defaults to the current Hinterland dev API target:
 
 ```bash
-INAT_REFRESH_VAULT=dragonfly-kv-dev
-INAT_REFRESH_APP=dragonfly-api
-INAT_REFRESH_RG=dragonfly-dev-rg
+INAT_REFRESH_VAULT=hinterland-kv-dev
+INAT_REFRESH_APP=hinterland-api
+INAT_REFRESH_RG=hinterland-dev-rg
 INAT_REFRESH_SECRET=inat-oauth-token
 ```
 
-For The Hinterland Guide dev environment, override the Azure resource names
-without changing the API environment variable. The Container App still receives
-the secret as `DRAGONFLY_INAT_OAUTH_TOKEN` while the backend settings layer uses
-the Dragonfly-compatible variable name:
+The Container App still receives the secret as `DRAGONFLY_INAT_OAUTH_TOKEN`
+for compatibility while the backend settings layer also accepts
+`HINTERLAND_INAT_OAUTH_TOKEN` if/when the active environment moves that secret
+name:
 
 ```bash
 INAT_REFRESH_VAULT=hinterland-kv-dev \
@@ -85,9 +85,9 @@ Realistic timeline: **early August** for OAuth-app + long-lived tokens.
 For a different Key Vault / Container App / resource group (e.g. promoting to a staging environment):
 
 ```bash
-INAT_REFRESH_VAULT=dragonfly-kv-staging \
-INAT_REFRESH_APP=dragonfly-api-staging \
-INAT_REFRESH_RG=dragonfly-staging-rg \
+INAT_REFRESH_VAULT=hinterland-kv-staging \
+INAT_REFRESH_APP=hinterland-api-staging \
+INAT_REFRESH_RG=hinterland-staging-rg \
   bash scripts/refresh-inat-token.sh --clipboard
 ```
 

@@ -11,10 +11,11 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  AZURE_RESOURCE_GROUP: dragonfly-dev-rg
-  AZURE_ACR_NAME: dragonflyacrdev
-  AZURE_CONTAINER_APP: dragonfly-api
-  IMAGE_REPOSITORY: dragonfly-api
+  AZURE_RESOURCE_GROUP: hinterland-dev-rg
+  AZURE_ACR_NAME: hinterlandacrdev
+  AZURE_CONTAINER_APP: hinterland-api
+  IMAGE_REPOSITORY: hinterland-api
+  EXPEDITION_SYNC_JOB: hinterland-sync-expeditions
 
 jobs:
   deploy:
@@ -82,14 +83,14 @@ jobs:
         run: |
           set -euo pipefail
           if az containerapp job update \
-            --name dragonfly-sync-expeditions \
+            --name "${EXPEDITION_SYNC_JOB}" \
             --resource-group "${AZURE_RESOURCE_GROUP}" \
             --image "${IMAGE}"; then
             az containerapp job start \
-              --name dragonfly-sync-expeditions \
+              --name "${EXPEDITION_SYNC_JOB}" \
               --resource-group "${AZURE_RESOURCE_GROUP}"
           else
-            echo "::warning::dragonfly-sync-expeditions image update failed (not provisioned yet?). Run infra-azure/phase-9-async-pipeline.sh, then re-run this deploy to sync expedition content."
+            echo "::warning::${EXPEDITION_SYNC_JOB} image update failed (not provisioned yet?). Provision the content sync job, then re-run this deploy to sync expedition content."
           fi
 
       - name: Smoke probes
@@ -105,6 +106,10 @@ jobs:
           curl --fail --silent --show-error "${API_BASE_URL}/health"
           curl --fail --silent --show-error "${API_BASE_URL}/ready"
           curl --fail --silent --show-error "${API_BASE_URL}/.well-known/dragonfly-kid-jwks.json"
+          PUBLIC_API_BASE_URL="https://api.thehinterlandguide.app"
+          curl --fail --silent --show-error "${PUBLIC_API_BASE_URL}/health"
+          curl --fail --silent --show-error "${PUBLIC_API_BASE_URL}/ready"
+          curl --fail --silent --show-error "${PUBLIC_API_BASE_URL}/.well-known/dragonfly-kid-jwks.json"
 
       - name: Authenticated parent/kid smoke
         env:

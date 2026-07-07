@@ -1,6 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
 import { router } from "expo-router";
-import { signOut } from "firebase/auth";
 import { useEffect, useState } from "react";
 import { Alert, Pressable, ScrollView, StyleSheet, TextInput } from "react-native";
 
@@ -8,7 +7,6 @@ import DesktopContainer from "@/components/DesktopContainer";
 import { Text, View } from "@/components/Themed";
 import { getMe, requestAccountDeletion } from "@/src/api/auth";
 import { ApiError } from "@/src/api/client";
-import { getFirebaseAuth } from "@/src/auth/firebase";
 import {
   clearBearerToken,
   getBearerToken,
@@ -41,9 +39,6 @@ export default function SettingsScreen() {
   async function handleSignOut() {
     setBusy(true);
     try {
-      if (devTokenShortcutEnabled) {
-        await signOut(getFirebaseAuth());
-      }
       await clearBearerToken();
       setTokenSaved(false);
       void me.refetch();

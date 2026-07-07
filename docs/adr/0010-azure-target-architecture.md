@@ -4,16 +4,16 @@
 - **Date:** 2026-06-02
 - **Deciders:** Solo author
 - **Supersedes:** ADR 0005 (GCP target architecture), ADR 0008 (Public Cloud Run with Firebase enforcement), ADR 0009 (Moderation provider: Cloud Vision SafeSearch)
-- **Related:** ADR 0002 (LLMs are author-time, not runtime)
+- **Related:** ADR 0002 (LLMs are author-time, not runtime), ADR 0014 (Firebase/GCP decommission)
 
 ## Context
 
-ADR 0005 picked GCP as the runtime. The full beta surface (Phases 0-11 + web follow-ups 1-5) was built and verified on GCP between 2026-05-05 and 2026-06-01. `https://parents.dragonfly-app.net` and `https://dragonfly-app.net` are live.
+ADR 0005 picked GCP as the runtime. The full beta surface (Phases 0-11 + web follow-ups 1-5) was built and verified on GCP between 2026-05-05 and 2026-06-01. `https://parents.dragonfly-app.net` and `https://dragonfly-app.net` were part of that historical deployment.
 
 Two facts changed the calculation:
 
 1. **GCP startup-credit application was denied.** AWS Activate is in progress but uncertain. Microsoft for Startups granted a verified $1000 Azure credit (expires 2026-08-31). Without credit subsidy, monthly burn at zero traffic is real money.
-2. **The build is mostly cloud-thin.** The dispatcher, matchers, expedition models, inat client, ulid keys, and SQL schema are cloud-agnostic. Cloud coupling is concentrated in five files: `app/core/auth.py` (Firebase Admin), `app/core/storage.py` (GCS), `app/moderation/provider.py` (Cloud Vision), `mobile/src/auth/firebase.ts` (Firebase Web SDK), and the deploy YAMLs.
+2. **The build is mostly cloud-thin.** The dispatcher, matchers, expedition models, inat client, ulid keys, and SQL schema are cloud-agnostic. At the time of the migration decision, cloud coupling was concentrated in five files: `app/core/auth.py` (Firebase Admin), `app/core/storage.py` (GCS), `app/moderation/provider.py` (Cloud Vision), `mobile/src/auth/firebase.ts` (Firebase Web SDK), and the deploy YAMLs.
 
 A migration is feasible because the cloud surface is small. The decision is to take the $1000 credit, move now while the codebase is still 4 weeks old, and use the migration as a forcing function to harden the cloud abstraction.
 
@@ -93,13 +93,13 @@ Container Apps streams stdout/stderr to a Log Analytics workspace; the FastAPI a
 
 Replaces Firebase Hosting.
 
-Two Static Web Apps: `dragonfly-landing-swa` for the apex + www (corresponds to GCP `dragonfly-landing-dev`) and `dragonfly-parents-swa` for `parents.dragonfly-app.net`. Custom domain wiring is the same shape as on Firebase Hosting (one TXT for ownership, one CNAME or A); cert provisioning is automatic.
+Two Static Web Apps: `hinterland-landing-swa` for `thehinterlandguide.app` + `www.thehinterlandguide.app`, and `hinterland-parents-swa` for `parents.thehinterlandguide.app`. Custom domain wiring uses Azure Static Web Apps managed certificates.
 
 ### 10. DNS: Azure DNS
 
 Replaces Cloud DNS.
 
-The `dragonfly-app.net` zone is recreated in Azure DNS as the final cutover step. NS records at the registrar are updated to point at Azure DNS nameservers. Until then, Cloud DNS remains authoritative and we update records there to point at Azure resources as each service comes online.
+The active public domains are on `thehinterlandguide.app`. Azure Static Web Apps and Container Apps are the serving targets. ADR 0014 removes the old Cloud DNS/Firebase Hosting rollback posture from active guidance.
 
 ### 11. CI/CD: GitHub Actions with federated identity (OIDC)
 
@@ -167,9 +167,20 @@ Phases 0-10 landed. The full state + scope cuts are documented in
 Key deltas vs the ADR plan:
 
 - **Postgres landed in centralus**, not eastus2. This Sponsored subscription's quota blocks Burstable Postgres in eastus + eastus2; the ~25ms cross-region latency to the Container App in eastus2 is acceptable.
-- **apex (`dragonfly-app.net`) + `www`** stay on Firebase Hosting indefinitely. Azure SWA apex requires Azure DNS; keeping Cloud DNS authoritative + Firebase Hosting Free tier is $1/mo vs the zone-migration churn.
+- **The old Dragonfly apex/`www` Firebase fallback is superseded.** ADR 0014 makes Azure Static Web Apps the only active landing/parents hosting path.
 - **Cloud SQL was stopped, not deleted.** Activation-policy NEVER preserves data and backups, zero compute cost, instant restart.
-- **MSAL bundler issue** in `@azure/msal-browser` is unresolved as of Phase 7. The mobile parents web bundle ships with Firebase Auth via the existing sign-in.tsx. Phase 11 candidate.
+- **MSAL is the active adult web auth path.** Native mobile uses kid QR/dev login and parent web handoff; Firebase email/password sign-in is removed by ADR 0014.
+
+### Full decommission addendum -- 2026-07-07
+
+ADR 0014 supersedes the residual-hosting/rollback carve-outs above. Firebase
+Hosting/Auth/SDKs and GCP deploy paths are no longer retained as active paths.
+The active public domains are `thehinterlandguide.app`,
+`www.thehinterlandguide.app`, `parents.thehinterlandguide.app`, and
+`api.thehinterlandguide.app`, backed by Azure Static Web Apps and Azure
+Container Apps. Old GCP/Firebase resources may remain externally until the ADR
+0014 deletion gates are satisfied, but repo/runtime/CI guidance must be
+Azure-only.
 
 ---
 
@@ -182,12 +193,12 @@ Resolved decisions from the Phase 1 design review (2026-06-02). These supersede 
 The FastAPI auth dependency dispatches on the `iss` claim:
 
 - **Entra path (adults — parents and teachers).** Verify against the CIAM tenant's discovery document:
-  - issuer: `https://login.microsoftonline.com/dfd7ebb4-0b29-42cb-aa05-e5e0124bab8f/v2.0`
-  - audience: `api://dragonfly-api` (the API app's identifier URI; access tokens are v2 because `requestedAccessTokenVersion=2`)
-  - signature: RS256 against Entra's JWKS at `https://login.microsoftonline.com/dfd7ebb4-0b29-42cb-aa05-e5e0124bab8f/discovery/v2.0/keys`
-- **Dragonfly path (kids).** Verify against the backend's own JWKS:
-  - issuer: `https://api.dragonfly-app.net`
-  - audience: `dragonfly-api`
+  - issuer: `https://login.microsoftonline.com/18dbd7fa-c411-49bc-82fc-9ccaa26e3404/v2.0`
+  - audience: `api://hinterland-api` (the API app's identifier URI; access tokens are v2 because `requestedAccessTokenVersion=2`)
+  - signature: RS256 against Entra's JWKS at `https://login.microsoftonline.com/18dbd7fa-c411-49bc-82fc-9ccaa26e3404/discovery/v2.0/keys`
+- **Hinterland path (kids).** Verify against the backend's own JWKS:
+  - issuer: `https://api.thehinterlandguide.app`
+  - audience: `hinterland-api`
   - signature: RS256 with the kid-handoff RSA-2048 keypair stored in Key Vault; public JWKS served at `/.well-known/dragonfly-kid-jwks.json`
 
 Kids never receive an Entra-issued token. This overrides ADR Section 1's RFC 8693 token-exchange sketch — RFC 8693 is over-engineered for one flow, and shipping kid tokens through Entra would require seat-licenses we don't want.
@@ -202,13 +213,13 @@ This resolves ADR Section 1's "claims-mapping policy or backend-augmented claims
 
 ### Kid handoff flow
 
-1. Parent calls Admin API → backend mints a kid-handoff JWT: RS256, kid header = `k1-2026-06`, issuer `https://api.dragonfly-app.net`, audience `dragonfly-api`, `jti` = random ULID, `exp` = now + 15 minutes, single-use.
+1. Parent calls Admin API → backend mints a kid-handoff JWT: RS256, kid header = `k1-2026-07`, issuer `https://api.thehinterlandguide.app`, audience `hinterland-api`, `jti` = random ULID, `exp` = now + 15 minutes, single-use.
 2. QR encodes the handoff JWT (same QR shape as PR #69, only the token contents changed).
 3. Kid device scans QR, POSTs the handoff JWT to `/v1/auth/kid-exchange`.
 4. Backend validates signature + claims, checks `jti` is unused (atomic insert into `kid_handoff_jti`), then issues a session JWT with the same Dragonfly-path issuer/audience and a 30-day expiry.
 5. Kid app stores the session JWT and uses it as a Bearer token on subsequent requests.
 
-The public verification key is served from `/.well-known/dragonfly-kid-jwks.json` so the Dragonfly verifier path can fetch + rotate without an out-of-band trust bootstrap.
+The public verification key is served from `/.well-known/dragonfly-kid-jwks.json` so the Hinterland verifier path can fetch + rotate without an out-of-band trust bootstrap.
 
 This overrides ADR Section 6's mention of HS256/Ed25519 for handoff tokens — RS256 with a public JWKS is the chosen shape so the verifier can run the same JWKS-fetch code for both paths.
 
@@ -219,12 +230,12 @@ Alembic migration `add_entra_identity_columns` (lands in Phase 6 PR 6a):
 - `users.entra_oid` — `String(64)`, unique, nullable, indexed. Set on first Entra sign-in by looking up by `email` and writing back the `oid` claim. Becomes the primary identity column at Phase 10.
 - `users.disabled_at` — `timestamptz`, nullable. When non-null, the auth dependency rejects the request after backend-claim resolution. Used by `bust_user_cache` to force immediate effect.
 - `kid_handoff_jti` — new table. Columns: `jti` (text, primary key), `kid_user_id` (FK → `users.id`), `consumed_at` (timestamptz nullable), `expires_at` (timestamptz). Pre-insert with `consumed_at=null` at mint, `UPDATE ... WHERE consumed_at IS NULL` at exchange (atomic single-use). Background sweeper purges rows past `expires_at + 7 days`.
-- `users.firebase_uid` is **retained** through Phase 9 and only dropped in Phase 10 alongside the Firebase Auth tenant decommission, so emergency rollback during Phases 6-9 remains possible.
+- `users.firebase_uid` is **retained** as a nullable legacy compatibility field until a live-data audit proves it can be migrated or dropped safely. ADR 0014 removes the Firebase Auth rollback path but does not drop this column in the same change.
 
 ### Locked identifiers
 
-- `dragonfly-api` user.access scope GUID = `7a4fc048-4930-eb02-b9df-179c2f8e0fb2`. **Do not regenerate.** The pre-authorized application grant on `dragonfly-client` references this id, and MSAL clients will request the literal scope string `api://dragonfly-api/user.access`. Rotating the GUID would force every client to re-consent.
-- Kid handoff JWT key id = `k1-2026-06`. The first rotation lands as `k2-...`; the JWKS will return both during the overlap window.
+- `hinterland-api` user.access scope GUID = `1e4fbf5e-8db3-45f3-92c5-8efc6686e75f`. **Do not regenerate.** The pre-authorized application grant on `hinterland-client` references this id, and MSAL clients request the literal scope string `api://hinterland-api/user.access`. Rotating the GUID would force every client to re-consent.
+- Kid handoff JWT key id = `k1-2026-07`. The first rotation lands as `k2-...`; the JWKS will return both during the overlap window.
 
 ### Override summary
 

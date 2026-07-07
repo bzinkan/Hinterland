@@ -1,6 +1,6 @@
 """Two-path bearer-token verifier and FastAPI identity dependency.
 
-Phase 6a replaces the single Firebase verifier with two parallel paths:
+The Azure-era auth model has two parallel paths:
 
 * **Entra ID adults** -- access tokens minted by Microsoft Entra External ID
   for parents and teachers. Verified via JWKS using PyJWT against the
@@ -213,7 +213,8 @@ def verify_bearer_token(token: str, settings: Settings) -> tuple[TokenPath, dict
     * a ``https://login.microsoftonline.com/{tenant}/v2.0`` prefix
 
     routes to the Entra verifier. The Hinterland path requires ``iss ==
-    settings.dragonfly_jwt_issuer`` (default ``https://api.dragonfly-app.net``).
+    settings.dragonfly_jwt_issuer`` (default
+    ``https://api.thehinterlandguide.app``).
 
     Returns ``(path, verified_claims)``. Raises :class:`InvalidAuthToken`
     on any failure mode (malformed token, unknown issuer, signature, etc.)
@@ -296,8 +297,8 @@ async def _query_user_with_claims(
     elif dragonfly_sub is not None:
         user_q = user_q.where(models.User.id == dragonfly_sub)
     elif legacy_uid is not None:
-        # Legacy fallback: stub tokens carry the firebase_uid as ``uid``.
-        # TODO(phase-10): drop this branch once all callers carry oid/sub.
+        # Legacy compatibility: old rows/tests may still carry firebase_uid as
+        # ``uid``. Drop only after the live-data audit in ADR 0014.
         user_q = user_q.where(models.User.firebase_uid == legacy_uid)
     else:
         return None
@@ -555,9 +556,9 @@ async def resolve_current_user_row(
     """Return the canonical ``users`` row for an authenticated request.
 
     Real Entra and Hinterland tokens resolve ``CurrentUser.uid`` to the local
-    ``users.id``. Legacy tests and rollback paths may still present a Firebase
-    uid or raw Entra oid, so this helper keeps those fallbacks in one place
-    while preferring the local id path.
+    ``users.id``. Legacy tests and existing rows may still present a
+    ``firebase_uid`` or raw Entra oid, so this helper keeps those compatibility
+    fallbacks in one place while preferring the local id path.
     """
     clauses = [
         models.User.id == current_user.uid,

@@ -10,34 +10,33 @@
 #   - 3 Key Vault secrets (empty values for the operator to populate
 #     out-of-band): `inat-oauth-token`, `content-safety-endpoint`,
 #     `content-safety-key`.
-#   - Service Bus namespace `dragonfly-sb-dev` (Standard tier -- needed
+#   - Service Bus namespace `hinterland-sb-dev` (Standard tier -- needed
 #     for DLQ + dead-letter-on-expiration semantics).
 #   - Two queues:
 #       * `moderation-pending` (Event Grid delivery target; consumer is
-#         `dragonfly-moderation-worker`)
+#         `hinterland-moderation-job`)
 #       * `inat-submit` (producer = moderation processor / review-queue
-#         approve handler outbox; consumer = `dragonfly-inat-submit-worker`)
+#         approve handler outbox; consumer = `hinterland-inat-job`)
 #     Both have max-delivery 5 and dead-lettering on message expiration.
-#   - Event Grid system topic on `dragonflyphotosdev` with a subscription
+#   - Event Grid system topic on `hinterlandphotosdev` with a subscription
 #     filtering BlobCreated events under `photos/pending/` and delivering
 #     to the moderation-pending queue. No webhook handshake -- Event
 #     Grid -> Service Bus is a first-class destination.
 #   - 8 Container Apps Jobs:
-#       * `dragonfly-moderation-worker`     -- KEDA-scaled Service Bus consumer
-#       * `dragonfly-inat-submit-worker`    -- KEDA-scaled Service Bus consumer
-#       * `dragonfly-rarity-refresh`        -- nightly cron 03:00 UTC
-#       * `dragonfly-sweep-stale-reviews`   -- nightly cron 04:00 UTC
-#       * `dragonfly-inat-outbox-replay`    -- */15 * * * * cron
-#       * `dragonfly-dispatcher-replay`     -- */15 * * * * cron
-#       * `dragonfly-expedition-funnel`     -- manual (engagement funnel report)
-#       * `dragonfly-sync-expeditions`      -- manual (expedition content sync after deploy)
+#       * `hinterland-moderation-job`       -- KEDA-scaled Service Bus consumer
+#       * `hinterland-inat-job`             -- KEDA-scaled Service Bus consumer
+#       * `hinterland-rarity-refresh`       -- nightly cron 03:00 UTC
+#       * `hinterland-sweep-stale-reviews`  -- nightly cron 04:00 UTC
+#       * `hinterland-inat-outbox-replay`   -- */15 * * * * cron
+#       * `hinterland-dispatcher-replay`    -- */15 * * * * cron
+#       * `hinterland-sync-expeditions`     -- manual (expedition content sync after deploy)
 #     All use the same Container App image, the same UAMI, and the same
 #     env-var set (Postgres, Blob, Service Bus + KV refs).
 #   - UAMI role assignments for the new resources:
 #       * Service Bus Data Sender + Data Receiver on both queues
 #       * Event Grid system topic identity gets Service Bus Data Sender
 #         on the moderation queue.
-#   - Container App env-var update: the existing `dragonfly-api` service
+#   - Container App env-var update: the existing `hinterland-api` service
 #     gets the async pipeline env vars plus explicit Blob config.
 #
 # Idempotent. Infra blocks check for existence before creating; job
@@ -52,20 +51,20 @@
 
 set -euo pipefail
 
-MGMT_SUB="5a04114f-9102-4e0b-828b-b385096edfbc"
-MGMT_TENANT="3b7e8876-fd7e-4b71-b14f-f1bf9beb8e05"
-RG="dragonfly-dev-rg"
-LOCATION="eastus2"
-KV_NAME="dragonfly-kv-dev"
+MGMT_SUB="3ac5dfb0-91b7-47d3-8187-9dc8d6305e96"
+MGMT_TENANT="18dbd7fa-c411-49bc-82fc-9ccaa26e3404"
+RG="hinterland-dev-rg"
+LOCATION="eastus"
+KV_NAME="hinterland-kv-dev"
 
-UAMI_NAME="dragonfly-api-mi"
+UAMI_NAME="hinterland-api-mi"
 UAMI_ID="/subscriptions/${MGMT_SUB}/resourceGroups/${RG}/providers/Microsoft.ManagedIdentity/userAssignedIdentities/${UAMI_NAME}"
 
-ACR_NAME="dragonflyacrdev"
-SA_NAME="dragonflyphotosdev"
+ACR_NAME="hinterlandacrdev"
+SA_NAME="hinterlandphotosdev"
 PHOTOS_CONTAINER="photos"
-APP_NAME="dragonfly-api"
-CAE_NAME="dragonfly-cae-dev"
+APP_NAME="hinterland-api"
+CAE_NAME="hinterland-cae-dev"
 CAE_ID="/subscriptions/${MGMT_SUB}/resourceGroups/${RG}/providers/Microsoft.App/managedEnvironments/${CAE_NAME}"
 
 # The Container App image to use for the new Jobs. Defaults to the image
@@ -74,13 +73,13 @@ CAE_ID="/subscriptions/${MGMT_SUB}/resourceGroups/${RG}/providers/Microsoft.App/
 IMAGE="${DRAGONFLY_PHASE9_IMAGE:-}"
 
 # Service Bus.
-SB_NAMESPACE="dragonfly-sb-dev"
+SB_NAMESPACE="hinterland-sb-dev"
 SB_QUEUE_MODERATION="moderation-pending"
 SB_QUEUE_INAT="inat-submit"
 SB_FQDN="${SB_NAMESPACE}.servicebus.windows.net"
 
 # Event Grid.
-EG_TOPIC_NAME="dragonfly-photos-eg-dev"
+EG_TOPIC_NAME="hinterland-photos-eg-dev"
 EG_SUB_NAME="moderation-pending-sub"
 
 # Event-driven jobs process a bounded batch and exit; KEDA starts new
@@ -149,7 +148,7 @@ if [[ -z "$IMAGE" ]]; then
     -o tsv 2>/dev/null || true)
 fi
 if [[ -z "$IMAGE" || "$IMAGE" == "null" ]]; then
-  IMAGE="${ACR_NAME}.azurecr.io/dragonfly-api:latest"
+  IMAGE="${ACR_NAME}.azurecr.io/hinterland-api:latest"
 fi
 echo "==> phase-9 jobs will use image $IMAGE"
 
@@ -714,16 +713,16 @@ EOF
   fi
 }
 
-ensure_event_job "dragonfly-moderation-worker"  "python -m admin.moderation_consumer --max-messages ${EVENT_JOB_MAX_MESSAGES}"  "$SB_QUEUE_MODERATION" "$SECRET_MOD_SCALER" "$MODERATION_SCALER_CONNECTION"
-ensure_event_job "dragonfly-inat-submit-worker" "python -m admin.inat_submit_consumer --max-messages ${EVENT_JOB_MAX_MESSAGES}" "$SB_QUEUE_INAT" "$SECRET_INAT_SCALER" "$INAT_SCALER_CONNECTION"
+ensure_event_job "hinterland-moderation-job" "python -m admin.moderation_consumer --max-messages ${EVENT_JOB_MAX_MESSAGES}" "$SB_QUEUE_MODERATION" "$SECRET_MOD_SCALER" "$MODERATION_SCALER_CONNECTION"
+ensure_event_job "hinterland-inat-job" "python -m admin.inat_submit_consumer --max-messages ${EVENT_JOB_MAX_MESSAGES}" "$SB_QUEUE_INAT" "$SECRET_INAT_SCALER" "$INAT_SCALER_CONNECTION"
 
-ensure_cron_job "dragonfly-rarity-refresh"      "python -m admin.rarity_refresh"      "0 3 * * *"
-ensure_cron_job "dragonfly-sweep-stale-reviews" "python -m admin.sweep_stale_reviews" "0 4 * * *"
-ensure_cron_job "dragonfly-inat-outbox-replay"  "python -m admin.inat_outbox_replay"  "*/15 * * * *"
-ensure_cron_job "dragonfly-dispatcher-replay"   "python -m admin.dispatcher_replay"   "*/15 * * * *"
+ensure_cron_job "hinterland-rarity-refresh" "python -m admin.rarity_refresh" "0 3 * * *"
+ensure_cron_job "hinterland-sweep-stale-reviews" "python -m admin.sweep_stale_reviews" "0 4 * * *"
+ensure_cron_job "hinterland-inat-outbox-replay" "python -m admin.inat_outbox_replay" "*/15 * * * *"
+ensure_cron_job "hinterland-dispatcher-replay" "python -m admin.dispatcher_replay" "*/15 * * * *"
 
-ensure_manual_job "dragonfly-expedition-funnel" "python -m admin.expedition_funnel"
-ensure_manual_job "dragonfly-sync-expeditions"  "python -m admin.sync_expeditions"
+ensure_manual_job "hinterland-expedition-funnel" "python -m admin.expedition_funnel"
+ensure_manual_job "hinterland-sync-expeditions" "python -m admin.sync_expeditions"
 
 # ---------------------------------------------------------------------------
 # 9. Done
@@ -744,5 +743,5 @@ echo "     - inat-oauth-token         (from inaturalist.org/users/api_token afte
 echo "     - content-safety-endpoint  (Azure AI Content Safety resource endpoint)"
 echo "     - content-safety-key       (same resource's key)"
 echo "  2. Run phase-9-monitoring.sh to wire the Azure Monitor alerts."
-echo "  3. Smoke: 'az containerapp job start --name dragonfly-rarity-refresh' should exit 0."
+echo "  3. Smoke: 'az containerapp job start --name hinterland-rarity-refresh -g ${RG}' should exit 0."
 echo

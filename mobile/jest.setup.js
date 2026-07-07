@@ -13,7 +13,6 @@ jest.mock("expo-constants", () => ({
         appEnv: "development",
         apiBaseUrl: "http://jest.invalid",
         updatesChannel: "test",
-        firebase: { apiKey: "test", authDomain: "test", projectId: "test" },
         entra: { clientId: "test", authority: "test", redirectUri: "test" },
         devLoginKey: null,
       },

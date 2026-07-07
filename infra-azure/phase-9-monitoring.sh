@@ -6,8 +6,8 @@
 # Risk 0003 needs.
 #
 # Provisions:
-#   - 1 action group `dragonfly-ops-dev` (email receiver -- populated
-#     via env var DRAGONFLY_ALERT_EMAIL or the existing default).
+#   - 1 action group `hinterland-ops-dev` (email receiver -- populated
+#     via env var HINTERLAND_ALERT_EMAIL or the existing default).
 #   - 4 alert rules:
 #       * Dispatcher p95 latency > 300ms sustained 5 min (Risk 0003).
 #         Reads the `dispatcher.complete` structured log landed in PR #112.
@@ -19,7 +19,7 @@
 # recreating.
 #
 # Run with:
-#   MSYS_NO_PATHCONV=1 DRAGONFLY_ALERT_EMAIL=you@example.com bash infra-azure/phase-9-monitoring.sh
+#   MSYS_NO_PATHCONV=1 HINTERLAND_ALERT_EMAIL=you@example.com bash infra-azure/phase-9-monitoring.sh
 #
 # Prerequisites:
 #   - phase-5 has run (Log Analytics workspace present).
@@ -28,20 +28,20 @@
 
 set -euo pipefail
 
-MGMT_SUB="5a04114f-9102-4e0b-828b-b385096edfbc"
-MGMT_TENANT="3b7e8876-fd7e-4b71-b14f-f1bf9beb8e05"
-RG="dragonfly-dev-rg"
-LOCATION="eastus2"
+MGMT_SUB="3ac5dfb0-91b7-47d3-8187-9dc8d6305e96"
+MGMT_TENANT="18dbd7fa-c411-49bc-82fc-9ccaa26e3404"
+RG="hinterland-dev-rg"
+LOCATION="eastus"
 
-LAW_NAME="dragonfly-law-dev"
-SB_NAMESPACE="dragonfly-sb-dev"
+LAW_NAME="hinterland-law-dev"
+SB_NAMESPACE="hinterland-sb-dev"
 
-AG_NAME="dragonfly-ops-dev"
-AG_SHORT_NAME="dfops"
+AG_NAME="hinterland-ops-dev"
+AG_SHORT_NAME="hgops"
 
 # Operator's email -- override at run time:
-#   DRAGONFLY_ALERT_EMAIL=ops@example.com bash phase-9-monitoring.sh
-ALERT_EMAIL="${DRAGONFLY_ALERT_EMAIL:-zinkan.brian@gmail.com}"
+#   HINTERLAND_ALERT_EMAIL=ops@example.com bash phase-9-monitoring.sh
+ALERT_EMAIL="${HINTERLAND_ALERT_EMAIL:-zinkan.brian@gmail.com}"
 
 LAW_ID="/subscriptions/${MGMT_SUB}/resourceGroups/${RG}/providers/Microsoft.OperationalInsights/workspaces/${LAW_NAME}"
 SB_NAMESPACE_ID="/subscriptions/${MGMT_SUB}/resourceGroups/${RG}/providers/Microsoft.ServiceBus/namespaces/${SB_NAMESPACE}"
@@ -81,7 +81,7 @@ if ! az monitor action-group show --name "$AG_NAME" --resource-group "$RG" --sub
     --subscription "$MGMT_SUB" \
     --short-name "$AG_SHORT_NAME" \
     --action email primary "$ALERT_EMAIL" \
-    --tags project=dragonfly env=dev managed-by=cli \
+    --tags project=hinterland env=dev managed-by=cli \
     --output none
 fi
 
@@ -117,9 +117,9 @@ KQL
 )
 
 echo "==> ensure dispatcher p95 latency alert"
-if ! az monitor scheduled-query show --name "dragonfly-dispatcher-p95" --resource-group "$RG" --subscription "$MGMT_SUB" >/dev/null 2>&1; then
+if ! az monitor scheduled-query show --name "hinterland-dispatcher-p95" --resource-group "$RG" --subscription "$MGMT_SUB" >/dev/null 2>&1; then
   az monitor scheduled-query create \
-    --name "dragonfly-dispatcher-p95" \
+    --name "hinterland-dispatcher-p95" \
     --resource-group "$RG" \
     --subscription "$MGMT_SUB" \
     --scopes "$LAW_ID" \
@@ -159,8 +159,8 @@ ensure_dlq_alert() {
     --output none
 }
 
-ensure_dlq_alert "dragonfly-dlq-moderation" "moderation-pending"
-ensure_dlq_alert "dragonfly-dlq-inat-submit" "inat-submit"
+ensure_dlq_alert "hinterland-dlq-moderation" "moderation-pending"
+ensure_dlq_alert "hinterland-dlq-inat-submit" "inat-submit"
 
 # ---------------------------------------------------------------------------
 # 4. Container Apps Jobs failure alert
@@ -185,25 +185,25 @@ rows
 | where raw_log has "JobExecutionStatus"
 | where raw_log has "Failed"
 | where job_name in (
-    "dragonfly-rarity-refresh",
-    "dragonfly-sweep-stale-reviews",
-    "dragonfly-inat-outbox-replay",
-    "dragonfly-dispatcher-replay"
+    "hinterland-rarity-refresh",
+    "hinterland-sweep-stale-reviews",
+    "hinterland-inat-outbox-replay",
+    "hinterland-dispatcher-replay"
 )
 | summarize count() by job_name, bin(TimeGenerated, 5m)
 KQL
 )
 
 echo "==> ensure scheduled-job failure alert"
-if ! az monitor scheduled-query show --name "dragonfly-job-failures" --resource-group "$RG" --subscription "$MGMT_SUB" >/dev/null 2>&1; then
+if ! az monitor scheduled-query show --name "hinterland-job-failures" --resource-group "$RG" --subscription "$MGMT_SUB" >/dev/null 2>&1; then
   az monitor scheduled-query create \
-    --name "dragonfly-job-failures" \
+    --name "hinterland-job-failures" \
     --resource-group "$RG" \
     --subscription "$MGMT_SUB" \
     --scopes "$LAW_ID" \
     --condition "count 'ContainerAppSystemLogs' > 0" \
     --condition-query "ContainerAppSystemLogs=${JOB_FAILURE_QUERY}" \
-    --description "Any of the 4 dragonfly-* scheduled jobs has a Failed execution" \
+    --description "Any of the 4 Hinterland scheduled jobs has a Failed execution" \
     --evaluation-frequency 5m \
     --window-size 5m \
     --severity 2 \
@@ -218,8 +218,8 @@ fi
 echo
 echo "done."
 echo "  Action group:  $AG_NAME ($ALERT_EMAIL)"
-echo "  Alerts:        dragonfly-dispatcher-p95, dragonfly-dlq-moderation,"
-echo "                 dragonfly-dlq-inat-submit, dragonfly-job-failures"
+echo "  Alerts:        hinterland-dispatcher-p95, hinterland-dlq-moderation,"
+echo "                 hinterland-dlq-inat-submit, hinterland-job-failures"
 echo
 echo "Smoke: temporarily lower the dispatcher-p95 threshold or replay known"
 echo "       dispatcher traffic to confirm the alert path; drop a deliberately"

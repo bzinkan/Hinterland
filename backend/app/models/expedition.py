@@ -3,7 +3,7 @@
 Mirrors `docs/expedition-authoring.md`. Authors edit JSON files under
 `content/expeditions/`; `scripts/validate_content.py` parses each file
 through this model; `admin.sync_expeditions` (the deployed
-`dragonfly-sync-expeditions` job; `scripts/sync_expeditions.py` is its
+`hinterland-sync-expeditions` job; `scripts/sync_expeditions.py` is its
 local shim) writes valid files to the `expedition_content` Postgres
 table; `app.matchers.registry` interprets each step's `match` block at
 observation time.

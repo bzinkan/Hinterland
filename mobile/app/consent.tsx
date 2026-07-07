@@ -88,7 +88,7 @@ export default function ConsentScreen() {
         <Text style={styles.sectionLabel}>Full policy</Text>
         <Text style={styles.body}>
           The complete privacy policy is at
-          {"\n"}https://dragonfly-app.net/privacy (currently DRAFT pending
+          {"\n"}https://thehinterlandguide.app/privacy (currently DRAFT pending
           legal review).
         </Text>
 

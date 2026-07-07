@@ -1,7 +1,7 @@
 # Postgres Data Model
 
-ADR 0005 supersedes the original DynamoDB single-table design. Hinterland now
-uses Cloud SQL for PostgreSQL as the operational store.
+ADR 0010 supersedes the original DynamoDB and GCP-era designs. Hinterland now
+uses Azure Database for PostgreSQL Flexible Server as the operational store.
 
 The logical product invariants are unchanged:
 
@@ -15,10 +15,10 @@ The logical product invariants are unchanged:
 
 | Table | Purpose |
 |---|---|
-| `users` | Firebase-backed parent, teacher, and kid identities |
+| `users` | Entra-backed adults and Hinterland-signed kid identities |
 | `groups` | Invite-only class/family groups with join codes |
 | `memberships` | User membership plus leaderboard counters |
-| `photos` | GCS object lifecycle state |
+| `photos` | Azure Blob object lifecycle state |
 | `observations` | Kid observations and denormalized display fields |
 | `dex_entries` | First species finds per user |
 | `expedition_content` | Materialized view of repo-authored expedition JSON |
@@ -38,7 +38,8 @@ The logical product invariants are unchanged:
 
 | Access pattern | SQL shape |
 |---|---|
-| Load current user | `select * from users where firebase_uid = $1` |
+| Load current user | `select * from users where id = $1` after token verification / cache resolution |
+| Resolve adult identity | `select * from users where entra_oid = $1` |
 | Load group members | `select * from memberships where group_id = $1` |
 | Group leaderboard | `select * from memberships where group_id = $1 order by dex_count desc` |
 | User observations | `select * from observations where user_id = $1 order by created_at desc` |

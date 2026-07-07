@@ -7,7 +7,7 @@
  * platform: `/v1/auth/kid-exchange` issues a Hinterland-signed session JWT
  * directly after the QR handoff.
  *
- * Usage shape mirrors `firebase.ts`:
+ * Usage shape:
  *   - `ensureTokenSync()` is called once at app boot; on every MSAL
  *     account/token change it writes the access token to bearer storage.
  *   - `getMsal()` returns the lazily-initialized PublicClientApplication.
@@ -32,7 +32,7 @@ let msalApp: PublicClientApplicationType | null = null;
 let initPromise: Promise<PublicClientApplicationType | null> | null = null;
 let listenerAttached = false;
 
-const ENTRA_SCOPES = ["api://dragonfly-api/user.access"];
+const ENTRA_SCOPES = ["api://hinterland-api/user.access"];
 
 function isWeb(): boolean {
   return Platform.OS === "web";

@@ -46,9 +46,8 @@ The active backend uses Azure:
 - Azure Key Vault for secrets.
 - Azure Monitor / Log Analytics for operational logs.
 
-Data is encrypted in transit and at rest. The landing site may still be served
-from Firebase Hosting while ADR 0010 keeps apex/www hosting and DNS split during
-the migration.
+Data is encrypted in transit and at rest. The landing site and parents web app
+are served from Azure Static Web Apps.
 
 ## What we do with the data
 
@@ -89,6 +88,6 @@ not stored as consent fields.
 
 ## Contact
 
-Privacy requests: **privacy@dragonfly-app.net**
+Privacy requests: **privacy@thehinterlandguide.app**
 
-Support: **support@dragonfly-app.net**
+Support: **support@thehinterlandguide.app**

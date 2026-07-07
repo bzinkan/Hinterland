@@ -29,7 +29,12 @@ function assert(condition, message) {
 assert(config.name === "Hinterland Internal", "play-internal name must be Hinterland Internal");
 assert(android.package === "com.dragonfly.app", "play-internal package must be com.dragonfly.app");
 assert(extra.appEnv === "play-internal", "extra.appEnv must be play-internal");
+assert(
+  extra.apiBaseUrl === "https://api.thehinterlandguide.app",
+  "play-internal API base URL must be https://api.thehinterlandguide.app",
+);
 assert(extra.updatesChannel === "play-internal", "updatesChannel must be play-internal");
+assert(!("firebase" in extra), "play-internal must not include Firebase config");
 assert(
   blocked.has("android.permission.ACCESS_FINE_LOCATION"),
   "play-internal must block ACCESS_FINE_LOCATION",

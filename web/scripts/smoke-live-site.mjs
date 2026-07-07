@@ -1,16 +1,16 @@
-const baseUrl = (process.env.LANDING_BASE_URL || "https://dragonfly-app.net").replace(/\/+$/, "");
+const baseUrl = (process.env.LANDING_BASE_URL || "https://thehinterlandguide.app").replace(/\/+$/, "");
 
 const routes = [
-  { path: "/", title: "Dragonfly", canonical: "https://dragonfly-app.net/" },
-  { path: "/privacy", title: "Privacy", canonical: "https://dragonfly-app.net/privacy" },
-  { path: "/terms", title: "Terms", canonical: "https://dragonfly-app.net/terms" },
-  { path: "/support", title: "Support", canonical: "https://dragonfly-app.net/support" },
-  { path: "/contact", title: "Contact", canonical: "https://dragonfly-app.net/contact" },
+  { path: "/", title: "Dragonfly", canonical: "https://thehinterlandguide.app/" },
+  { path: "/privacy", title: "Privacy", canonical: "https://thehinterlandguide.app/privacy" },
+  { path: "/terms", title: "Terms", canonical: "https://thehinterlandguide.app/terms" },
+  { path: "/support", title: "Support", canonical: "https://thehinterlandguide.app/support" },
+  { path: "/contact", title: "Contact", canonical: "https://thehinterlandguide.app/contact" },
 ];
 
 const failures = [];
 const pages = new Map();
-const pilotMailtoSubject = "mailto:support@dragonfly-app.net?subject=Dragonfly%20pilot%20access%20request";
+const pilotMailtoSubject = "mailto:support@thehinterlandguide.app?subject=Dragonfly%20pilot%20access%20request";
 const pilotMailtoFields = [
   "Parent%2Fguardian%20name%3A",
   "Email%3A",
@@ -84,7 +84,7 @@ for (const route of routes) {
   expectIncludes(route.path, html, route.title);
   expectIncludes(route.path, html, `<link rel="canonical" href="${route.canonical}">`);
   expectIncludes(route.path, html, '<meta name="description"');
-  expectIncludes(route.path, html, '<meta property="og:image" content="https://dragonfly-app.net/social-card.png">');
+  expectIncludes(route.path, html, '<meta property="og:image" content="https://thehinterlandguide.app/social-card.png">');
   expectVisibleAbsent(route.path, html, /\bTODO\b/i, "TODO");
   expectVisibleAbsent(route.path, html, /\bFIXME\b/i, "FIXME");
   expectVisibleAbsent(route.path, html, /\bPLACEHOLDER\b/i, "PLACEHOLDER");
@@ -93,7 +93,7 @@ for (const route of routes) {
 const home = pages.get("/") || "";
 expectIncludes("/", home, "Turn backyard curiosity into real science.");
 expectIncludes("/", home, '"@type": "Organization"');
-expectIncludes("/", home, '"url": "https://dragonfly-app.net/"');
+expectIncludes("/", home, '"url": "https://thehinterlandguide.app/"');
 expectIncludes("/", home, pilotMailtoSubject);
 expectIncludes("/", home, "Please do not include your child&rsquo;s full name in this request.");
 expectIncludes("/", home, "Known families only during this Internal Testing phase.");
@@ -103,12 +103,12 @@ for (const field of pilotMailtoFields) {
 }
 
 for (const [path, email] of [
-  ["/", "support@dragonfly-app.net"],
-  ["/", "privacy@dragonfly-app.net"],
-  ["/privacy", "privacy@dragonfly-app.net"],
-  ["/support", "support@dragonfly-app.net"],
-  ["/contact", "support@dragonfly-app.net"],
-  ["/contact", "privacy@dragonfly-app.net"],
+  ["/", "support@thehinterlandguide.app"],
+  ["/", "privacy@thehinterlandguide.app"],
+  ["/privacy", "privacy@thehinterlandguide.app"],
+  ["/support", "support@thehinterlandguide.app"],
+  ["/contact", "support@thehinterlandguide.app"],
+  ["/contact", "privacy@thehinterlandguide.app"],
 ]) {
   expectIncludes(path, pages.get(path) || "", email);
 }

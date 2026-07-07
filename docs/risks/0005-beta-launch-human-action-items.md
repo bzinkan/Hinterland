@@ -28,7 +28,8 @@ Azure operations work that an agent cannot finish alone.
 
 - [ ] Privacy policy reviewed by a kids-app/COPPA lawyer and published.
 - [ ] Terms of Service reviewed and published.
-- [ ] `support@dragonfly-app.net` and `privacy@dragonfly-app.net` working.
+- [ ] `support@thehinterlandguide.app` and `privacy@thehinterlandguide.app`
+      working.
 - [ ] Account deletion follow-up process documented for linked kids/photos/iNat.
 - [ ] Risk 0001 closed: iNat project account/OAuth + 50-photo benchmark.
 - [ ] Risk 0002 closed: Azure async moderation/iNat/jobs/alerts wired.

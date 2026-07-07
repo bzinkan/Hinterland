@@ -271,9 +271,9 @@ The repo is the source of truth. Postgres is a materialized view. The only write
 content/expeditions/*.json
          │
          ▼  (validated in CI: content-validate.yml)
-  dragonfly-api image build          — repo-root context bakes content into the image
+  hinterland-api image build         — repo-root context bakes content into the image
          │
-         ▼  (Container Apps Job `dragonfly-sync-expeditions`, started after each deploy)
+         ▼  (Container Apps Job `hinterland-sync-expeditions`, started after each deploy when provisioned)
   admin/sync_expeditions.py  ───────▶  Postgres (`expedition_content` table)
          │
          ├─ validates every file with the Pydantic model (any broken file aborts the run)

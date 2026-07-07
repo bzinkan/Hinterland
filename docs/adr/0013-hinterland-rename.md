@@ -27,18 +27,15 @@ Each of these is a deployed contract. Renaming any of them is its own
 coordinated migration, listed with its owner/trigger below. Do not
 "clean these up" opportunistically.
 
-The migration targets are not open questions: the rebrand +
-Gordi-subscription environment ADR (authored 2026-07-02 in a parallel
-work stream; pending commit — it will take **ADR 0014**, since this
-repo's 0012 was taken by the Sanctuary diorama decision) fixes the new
-identity end-to-end: domain `thehinterlandguide.app`, mobile package
-`app.thehinterlandguide`, app registrations `hinterland-api` /
-`api://hinterland-api`, kid-JWT issuer
-`https://api.thehinterlandguide.app` + audience `hinterland-api` + kid
-`k1-2026-07`, JWKS `/.well-known/hinterland-kid-jwks.json`, QR format
-`hinterland.kid-handoff.v1`, and the `hinterland-dev-rg` environment
-(Gordi subscription, billing-only sharing). The old Dragonfly
-environment stays as reference/rollback and is never renamed in place.
+The migration targets are not open questions: ADR 0012 owns the rebrand and
+Gordi-subscription environment, and ADR 0014 removes the stale Firebase/GCP
+runtime and hosting paths. Together they fix the new identity end-to-end:
+domain `thehinterlandguide.app`, Azure resources such as `hinterland-api`, the
+parents/landing Static Web Apps, and the `hinterland-dev-rg` environment (Gordi
+subscription, billing-only sharing). Mobile package names and selected wire
+contracts remain compatibility exceptions until a separate migration. The old
+Dragonfly environment stays as historical reference and is never renamed in
+place.
 
 1. **Android/iOS bundle ids `com.dragonfly.app*`.** Play package names
    are permanent per Console listing. The rebrand plan resolves this
@@ -54,38 +51,26 @@ environment stays as reference/rollback and is never renamed in place.
    takes precedence during the overlap window. Comments around these
    compatibility names may say Hinterland.
 3. **Client-coordinated protocol strings:** the deep-link scheme
-   `dragonfly` (`exp+dragonfly://…`), the kid QR handoff format
-   `dragonfly.kid-handoff.v2`, the JWKS path
-   `/.well-known/dragonfly-kid-jwks.json`, and the kid-JWT
-   issuer/audience (`https://api.dragonfly-app.net` / `dragonfly-api`).
-   Installed clients validate these exact strings. The rebrand plan
-   defines their successors (see above); the changeover rides the new
-   environment + new listing rather than mutating the deployed
-   lineage in place.
-4. **Azure resource names** (`dragonfly-dev-rg`, `dragonflyacrdev`,
-   `dragonfly-api`, `dragonfly-kv-dev`, `dragonfly-*` jobs/workers,
-   Entra app registrations incl. `api://dragonfly-api`) **and the
-   `dragonfly-app.net` domain plus every URL on it** (API base,
-   parents web, JWT issuer, geocoding/iNat user-agent strings). The
-   `hinterland-dev-rg` environment build-out owns these; until
-   cutover, the old names are the live environment.
-5. **`web/` (public landing site).** Deploys automatically to the live
-   `dragonfly-app.net` on merge. The public brand cutover (landing
-   copy, privacy/terms, social cards, store-facing URLs) is a separate
-   coordinated step that ships together with the domain decision.
-   Landing-page docs that mirror the live site copy stay as-is until
-   then.
-6. **On-device and data-layer names:** SecureStore key
-   `dragonfly.bearer_token` (kid session continuity across app
-   updates), database/user names (`dragonfly`), python package paths,
-   content/sprite ids and icon keys, terrain seed strings, structlog
-   event names, test fixture ids, `package.json`/`pyproject.toml`
-   project names, Firebase/EAS project references (slug `dragonfly`,
-   `dragonflyapp-495423`).
-7. **Local folder names** (e.g. `C:\GitHub\Dragonfly`) — cosmetic,
+   `dragonfly` (`exp+dragonfly://...`), the kid QR handoff format
+   `dragonfly.kid-handoff.v2`, and the JWKS path
+   `/.well-known/dragonfly-kid-jwks.json`. Installed clients validate
+   these exact strings. The kid-JWT issuer/audience moved with the
+   Hinterland Azure environment.
+4. **Remaining compatibility identifiers:** Android/iOS bundle ids,
+   SecureStore key `dragonfly.bearer_token`, database/user names
+   (`dragonfly`), python package paths, content/sprite ids and icon
+   keys, terrain seed strings, structlog event names, test fixture ids,
+   `package.json`/`pyproject.toml` project names, EAS slug
+   `dragonfly`, and legacy `DRAGONFLY_*` env vars.
+5. **Moved by ADR 0014:** public domains, active Azure resource names,
+   Entra app registrations, landing/parents deploys, and kid-JWT
+   issuer/audience now use Hinterland/Gordi identifiers. Old
+   Dragonfly/GCP/Firebase names remain only in historical records or
+   compatibility fields.
+6. **Local folder names** (e.g. `C:\GitHub\Dragonfly`) — cosmetic,
    per-machine, renamed whenever convenient; nothing in the repo may
    depend on the checkout folder name.
-8. **Historical records stay verbatim:** ADR 0001–0012 bodies, the
+7. **Historical records stay verbatim:** ADR 0001–0012 bodies, the
    AGENTS.md phase-status log, dated risk-doc entries, frozen Alembic
    migration docstrings, and the phase-10 GCP decommission record all
    keep "Dragonfly" as written at the time.

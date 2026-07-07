@@ -32,10 +32,10 @@ Production tracks.
 
 ## Shared Closed/Public Release Blockers
 
-- [ ] Lawyer-reviewed privacy policy live at `https://dragonfly-app.net/privacy`.
-- [ ] Lawyer-reviewed Terms live at `https://dragonfly-app.net/terms`.
-- [ ] `support@dragonfly-app.net` monitored.
-- [ ] `privacy@dragonfly-app.net` monitored.
+- [ ] Lawyer-reviewed privacy policy live at `https://thehinterlandguide.app/privacy`.
+- [ ] Lawyer-reviewed Terms live at `https://thehinterlandguide.app/terms`.
+- [ ] `support@thehinterlandguide.app` monitored.
+- [ ] `privacy@thehinterlandguide.app` monitored.
 - [ ] In-app account deletion request verified from Settings.
 - [ ] Operator process documented for full deletion of linked kids/photos/iNat
       contributions after `DELETE /v1/me`.

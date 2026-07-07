@@ -12,7 +12,7 @@ The backend reads four named secrets from the Hinterland Key Vault:
   back to ``Settings.entra_api_audience``.
 
 Authentication uses ``DefaultAzureCredential``, which transparently picks up
-the User-Assigned Managed Identity (UAMI) ``dragonfly-api-mi`` inside
+the User-Assigned Managed Identity (UAMI) ``hinterland-api-mi`` inside
 Container Apps and falls back to the local Azure CLI for dev runs.
 
 For tests (and any environment without AKV access) the loader checks the

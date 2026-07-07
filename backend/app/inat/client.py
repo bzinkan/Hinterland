@@ -26,7 +26,7 @@ class InatUnavailable(Exception):
 
 
 def build_inat_client(settings: Settings) -> httpx.AsyncClient:
-    headers = {"User-Agent": "Dragonfly/0.1 (+https://dragonfly-app.net)"}
+    headers = {"User-Agent": "Hinterland/0.1 (+https://thehinterlandguide.app)"}
     if settings.inat_oauth_token:
         headers["Authorization"] = f"Bearer {settings.inat_oauth_token}"
     return httpx.AsyncClient(

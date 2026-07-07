@@ -2,7 +2,7 @@
 """Local-dev shim around `admin.sync_expeditions`.
 
 All sync logic lives in backend/admin/sync_expeditions.py, which runs in
-Azure as the manual Container Apps Job `dragonfly-sync-expeditions`
+Azure as the manual Container Apps Job `hinterland-sync-expeditions`
 against the content baked into the image at /app/content/expeditions.
 This shim exists so local runs keep working against the repo checkout:
 it points DRAGONFLY_CONTENT_ROOT at content/expeditions/ here (an

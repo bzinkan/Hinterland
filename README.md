@@ -8,12 +8,12 @@ outdoor observations, fill a personal Dex, complete expeditions, and may
 eventually contribute approved observations to iNaturalist through a reviewed
 contribution flow. Kid accounts remain adult-managed.
 
-**Live landing page:** [dragonfly-app.net](https://dragonfly-app.net)
+**Live landing page:** [thehinterlandguide.app](https://thehinterlandguide.app)
 
 <table>
   <tr>
     <td align="center">
-      <a href="https://dragonfly-app.net">
+      <a href="https://thehinterlandguide.app">
         <img src="web/public/social-card.png" alt="Dragonfly - Real nature. Real science. A field app for curious kids and adult-managed pilot groups." width="520">
       </a>
     </td>
@@ -28,11 +28,11 @@ contribution flow. Kid accounts remain adult-managed.
 ```text
 backend/      FastAPI app, Alembic migrations, admin jobs, async-worker code.
 mobile/       Expo app for Android, iOS, and parents web.
-web/          Public landing page static site (dragonfly-app.net).
+web/          Public landing page static site (thehinterlandguide.app).
 content/      Expedition and Sanctuary JSON. Source of truth for authored content.
 scripts/      Smoke tests, content validation/sync, schema generation, helper tools.
 infra-azure/  Azure setup/decommission scripts and manifest.
-infra-gcp/    Legacy GCP Terraform kept for historical reference/residual DNS notes.
+infra-gcp/    Legacy GCP Terraform kept for historical reference only.
 infra/        Legacy AWS CDK reference path.
 docs/         Architecture, data model, ADRs, risks, runbooks, pilot checklists.
 internal/     Internal-only tooling. Never import into kid-facing backend code.
@@ -42,8 +42,10 @@ AGENTS.md     Guardrails and current risk closure plan for coding agents.
 ## Current Direction
 
 The active runtime target is **Azure**, per
-[`docs/adr/0010-azure-target-architecture.md`](docs/adr/0010-azure-target-architecture.md).
-ADR 0010 supersedes the earlier GCP target ADRs 0005, 0008, and 0009.
+[`docs/adr/0010-azure-target-architecture.md`](docs/adr/0010-azure-target-architecture.md)
+and [`docs/adr/0014-firebase-gcp-decommission.md`](docs/adr/0014-firebase-gcp-decommission.md).
+ADR 0010 supersedes the earlier GCP target ADRs 0005, 0008, and 0009; ADR
+0014 removes the old Firebase/GCP rollback path.
 
 Active Azure shape:
 
@@ -53,12 +55,12 @@ Active Azure shape:
 - Adult auth: Microsoft Entra External Identities.
 - Kid auth: Hinterland-signed RS256 handoff/session JWTs.
 - Moderation provider: Azure AI Content Safety, still async and off the hot path.
-- Frontend: parents web on Azure Static Web Apps; apex/www currently remain on Firebase Hosting per ADR 0010 migration notes.
+- Frontend: parents web, apex, and www on Azure Static Web Apps.
 
-Residual GCP resources are historical or intentionally retained only where ADR
-0010 says so. Do not add new Cloud Run, Cloud SQL, Cloud Tasks, Eventarc, Cloud
-Vision, or Firebase Auth implementation unless a new ADR explicitly reopens the
-platform decision.
+Residual GCP/Firebase resources are historical until externally deleted. Do not
+add new Cloud Run, Cloud SQL, Cloud Tasks, Eventarc, Cloud Vision, Cloud DNS,
+Firebase Hosting, or Firebase Auth implementation unless a new ADR explicitly
+reopens the platform decision.
 
 ## Getting Started
 
@@ -77,8 +79,8 @@ curl localhost:8080/v1/meta
 Docker smoke:
 
 ```bash
-docker build -f backend/Dockerfile -t dragonfly-api .
-docker run --rm -p 8080:8080 -e DRAGONFLY_ENV=local dragonfly-api
+docker build -f backend/Dockerfile -t hinterland-api .
+docker run --rm -p 8080:8080 -e DRAGONFLY_ENV=local hinterland-api
 curl localhost:8080/health
 ```
 
@@ -94,9 +96,9 @@ APP_ENV=play-internal npm run config:play-internal
 Azure smoke:
 
 ```bash
-curl -fsS https://api.dragonfly-app.net/health
-curl -fsS https://api.dragonfly-app.net/ready
-curl -fsS https://api.dragonfly-app.net/.well-known/dragonfly-kid-jwks.json
+curl -fsS https://api.thehinterlandguide.app/health
+curl -fsS https://api.thehinterlandguide.app/ready
+curl -fsS https://api.thehinterlandguide.app/.well-known/dragonfly-kid-jwks.json
 
 # Authenticated parent/kid smoke requires an operator-provided Entra token.
 DRAGONFLY_SMOKE_ENTRA_BEARER="<access-token>" \

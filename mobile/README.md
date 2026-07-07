@@ -77,11 +77,11 @@ holds non-route code (API clients, state stores, hooks).
 | APP_ENV       | API base URL                          | Bundle ID                  | Update channel |
 | ------------- | ------------------------------------- | -------------------------- | -------------- |
 | `development` | `https://api.thehinterlandguide.app`  | `com.dragonfly.app.dev`    | `development`  |
-| `preview`     | `https://api.staging.dragonfly-app.net` (TBD) | `com.dragonfly.app.staging` | `preview`      |
-| `production`  | `https://api.dragonfly-app.net` (TBD prod URL) | `com.dragonfly.app`        | `production`   |
+| `preview`     | `https://api.thehinterlandguide.app`  | `com.dragonfly.app.staging` | `preview`      |
+| `production`  | `https://api.thehinterlandguide.app`  | `com.dragonfly.app`        | `production`   |
 
-Staging and production API URLs are placeholders until those environments
-exist (per `infra-azure/README.md`).
+All current build profiles point at the development Azure API until separate
+staging/production Container Apps exist.
 
 ## What's NOT in here yet
 

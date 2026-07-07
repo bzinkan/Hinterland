@@ -1,285 +1,139 @@
 {
-  "$schema": "./manifest.schema.json",
-  "comment": "Source of truth for Phase 1 Entra + Key Vault identifiers. Downstream phases (6 backend verifier, 7 mobile MSAL) read from here. Hand-edited only when the underlying Azure resource changes.",
-  "phase": 10,
-  "capturedAt": "2026-06-02",
-  "tenants": {
-    "management": {
-      "tenantId": "3b7e8876-fd7e-4b71-b14f-f1bf9beb8e05",
-      "subscriptionId": "5a04114f-9102-4e0b-828b-b385096edfbc",
-      "resourceGroup": "dragonfly-dev-rg",
-      "location": "eastus2"
-    },
-    "ciam": {
-      "tenantId": "dfd7ebb4-0b29-42cb-aa05-e5e0124bab8f",
-      "placeholderSubscriptionId": "dfd7ebb4-0b29-42cb-aa05-e5e0124bab8f",
-      "comment": "placeholderSubscriptionId equals tenantId; az treats it as a 'subscription' to route --subscription flags to the CIAM user credential."
-    }
+  "comment": "Current Hinterland dev Azure identifiers. Secrets are named only; values stay in Azure Key Vault / GitHub secrets.",
+  "phase": "firebase-gcp-decommission",
+  "capturedAt": "2026-07-07",
+  "subscription": {
+    "id": "3ac5dfb0-91b7-47d3-8187-9dc8d6305e96",
+    "name": "Azure subscription 1",
+    "tenantId": "18dbd7fa-c411-49bc-82fc-9ccaa26e3404",
+    "resourceGroup": "hinterland-dev-rg",
+    "operator": "bzinkan@gordi.io"
   },
   "appRegistrations": {
     "api": {
-      "displayName": "dragonfly-api",
-      "appId": "b96a3a13-c984-4dc0-b38e-3ac00508081b",
-      "objectId": "b4001fac-6cf0-4e99-9372-b53c8107a4ec",
-      "identifierUri": "api://dragonfly-api",
-      "signInAudience": "AzureADMyOrg",
-      "requestedAccessTokenVersion": 2,
-      "oauth2Scopes": [
-        {
-          "id": "7a4fc048-4930-eb02-b9df-179c2f8e0fb2",
-          "value": "user.access",
-          "type": "User",
-          "locked": true,
-          "comment": "LOCKED GUID -- pre-authorized application grant references this id; downstream MSAL scope is api://dragonfly-api/user.access."
-        }
-      ]
+      "displayName": "hinterland-api",
+      "appId": "7dd9da3c-b7d6-45d4-955b-d7561c43f209",
+      "objectId": "37016750-4fae-4d99-b7da-c9a946a7bdad",
+      "identifierUri": "api://hinterland-api",
+      "scope": {
+        "id": "1e4fbf5e-8db3-45f3-92c5-8efc6686e75f",
+        "value": "user.access"
+      }
     },
     "client": {
-      "displayName": "dragonfly-client",
-      "appId": "6d1b6e1f-42fa-4977-b67f-a15b1f84d4ff",
-      "objectId": "a0538726-338d-4798-a438-c64667805d03",
-      "signInAudience": "AzureADMyOrg",
-      "isFallbackPublicClient": true,
+      "displayName": "hinterland-client",
+      "appId": "60504e4c-6b5f-4031-a80a-3e4bdfae29b2",
+      "objectId": "f163663f-6ccd-4e86-8048-20b2b4bfca51",
       "spaRedirectUris": [
-        "https://parents.dragonfly-app.net/auth/callback",
+        "https://parents.thehinterlandguide.app/auth/callback",
         "http://localhost:8081/auth/callback",
         "http://localhost:19006/auth/callback"
       ],
       "publicClientRedirectUris": [
-        "dragonfly://auth/callback",
-        "msauth.net.dragonfly.app://auth"
+        "hinterland://auth/callback",
+        "msauth.app.thehinterlandguide://auth"
       ],
-      "preAuthorizedFor": {
-        "apiAppId": "b96a3a13-c984-4dc0-b38e-3ac00508081b",
-        "delegatedPermissionIds": ["7a4fc048-4930-eb02-b9df-179c2f8e0fb2"]
-      },
-      "androidMsauthRedirect": {
-        "deferred": true,
-        "phase": 7,
-        "comment": "msauth:// URI with base64 keystore SHA-1 is added in Phase 7 once the Android signing keystore is committed."
+      "requiredResourceAccess": {
+        "resourceAppId": "7dd9da3c-b7d6-45d4-955b-d7561c43f209",
+        "delegatedPermissionId": "1e4fbf5e-8db3-45f3-92c5-8efc6686e75f"
       }
     }
   },
   "keyVault": {
-    "name": "dragonfly-kv-dev",
-    "uri": "https://dragonfly-kv-dev.vault.azure.net/",
-    "resourceId": "/subscriptions/5a04114f-9102-4e0b-828b-b385096edfbc/resourceGroups/dragonfly-dev-rg/providers/Microsoft.KeyVault/vaults/dragonfly-kv-dev",
-    "sku": "standard",
-    "enableRbacAuthorization": true,
-    "softDeleteRetentionDays": 90,
-    "publicNetworkAccess": "Enabled",
-    "roleAssignments": [
-      {
-        "principalId": "1aa8b605-ea68-4547-9517-7745c7d33838",
-        "principalType": "User",
-        "principalDisplayName": "Brian Zinkan",
-        "role": "Key Vault Secrets Officer",
-        "roleDefinitionId": "b86a8fe4-44ce-4948-aee5-eccb2c155cd7"
-      }
-    ],
-    "secretsNote": "Secret names only. Resolve the live URI as {keyVault.uri}secrets/{name}; per-version URIs are intentionally not recorded in the repo.",
-    "secrets": {
-      "kid-jwt-signing-key": {
-        "name": "kid-jwt-signing-key",
-        "kid": "k1-2026-06",
-        "alg": "RS256",
-        "purpose": "kid-handoff-jwt",
-        "format": "PEM PKCS#8 RSA 2048 private key"
-      },
-      "kid-jwt-public-key": {
-        "name": "kid-jwt-public-key",
-        "kid": "k1-2026-06",
-        "alg": "RS256",
-        "purpose": "kid-handoff-jwt",
-        "format": "PEM SPKI RSA 2048 public key",
-        "servedAt": "/.well-known/dragonfly-kid-jwks.json"
-      },
-      "entra-tenant-id": {
-        "name": "entra-tenant-id"
-      },
-      "entra-api-app-id": {
-        "name": "entra-api-app-id"
-      },
-      "entra-client-app-id": {
-        "name": "entra-client-app-id"
-      },
-      "entra-api-scope-user-access-guid": {
-        "name": "entra-api-scope-user-access-guid"
-      },
-      "postgres-admin-password": {
-        "name": "postgres-admin-password",
-        "purpose": "postgres-admin"
-      },
-      "postgres-host": {
-        "name": "postgres-host"
-      },
-      "postgres-port": {
-        "name": "postgres-port"
-      },
-      "postgres-database": {
-        "name": "postgres-database"
-      },
-      "postgres-admin-user": {
-        "name": "postgres-admin-user"
-      },
-      "blob-account-name": {
-        "name": "blob-account-name"
-      },
-      "blob-photos-container": {
-        "name": "blob-photos-container"
-      },
-      "blob-account-endpoint": {
-        "name": "blob-account-endpoint"
-      },
-      "acr-login-server": {
-        "name": "acr-login-server"
-      },
-      "containerapp-fqdn": {
-        "name": "containerapp-fqdn"
-      },
-      "containerapp-name": {
-        "name": "containerapp-name"
-      },
-      "swa-landing-hostname": {
-        "name": "swa-landing-hostname"
-      },
-      "swa-parents-hostname": {
-        "name": "swa-parents-hostname"
-      },
-      "content-safety-endpoint": {
-        "name": "content-safety-endpoint"
-      },
-      "content-safety-key": {
-        "name": "content-safety-key"
-      }
-    }
+    "name": "hinterland-kv-dev",
+    "uri": "https://hinterland-kv-dev.vault.azure.net/",
+    "resourceId": "/subscriptions/3ac5dfb0-91b7-47d3-8187-9dc8d6305e96/resourceGroups/hinterland-dev-rg/providers/Microsoft.KeyVault/vaults/hinterland-kv-dev",
+    "secrets": [
+      "kid-jwt-signing-key",
+      "kid-jwt-public-key",
+      "entra-tenant-id",
+      "entra-api-app-id",
+      "entra-client-app-id",
+      "entra-api-scope-user-access-guid",
+      "postgres-admin-password",
+      "postgres-host",
+      "postgres-port",
+      "postgres-database",
+      "postgres-admin-user",
+      "blob-account-name",
+      "blob-photos-container",
+      "blob-account-endpoint",
+      "acr-login-server",
+      "containerapp-fqdn",
+      "containerapp-name",
+      "swa-landing-hostname",
+      "swa-parents-hostname",
+      "content-safety-endpoint",
+      "content-safety-key"
+    ]
   },
   "staticWebApps": {
     "landing": {
-      "name": "dragonfly-landing-swa",
-      "defaultHostname": "purple-smoke-033982a0f.7.azurestaticapps.net",
-      "sku": "Free",
-      "location": "eastus2",
-      "purpose": "Serves dragonfly-app.net + www. Source: web/public.",
-      "resourceId": "/subscriptions/5a04114f-9102-4e0b-828b-b385096edfbc/resourceGroups/dragonfly-dev-rg/providers/Microsoft.Web/staticSites/dragonfly-landing-swa"
+      "name": "hinterland-landing-swa",
+      "defaultHostname": "polite-grass-042f5da0f.7.azurestaticapps.net",
+      "customDomains": [
+        "thehinterlandguide.app",
+        "www.thehinterlandguide.app"
+      ],
+      "resourceId": "/subscriptions/3ac5dfb0-91b7-47d3-8187-9dc8d6305e96/resourceGroups/hinterland-dev-rg/providers/Microsoft.Web/staticSites/hinterland-landing-swa"
     },
     "parents": {
-      "name": "dragonfly-parents-swa",
-      "defaultHostname": "purple-sand-09360630f.7.azurestaticapps.net",
-      "sku": "Free",
-      "location": "eastus2",
-      "purpose": "Serves parents.dragonfly-app.net. Source: mobile/dist (Expo web export).",
-      "resourceId": "/subscriptions/5a04114f-9102-4e0b-828b-b385096edfbc/resourceGroups/dragonfly-dev-rg/providers/Microsoft.Web/staticSites/dragonfly-parents-swa"
-    },
-    "deploymentSecrets": "GitHub Actions secrets AZURE_LANDING_SWA_TOKEN + AZURE_PARENTS_SWA_TOKEN. Tokens also stashed in KV as swa-*-deployment-token for emergency recovery."
+      "name": "hinterland-parents-swa",
+      "defaultHostname": "purple-coast-088e6b30f.7.azurestaticapps.net",
+      "customDomains": [
+        "parents.thehinterlandguide.app"
+      ],
+      "resourceId": "/subscriptions/3ac5dfb0-91b7-47d3-8187-9dc8d6305e96/resourceGroups/hinterland-dev-rg/providers/Microsoft.Web/staticSites/hinterland-parents-swa"
+    }
   },
   "postgres": {
-    "serverName": "dragonfly-postgres-dev",
-    "fqdn": "dragonfly-postgres-dev.postgres.database.azure.com",
-    "port": 5432,
+    "serverName": "hinterland-postgres-dev",
+    "fqdn": "hinterland-postgres-dev.postgres.database.azure.com",
     "database": "dragonfly",
-    "adminUser": "dfadmin",
-    "version": "16",
-    "sku": "Standard_B1ms",
-    "tier": "Burstable",
-    "storageGiB": 32,
-    "backupRetentionDays": 7,
-    "highAvailability": "Disabled",
     "location": "centralus",
-    "locationNote": "Postgres is in centralus, not eastus2 (where RG + KV live). This Sponsored subscription (quotaId Sponsored_2016-01-01) blocks Burstable Postgres in eastus/eastus2. centralus succeeded on first try. Container Apps in Phase 5 will land in eastus2; ~25ms cross-region latency to Postgres is acceptable for the beta.",
-    "publicAccess": {
-      "operatorIp": "<operator-ip>",
-      "operatorIpNote": "Per-operator firewall rule managed by phase-2-postgres.sh (rule name op-<ip-with-dashes>); actual IPs intentionally not recorded in the repo.",
-      "allowAllAzureServicesRule": "AllowAllAzureServices (0.0.0.0/0.0.0.0)"
-    },
-    "connectionString": {
-      "asyncpgUrl": "postgresql+asyncpg://{user}:{password}@{host}:{port}/{database}?ssl=require",
-      "alembicUrl": "postgresql+psycopg://{user}:{password}@{host}:{port}/{database}?sslmode=require",
-      "sslRequired": true
-    },
-    "resourceId": "/subscriptions/5a04114f-9102-4e0b-828b-b385096edfbc/resourceGroups/dragonfly-dev-rg/providers/Microsoft.DBforPostgreSQL/flexibleServers/dragonfly-postgres-dev"
+    "resourceId": "/subscriptions/3ac5dfb0-91b7-47d3-8187-9dc8d6305e96/resourceGroups/hinterland-dev-rg/providers/Microsoft.DBforPostgreSQL/flexibleServers/hinterland-postgres-dev"
   },
   "blobStorage": {
-    "accountName": "dragonflyphotosdev",
-    "endpoint": "https://dragonflyphotosdev.blob.core.windows.net",
+    "accountName": "hinterlandphotosdev",
+    "endpoint": "https://hinterlandphotosdev.blob.core.windows.net/",
     "container": "photos",
-    "sku": "Standard_LRS",
-    "kind": "StorageV2",
-    "accessTier": "Hot",
-    "minTlsVersion": "TLS1_2",
-    "allowBlobPublicAccess": false,
-    "publicNetworkAccess": "Enabled",
-    "blobSoftDeleteDays": 7,
-    "location": "eastus2",
-    "resourceId": "/subscriptions/5a04114f-9102-4e0b-828b-b385096edfbc/resourceGroups/dragonfly-dev-rg/providers/Microsoft.Storage/storageAccounts/dragonflyphotosdev",
-    "rbac": {
-      "operator": {
-        "principalId": "1aa8b605-ea68-4547-9517-7745c7d33838",
-        "principalDisplayName": "Brian Zinkan",
-        "role": "Storage Blob Data Owner",
-        "roleDefinitionId": "b7e6dc6d-f1e8-4753-8033-0f276bb0955b"
-      }
-    },
-    "dataMigration": {
-      "fromGcsBucket": "dragonfly-photos-dev-dragonflyapp-495423",
-      "status": "deferred",
-      "note": "Dev bucket holds smoke-test photos only; deemed not worth preserving. If needed, run azcopy with a GCS service-account key as documented in phase-3-blob-storage.sh."
-    }
+    "location": "eastus",
+    "resourceId": "/subscriptions/3ac5dfb0-91b7-47d3-8187-9dc8d6305e96/resourceGroups/hinterland-dev-rg/providers/Microsoft.Storage/storageAccounts/hinterlandphotosdev"
   },
   "containerRegistry": {
-    "name": "dragonflyacrdev",
-    "loginServer": "dragonflyacrdev.azurecr.io",
-    "sku": "Basic",
-    "location": "eastus2",
-    "resourceId": "/subscriptions/5a04114f-9102-4e0b-828b-b385096edfbc/resourceGroups/dragonfly-dev-rg/providers/Microsoft.ContainerRegistry/registries/dragonflyacrdev",
-    "images": {
-      "dragonfly-api:phase4-bootstrap": {
-        "digest": "sha256:d25f87ee9c78b922426eaaade30e642b357da3bb7e73e1b67567f3f72ab86c79",
-        "note": "Built from main 2026-06-02 prior to Phase 6 code changes. Still points at GCP services (firebase-admin, GCS, Cloud Vision). Phase 5 will deploy this image to validate the deploy pipeline; runtime correctness lands in Phase 6."
-      }
-    }
+    "name": "hinterlandacrdev",
+    "loginServer": "hinterlandacrdev.azurecr.io",
+    "location": "eastus",
+    "resourceId": "/subscriptions/3ac5dfb0-91b7-47d3-8187-9dc8d6305e96/resourceGroups/hinterland-dev-rg/providers/Microsoft.ContainerRegistry/registries/hinterlandacrdev"
   },
   "containerApps": {
-    "managedEnvironment": {
-      "name": "dragonfly-cae-dev",
-      "location": "eastus2",
-      "logAnalyticsWorkspace": {
-        "name": "dragonfly-law-dev",
-        "customerId": "75e992fb-cc84-410a-845f-1635b5e84ced"
-      }
-    },
-    "uami": {
-      "name": "dragonfly-api-mi",
-      "clientId": "57405a57-4f4b-42e5-9a13-daed83efd31c",
-      "principalId": "5846f3cb-a1b3-4ace-a8e8-625e10ae8b9a",
-      "resourceId": "/subscriptions/5a04114f-9102-4e0b-828b-b385096edfbc/resourceGroups/dragonfly-dev-rg/providers/Microsoft.ManagedIdentity/userAssignedIdentities/dragonfly-api-mi",
-      "roles": [
-        {"role": "Key Vault Secrets User", "roleDefinitionId": "4633458b-17de-408a-b874-0445c86b69e6", "scope": "dragonfly-kv-dev"},
-        {"role": "Storage Blob Data Contributor", "roleDefinitionId": "ba92f5b4-2d11-453d-a403-e96b0029c9fe", "scope": "dragonflyphotosdev"},
-        {"role": "AcrPull", "roleDefinitionId": "7f951dda-4ed3-4680-a7ca-43fe172d538d", "scope": "dragonflyacrdev"}
-      ]
+    "managedEnvironment": "hinterland-cae-dev",
+    "logAnalyticsWorkspace": "hinterland-law-dev",
+    "userAssignedIdentity": {
+      "name": "hinterland-api-mi",
+      "principalId": "1173495d-0219-4878-a141-f650e5acf4b2",
+      "resourceId": "/subscriptions/3ac5dfb0-91b7-47d3-8187-9dc8d6305e96/resourceGroups/hinterland-dev-rg/providers/Microsoft.ManagedIdentity/userAssignedIdentities/hinterland-api-mi"
     },
     "app": {
-      "name": "dragonfly-api",
-      "fqdn": "dragonfly-api.salmonrock-e0019fcd.eastus2.azurecontainerapps.io",
-      "image": "dragonflyacrdev.azurecr.io/dragonfly-api:phase4-bootstrap",
-      "ingress": "external",
-      "targetPort": 8080,
-      "minReplicas": 0,
-      "maxReplicas": 3,
-      "cpu": 0.5,
-      "memoryGiB": 1.0,
-      "healthCheck": "GET /health returns 200",
-      "status": "DEPLOYED-BOOTSTRAP",
-      "note": "Image is the Phase 4 bootstrap (still firebase-admin/GCS/Cloud Vision). /health responds 200; any authenticated route will fail until Phase 6 swaps the backend code."
+      "name": "hinterland-api",
+      "fqdn": "hinterland-api.purpledesert-f4a9be5d.eastus.azurecontainerapps.io",
+      "image": "hinterlandacrdev.azurecr.io/hinterland-api:9f1824d",
+      "resourceId": "/subscriptions/3ac5dfb0-91b7-47d3-8187-9dc8d6305e96/resourceGroups/hinterland-dev-rg/providers/Microsoft.App/containerapps/hinterland-api"
     },
-    "buildBashGotcha": "az containerapp create with --user-assigned and --registry-identity using a resource ID (leading /) requires MSYS_NO_PATHCONV=1 on Git Bash on Windows -- otherwise the leading slash gets converted to 'C:/Program Files/Git/subscriptions/...' and the CLI rejects the input."
+    "jobs": [
+      "hinterland-moderation-job",
+      "hinterland-inat-job",
+      "hinterland-rarity-refresh",
+      "hinterland-sweep-stale-reviews",
+      "hinterland-inat-outbox-replay",
+      "hinterland-dispatcher-replay"
+    ]
   },
   "kidJwt": {
-    "kid": "k1-2026-06",
+    "kid": "k1-2026-07",
     "alg": "RS256",
-    "issuer": "https://api.dragonfly-app.net",
-    "audience": "dragonfly-api",
+    "issuer": "https://api.thehinterlandguide.app",
+    "audience": "hinterland-api",
     "handoffTtlSeconds": 900,
     "handoffSingleUse": true,
     "sessionTtlDays": 30,

@@ -1,15 +1,15 @@
 name: Deprecated Cloud Run dev deploy
 
-# ADR 0010 moved the API runtime from GCP Cloud Run to Azure Container Apps.
-# This workflow is intentionally manual/no-op so pushes to main cannot recreate
-# the deleted Cloud Run service or run the stale Firebase smoke path.
+# ADR 0010 moved the API runtime from GCP Cloud Run to Azure Container Apps,
+# and ADR 0014 fully decommissions the GCP rollback path. This workflow is
+# intentionally manual/no-op so pushes to main cannot recreate Cloud Run.
 
 on:
   workflow_dispatch:
 
 jobs:
   disabled:
-    name: Cloud Run deploy disabled by ADR 0010
+    name: Cloud Run deploy disabled by ADR 0010/0014
     runs-on: ubuntu-latest
     steps:
       - name: Explain

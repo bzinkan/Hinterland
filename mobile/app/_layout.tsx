@@ -5,13 +5,11 @@ import { useFonts } from 'expo-font';
 import { Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { useEffect } from 'react';
-import { Platform } from 'react-native';
 import 'react-native-reanimated';
 
 import { useColorScheme } from '@/components/useColorScheme';
 import { queryClient } from '@/src/api/queryClient';
 import { ensureDevSession } from '@/src/auth/devSession';
-import { ensureTokenSync as ensureFirebaseTokenSync } from '@/src/auth/firebase';
 import { ensureTokenSync as ensureMsalTokenSync } from '@/src/auth/msal';
 import { env } from '@/src/config/env';
 
@@ -46,16 +44,9 @@ export default function RootLayout() {
   }, [loaded]);
 
   useEffect(() => {
-    // ADR 0010 production/play-internal auth is Entra for adults and
-    // Hinterland-issued session JWTs for kids. Firebase token sync is
-    // development-only now; running it in play-internal would clear a
-    // stored kid session when Firebase has no signed-in user.
-    if (
-      Platform.OS !== 'web' &&
-      (env.appEnv === 'development' || env.appEnv === 'preview')
-    ) {
-      ensureFirebaseTokenSync();
-    }
+    // Adults authenticate through Entra on the parents web surface; kids
+    // authenticate through Hinterland-issued session JWTs from QR handoff
+    // or the explicit dev-login shortcut.
     ensureMsalTokenSync();
     // Silent dev auto-login: mint a sandbox kid session when this
     // pre-production build boots with no stored bearer token. Fire and

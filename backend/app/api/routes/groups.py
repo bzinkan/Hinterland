@@ -286,7 +286,7 @@ async def list_group_members(
 
 
 # ---------------------------------------------------------------------------
-# POST /v1/groups/{group_id}/kids -- admin-create a kid via Firebase Admin SDK
+# POST /v1/groups/{group_id}/kids -- create a local kid and handoff JWT
 # ---------------------------------------------------------------------------
 
 
@@ -336,7 +336,7 @@ async def create_kid(
 
     Side effects (in order):
     1. Insert `users` row (firebase_uid=NULL, entra_oid=NULL; kids have no
-       external IdP identity in the post-Firebase world).
+       external IdP identity).
     2. Insert `memberships` row binding the kid to the group.
     3. Mint a Hinterland-signed RS256 handoff JWT (15-minute TTL, single-use)
        embedding `sub=kid_id`, `group_id`, `parent_id`, `token_use=handoff`.
@@ -370,7 +370,7 @@ async def create_kid(
             detail="Only the group owner can provision kids in this group.",
         )
 
-    # Kids have no external IdP identity: no Firebase uid, no Entra OID.
+    # Kids have no external IdP identity: no legacy uid, no Entra OID.
     # The local users.id (ULID) IS their identity for token `sub` claims.
     kid_id = str(ULID())
     kid = models.User(

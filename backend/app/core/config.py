@@ -119,31 +119,31 @@ class Settings(BaseSettings):
     storage_provider: Literal["noop", "blob"] = "blob"
     blob_account_endpoint: str = ""
 
-    # Microsoft Entra External ID (formerly Azure AD B2C) -- Phase 6 adult
-    # auth. The tenant lives at dfd7ebb4-0b29-42cb-aa05-e5e0124bab8f and the
-    # API audience is registered as "api://dragonfly-api". The verifier is
+    # Microsoft Entra External ID -- adult auth. The active Hinterland tenant
+    # lives at 18dbd7fa-c411-49bc-82fc-9ccaa26e3404 and the API audience is
+    # registered as "api://hinterland-api". The verifier is
     # JWKS-only via PyJWT; msal lives in the mobile client.
-    entra_tenant_id: str = "dfd7ebb4-0b29-42cb-aa05-e5e0124bab8f"
-    entra_api_audience: str = "api://dragonfly-api"
+    entra_tenant_id: str = "18dbd7fa-c411-49bc-82fc-9ccaa26e3404"
+    entra_api_audience: str = "api://hinterland-api"
     entra_issuer: str = (
-        "https://login.microsoftonline.com/dfd7ebb4-0b29-42cb-aa05-e5e0124bab8f/v2.0"
+        "https://login.microsoftonline.com/18dbd7fa-c411-49bc-82fc-9ccaa26e3404/v2.0"
     )
     entra_jwks_url: str = (
-        "https://login.microsoftonline.com/dfd7ebb4-0b29-42cb-aa05-e5e0124bab8f/discovery/v2.0/keys"
+        "https://login.microsoftonline.com/18dbd7fa-c411-49bc-82fc-9ccaa26e3404/discovery/v2.0/keys"
     )
 
     # Hinterland RS256 kid JWTs (handoff + session). Backend mints and
     # verifies these locally; the kid app stores the session JWT and sends
     # it as a Bearer token. JWKS published at /.well-known/...json.
-    dragonfly_jwt_issuer: str = "https://api.dragonfly-app.net"
-    dragonfly_jwt_audience: str = "dragonfly-api"
-    dragonfly_jwt_kid: str = "k1-2026-06"
+    dragonfly_jwt_issuer: str = "https://api.thehinterlandguide.app"
+    dragonfly_jwt_audience: str = "hinterland-api"
+    dragonfly_jwt_kid: str = "k1-2026-07"
     dragonfly_handoff_ttl_seconds: int = 900  # 15 minutes
     dragonfly_session_ttl_seconds: int = 60 * 60 * 24 * 30  # 30 days
 
     # Azure Key Vault holding the kid-JWT signing PEM (RS256). Read once
     # per process via DefaultAzureCredential (UAMI in Container Apps).
-    key_vault_url: str = "https://dragonfly-kv-dev.vault.azure.net/"
+    key_vault_url: str = "https://hinterland-kv-dev.vault.azure.net/"
     key_vault_kid_signing_secret: str = "kid-jwt-signing-key"
     key_vault_kid_public_secret: str = "kid-jwt-public-key"
 
@@ -226,7 +226,7 @@ class Settings(BaseSettings):
     # provider (Google Maps, self-hosted Nominatim) per `docs/runbook.md`.
     geocoding_provider: Literal["noop", "nominatim"] = "noop"
     geocoding_nominatim_base_url: str = "https://nominatim.openstreetmap.org"
-    geocoding_user_agent: str = "Dragonfly/0.1 (+https://dragonfly-app.net)"
+    geocoding_user_agent: str = "Hinterland/0.1 (+https://thehinterlandguide.app)"
     geocoding_request_timeout_seconds: float = 5.0
 
     # Photo moderation. Production gate is Azure AI Content Safety.
@@ -244,8 +244,7 @@ class Settings(BaseSettings):
     content_safety_request_timeout_seconds: float = 8.0
 
     # Internal-route OIDC auth. The `/internal/*` routes are called by
-    # platform infrastructure (Eventarc / Cloud Tasks / Cloud Scheduler)
-    # via Google-signed OIDC ID tokens. Production-safe default is
+    # platform infrastructure. Production-safe default is
     # fail-closed: if `internal_oidc_required` is left None, the
     # `require_internal_oidc` property requires OIDC on any env that
     # isn't `local`. Local dev opts out so smoke scripts + the moderation
@@ -286,7 +285,7 @@ class Settings(BaseSettings):
 
     @property
     def require_internal_oidc(self) -> bool:
-        """True when internal routes must enforce Google OIDC.
+        """True when internal routes must enforce platform OIDC.
 
         Explicit override (`DRAGONFLY_INTERNAL_OIDC_REQUIRED=true|false`)
         wins. Otherwise, anything past `local` fails closed.

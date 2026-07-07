@@ -2,7 +2,11 @@
 
 This doc covers every path a new user takes from "first time opening the app" to "first successful observation." Three personas, three different paths, and a COPPA consent step that gates every kid account.
 
-The mechanism (Firebase Auth, ID token with `role` and `group_id` custom claims, Admin-SDK user creation for kids, 6-character join codes) is already specified in `architecture.md`. This doc is about the flows — the screens, the copy, the consent plumbing, and the five-minutes-after-install experience that decides whether a kid ever comes back.
+The mechanism (Microsoft Entra External Identities for adults, Hinterland-signed
+kid handoff/session JWTs, backend-resolved roles, and 6-character join codes) is
+specified in `architecture.md`. This doc is about the flows -- the screens, the
+copy, the consent plumbing, and the five-minutes-after-install experience that
+decides whether a kid ever comes back.
 
 Related reading: `architecture.md` (auth model, role attributes), `data-model.md` (User / Group / Membership rows), `mobile.md` (platform-specific permission and offline behavior the flows depend on), `expedition-authoring.md` (voice and tone rules that also apply to onboarding copy).
 
@@ -25,7 +29,9 @@ The primary Phase 1 path. A parent has received an invite code from the closed b
 1. **Open app.** Role picker: "I'm a parent / I'm a teacher / I have a login." Copy is neutral — no "kid" button, because kids don't self-identify as kids in app UI.
 2. **Tap "I'm a parent."**
 3. **Invite code.** Single text field, prefilled from deep link if the invite came as a URL. Code format is `DRAGON-XXXX` (4 base32 chars after the dash; ~1M code space; redeemable once). Error copy on invalid: "That code doesn't match any invite. Check the email you got, or reply to it if you think this is a mistake."
-4. **Sign up.** Email + password + display name. Password rules per Firebase Auth defaults (6+ chars; we tighten to 8+ chars + at least one digit at the client). Email verification — Firebase sends a verification link, parent clicks it. This is Firebase's native flow; we don't reimplement.
+4. **Sign up.** Email + password + display name through the parents web app.
+   Microsoft Entra External Identities owns the adult password, verification,
+   and reset flow; the native kid app does not embed an adult password form.
 5. **COPPA acknowledgment screen.** One screen, short copy: "Hinterland is designed for kids 9–12. You'll create accounts for your kids here, and we'll ask you to approve what information they share. You can delete their account at any time." Accept button advances.
 6. **Create family group.** Name defaults to "[Parent display name]'s family" (editable). Creating the group generates a 6-char join code — not shown to the parent because family groups don't use the code (see below); it exists for consistency with the data model.
 7. **Add first kid.** Name (first name or nickname, 1–20 chars), age band (9–10, 11–12, 13+). Age band, not date of birth — we don't need DOB and COPPA data-minimization argues against storing it.
@@ -56,7 +62,11 @@ Two sub-flavors, depending on who set up the account.
 **Parent-created kid.** Account already exists. Kid just signs in.
 
 1. **Role picker → "I have a login."**
-2. **Enter username + PIN.** Keyboard is the kid-friendly variant (larger hit targets, numeric PIN pad). On success, the API mints a Firebase custom token (Admin SDK `createCustomToken`) for the kid's Firebase user; the client exchanges that custom token for a Firebase ID token via the Firebase Auth client SDK. The kid's `role` and `group_id` are set as custom claims on the Firebase user when the account is created.
+2. **Scan the kid QR / exchange handoff.** The adult setup surface shows a
+   short-lived QR payload. On success, the kid app posts it to
+   `POST /v1/auth/kid-exchange`; the API validates the single-use handoff and
+   returns a Hinterland-signed RS256 session JWT. The backend resolves the
+   kid's `role` and group membership from Postgres on authenticated requests.
 3. **Welcome sequence.** One screen: "Hey [nickname]! Let's log your first find. You don't need to know what it is — the app will help." Dismissible but defaults to continuing into the first expedition.
 4. **Auto-launch `backyard_starter`.** The first expedition IS the tutorial. No separate tutorial screens, no "here's how the app works" walkthrough. The first expedition's `intro` copy plus the step-by-step guidance during the first observation is the tutorial.
 5. **Take first photo.** Pre-prompt before the camera permission dialog (see `mobile.md`). Photo, location confirm, taxon pick (iNat CV suggests, kid confirms).
@@ -65,7 +75,10 @@ Two sub-flavors, depending on who set up the account.
 
 **Done-with-onboarding** for a kid is: first observation submitted and celebrated. Sign-in alone doesn't count — a kid who signs in and bounces hasn't experienced the product.
 
-**Teacher-created kid (with parental consent gate).** Account exists in Firebase Auth but is marked `pending_parental_consent=true` — a custom claim that prevents the ID token from being usable against any API endpoint. The kid's first sign-in fails with a friendly error until the parent has approved.
+**Teacher-created kid (with parental consent gate).** Account exists as a local
+Postgres shell row but cannot receive a usable handoff/session token until the
+parent has approved consent. The kid's first sign-in fails with a friendly error
+until the parent has approved.
 
 1. Teacher distributes welcome sheet.
 2. Parent receives row with child's name, username, PIN, and a consent URL.
@@ -87,13 +100,22 @@ Hinterland collects the minimum necessary to operate the app for kids under 13. 
 
 **Parental consent is one of two forms:**
 
-1. **Parent-created kid:** consent is implicit in the parent creating the account under their own logged-in session. The API enforces that only an authenticated parent (Firebase ID token with `role=parent` custom claim) can call the kid-create endpoint; the kid's account is linked to the parent's via a `parent_user_id` field on the `users` row. The parent's creation action is the consent event.
+1. **Parent-created kid:** consent is implicit in the parent creating the
+   account under their own logged-in session. The API enforces that only an
+   authenticated parent, resolved from an Entra token plus Postgres role lookup,
+   can call the kid-create endpoint; the kid's account is linked to the parent
+   via `parent_user_id`. The parent's creation action is the consent event.
 
 2. **Teacher-created kid:** consent is explicit via the "email plus" method. Email 1 delivers the consent URL; parent clicks and approves; email 2 arrives 24 hours later confirming the consent and reminding the parent they can revoke at any time. Both emails are logged with timestamps in the `USER#<kidId>/CONSENT` row (see `data-model.md` — this entity needs to be added in the same PR as this doc lands).
 
 **Audit-of-record (Phase 1).** Every consent click hits `POST /v1/auth/consent`, which writes a row to the `parent_consent_records` Postgres table and returns its ULID `id`. The columns capture exactly what the audit trail needs and nothing more: `parent_email`, optional `kid_display_name`, `policy_version` (e.g. `2026-05-10-DRAFT`, bumped any time the policy text changes materially), `recorded_at` (server time, tz-aware), `source` (currently always `web_consent`), and nullable `linked_parent_user_id` / `linked_kid_user_id` foreign keys to `users.id` filled in by the parent-signup flow once an Entra-verified token arrives. We deliberately do NOT store raw IP or User-Agent in Phase 1 — the `ip_hash` / `user_agent_hash` columns exist for a future operator-managed-salt scheme but stay NULL today. Structured logging continues to emit `auth.consent.recorded` carrying the same row id so existing log-based ops dashboards keep working; the row, not the log, is the long-term source of truth.
 
-**Revocation is one click.** Parent dashboard has a "Delete my kid's account" button that soft-deletes the `users` row, cascades a hard-delete job for all `observations`, `dex_entries`, and `expedition_progress` rows under that user, deletes Cloud Storage photos, and tombstones the Firebase user via the Admin SDK. Executed asynchronously via a Cloud Tasks worker (Phase 1 Week 12); the parent gets an email confirming completion.
+**Revocation is one click.** Parent dashboard has a "Delete my kid's account"
+button that soft-deletes the `users` row, cascades a hard-delete job for all
+`observations`, `dex_entries`, and `expedition_progress` rows under that user,
+and deletes Azure Blob photos. Executed asynchronously via the Azure worker path
+once closed-beta deletion automation is wired; the parent gets an email
+confirming completion.
 
 **No advertising. No third-party analytics SDKs.** The API service emits Cloud Logging structured logs and that's the entire analytics stack for kid-facing features. ADR 0002's "LLMs are author-time only" rule is the companion principle: nothing runs client-side on a kid's phone that sends their behavior to a third party.
 
@@ -120,7 +142,8 @@ Things that *don't* happen in the first five minutes: email verification (parent
 
 **Forgotten kid PIN.** Parent's family dashboard has "Reset [kid's] PIN" — generates a new 4-digit PIN and displays it once. Same flow teachers use for kids in their class, with the added requirement that the parent receives an email notification of the reset.
 
-**Forgotten parent/teacher password.** Firebase Auth's native password reset flow — email a reset link, click through, set a new password. No custom handling.
+**Forgotten parent/teacher password.** Entra's native password reset flow owns
+the adult reset. No native app password reset handling.
 
 **New device.** Kid logs in on any device with username + PIN. Previous session on the old device is invalidated — only one active session per kid at a time. This is deliberately stricter than the parent/teacher model, because kid accounts are often shared between a family's devices and a classroom's iPads, and we want the "whoever signs in most recently has the session" rule to be predictable.
 
