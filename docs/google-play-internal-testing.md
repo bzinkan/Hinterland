@@ -34,7 +34,7 @@ and the deletion has a multi-week cooldown.
 
 The pilot AAB must be built from the `play-internal` EAS profile so the
 package name is the FINAL `com.dragonfly.app`. The development /
-preview profiles use `com.dragonfly.app.dev` / `com.dragonfly.app.staging`
+preview profiles use `com.dragonfly.app.dev` / `app.thehinterlandguide.staging`
 and are NOT safe to upload to the production-intended Play Console
 entry.
 
@@ -130,7 +130,7 @@ Working directory: `mobile/`.
    not at the expected path):
 
    - [ ] `android.package` is `com.dragonfly.app` (NOT
-     `com.dragonfly.app.dev` or `com.dragonfly.app.staging`).
+     `com.dragonfly.app.dev` or `app.thehinterlandguide.staging`).
    - [ ] `name` is `Hinterland Internal` (the `play-internal` branch
      of `displayName()` in `mobile/app.config.ts`).
    - [ ] `version` is `0.1.0` (the `version` field in

@@ -77,7 +77,7 @@ holds non-route code (API clients, state stores, hooks).
 | APP_ENV       | API base URL                          | Bundle ID                  | Update channel |
 | ------------- | ------------------------------------- | -------------------------- | -------------- |
 | `development` | `https://api.thehinterlandguide.app`  | `com.dragonfly.app.dev`    | `development`  |
-| `preview`     | `https://api.thehinterlandguide.app`  | `com.dragonfly.app.staging` | `preview`      |
+| `preview`     | `https://api.thehinterlandguide.app`  | `app.thehinterlandguide.staging` | `preview`      |
 | `production`  | `https://api.thehinterlandguide.app`  | `com.dragonfly.app`        | `production`   |
 
 All current build profiles point at the development Azure API until separate
