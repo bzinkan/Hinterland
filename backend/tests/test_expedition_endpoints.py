@@ -866,9 +866,7 @@ def test_focus_404_when_never_started(
         assert "not started" in response.json()["error"]["message"]
 
 
-def test_focus_409_when_completed(
-    monkeypatch: pytest.MonkeyPatch, fake_session: AsyncMock
-) -> None:
+def test_focus_409_when_completed(monkeypatch: pytest.MonkeyPatch, fake_session: AsyncMock) -> None:
     _stub_token_verifier(monkeypatch)
     progress = _progress_row(
         "x",

@@ -226,11 +226,7 @@ async def _focus_progress(
 
 
 def _active_expedition_id(items: list[ProgressItem]) -> str | None:
-    focused = [
-        item
-        for item in items
-        if item.completed_at is None and item.focused_at is not None
-    ]
+    focused = [item for item in items if item.completed_at is None and item.focused_at is not None]
     if focused:
         focused.sort(
             key=lambda item: item.focused_at or datetime.min.replace(tzinfo=UTC),
