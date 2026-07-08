@@ -22,7 +22,8 @@ type EntraConfig = {
 
 type EnvConfig = {
   apiBaseUrl: string;
-  bundleIdSuffix: string;
+  androidPackage: string;
+  iosBundleIdentifier: string;
   updatesChannel: string;
   entra: EntraConfig;
 };
@@ -41,30 +42,34 @@ const ENTRA_DEV: EntraConfig = {
 const ENV: Record<AppEnv, EnvConfig> = {
   development: {
     apiBaseUrl: "https://api.thehinterlandguide.app",
-    bundleIdSuffix: ".dev",
+    androidPackage: "com.dragonfly.app.dev",
+    iosBundleIdentifier: "com.dragonfly.app.dev",
     updatesChannel: "development",
     entra: ENTRA_DEV,
   },
   preview: {
     apiBaseUrl: "https://api.thehinterlandguide.app",
-    bundleIdSuffix: ".staging",
+    androidPackage: "app.thehinterlandguide.staging",
+    iosBundleIdentifier: "app.thehinterlandguide.staging",
     updatesChannel: "preview",
     entra: ENTRA_DEV,
   },
   production: {
     apiBaseUrl: "https://api.thehinterlandguide.app",
-    bundleIdSuffix: "",
+    androidPackage: "com.dragonfly.app",
+    iosBundleIdentifier: "com.dragonfly.app",
     updatesChannel: "production",
     entra: ENTRA_DEV,
   },
   // play-internal uses the FINAL package name `com.dragonfly.app`
-  // (bundleIdSuffix=""). First upload of this artifact LOCKS the
+  // for the current pilot. First upload of this artifact LOCKS the
   // package name on the Play Console app -- see docs/google-play-
   // internal-testing.md for the warning + recovery path. Points at
   // the dev API since no staging API exists yet.
   "play-internal": {
     apiBaseUrl: "https://api.thehinterlandguide.app",
-    bundleIdSuffix: "",
+    androidPackage: "com.dragonfly.app",
+    iosBundleIdentifier: "com.dragonfly.app",
     updatesChannel: "play-internal",
     entra: ENTRA_DEV,
   },
@@ -111,11 +116,11 @@ const config: ExpoConfig = {
     backgroundColor: "#ffffff",
   },
   ios: {
-    bundleIdentifier: `com.dragonfly.app${env.bundleIdSuffix}`,
+    bundleIdentifier: env.iosBundleIdentifier,
     supportsTablet: true,
   },
   android: {
-    package: `com.dragonfly.app${env.bundleIdSuffix}`,
+    package: env.androidPackage,
     permissions: isPlayInternal
       ? ["android.permission.ACCESS_COARSE_LOCATION"]
       : undefined,

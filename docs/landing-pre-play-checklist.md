@@ -65,7 +65,7 @@ Related docs:
       label is `Hinterland Internal` from the `play-internal` build.
 - [ ] Package-name caution is understood: the first AAB uploaded to the
       production-intended Play Console app must use `com.dragonfly.app`, not
-      `com.dragonfly.app.dev` or `com.dragonfly.app.staging`.
+      `com.dragonfly.app.dev` or `app.thehinterlandguide.staging`.
 - [ ] Data Safety draft answers align with landing/privacy copy: photos,
       approximate location, user content/species selection, adult email, no ads,
       no tracking.

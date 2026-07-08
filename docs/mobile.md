@@ -190,7 +190,7 @@ One config file, environment-switched via `APP_ENV` (dev/staging/prod). Pulls:
 - API base URL
 - Expo project ID
 - Push notification project ID (same as Expo for Phase 1)
-- Bundle identifier / Android package (different per env: `com.dragonfly.app.dev`, `.staging`, prod)
+- Bundle identifier / Android package (different per env: `com.dragonfly.app.dev`, `app.thehinterlandguide.staging`, prod)
 - Expo Update channel
 
 Secrets do not live in `app.config.ts`. Build-time secrets (e.g. Sentry DSN) are EAS Secrets; runtime secrets do not exist on the client.

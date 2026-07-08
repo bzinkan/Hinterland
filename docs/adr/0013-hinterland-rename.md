@@ -37,12 +37,11 @@ contracts remain compatibility exceptions until a separate migration. The old
 Dragonfly environment stays as historical reference and is never renamed in
 place.
 
-1. **Android/iOS bundle ids `com.dragonfly.app*`.** Play package names
-   are permanent per Console listing. The rebrand plan resolves this
-   deliberately: the new identity ships as a NEW listing under
-   `app.thehinterlandguide` (new package, new tester opt-ins); the
-   current Internal Testing pilot keeps `com.dragonfly.app` until that
-   cutover.
+1. **Android/iOS bundle ids.** Play package names are permanent per
+   Console listing. The rebrand plan resolves this deliberately: preview
+   staging builds now use `app.thehinterlandguide.staging`, while the
+   current Internal Testing pilot keeps `com.dragonfly.app` until the
+   production Play listing cutover.
 2. **`DRAGONFLY_*` env var names and the `env_prefix="DRAGONFLY_"` in
    `backend/app/core/config.py`** (including the `dragonfly_*` Settings
    field names they bind to). `HINTERLAND_` env vars are now accepted by
