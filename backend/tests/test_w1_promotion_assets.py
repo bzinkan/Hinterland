@@ -152,3 +152,7 @@ def test_monitoring_artifact_covers_w1_and_revocation_signals() -> None:
     assert ".criteria.allOf" in monitoring
     assert '.name == "EntityName"' in monitoring
     assert '.operator == "Include"' in monitoring
+    assert "HINTERLAND_ALERT_EMAIL is required by --synthetic" in monitoring
+    assert "synthetic notification has no uniquely enabled protected receiver" in monitoring
+    assert "--add-action email" in monitoring
+    assert "usecommonalertschema" in monitoring

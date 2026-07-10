@@ -326,10 +326,10 @@ fi
 
 ACTION_GROUP_ID="$(az monitor action-group show \
   --name "$ACTION_GROUP" --resource-group "$RG" --query id --output tsv)"
+ACTION_GROUP_JSON="$(az monitor action-group show \
+  --name "$ACTION_GROUP" --resource-group "$RG" --output json)"
 
 if [[ "$VERIFY" == 1 ]]; then
-  action_group_json="$(az monitor action-group show \
-    --name "$ACTION_GROUP" --resource-group "$RG" --output json)"
   enabled_receivers="$(az monitor action-group show \
     --name "$ACTION_GROUP" --resource-group "$RG" \
     --query "length(emailReceivers[?status=='Enabled'])" --output tsv)"
@@ -343,7 +343,7 @@ if [[ "$VERIFY" == 1 ]]; then
       '[.emailReceivers[]? | select(
         (.emailAddress | ascii_downcase) == ($expected | ascii_downcase)
         and .status == "Enabled"
-      )] | length' <<< "$action_group_json")"
+      )] | length' <<< "$ACTION_GROUP_JSON")"
     [[ "$expected_receiver_count" -gt 0 ]] || {
       echo "FATAL: protected alert receiver is not enabled on $ACTION_GROUP" >&2
       exit 1
@@ -403,10 +403,41 @@ if [[ "$VERIFY" == 1 ]]; then
 fi
 
 if [[ "$SYNTHETIC" == 1 ]]; then
+  [[ -n "$ALERT_EMAIL" ]] || {
+    echo "FATAL: HINTERLAND_ALERT_EMAIL is required by --synthetic" >&2
+    exit 1
+  }
+  receiver_count="$(jq --arg expected "$ALERT_EMAIL" '
+    [.emailReceivers[]? | select(
+      (.emailAddress | ascii_downcase) == ($expected | ascii_downcase)
+      and .status == "Enabled"
+    )] | length
+  ' <<< "$ACTION_GROUP_JSON")"
+  [[ "$receiver_count" -eq 1 ]] || {
+    echo "FATAL: synthetic notification has no uniquely enabled protected receiver" >&2
+    exit 1
+  }
+  receiver_name="$(jq -r --arg expected "$ALERT_EMAIL" '
+    [.emailReceivers[]? | select(
+      (.emailAddress | ascii_downcase) == ($expected | ascii_downcase)
+      and .status == "Enabled"
+    )][0].name // empty
+  ' <<< "$ACTION_GROUP_JSON")"
+  receiver_email="$(jq -r --arg expected "$ALERT_EMAIL" '
+    [.emailReceivers[]? | select(
+      (.emailAddress | ascii_downcase) == ($expected | ascii_downcase)
+      and .status == "Enabled"
+    )][0].emailAddress // empty
+  ' <<< "$ACTION_GROUP_JSON")"
+  [[ -n "$receiver_name" && -n "$receiver_email" ]] || {
+    echo "FATAL: synthetic notification receiver is incomplete" >&2
+    exit 1
+  }
   az monitor action-group test-notifications create \
     --action-group "$ACTION_GROUP" \
     --resource-group "$RG" \
     --alert-type logalertv2 \
+    --add-action email "$receiver_name" "$receiver_email" usecommonalertschema \
     --output none
   echo "synthetic action-group notification accepted"
 
