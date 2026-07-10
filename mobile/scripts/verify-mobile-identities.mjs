@@ -6,6 +6,7 @@ const profiles = {
   production: "app.thehinterlandguide",
   "play-internal": "app.thehinterlandguide",
 };
+const easProjectId = "278f4a33-e1b1-4468-8d02-a51defe03267";
 const npx = process.platform === "win32" ? "npx.cmd" : "npx";
 
 for (const [profile, packageName] of Object.entries(profiles)) {
@@ -17,9 +18,12 @@ for (const [profile, packageName] of Object.entries(profiles)) {
   const config = JSON.parse(output);
 
   const errors = [];
-  if (config.slug !== "the-hinterland-guide") errors.push(`slug=${config.slug}`);
+  if (config.slug !== "hinterland") errors.push(`slug=${config.slug}`);
   if (config.scheme !== "hinterland") errors.push(`scheme=${config.scheme}`);
-  if (config.owner !== "thehinterlandguide") errors.push(`owner=${config.owner}`);
+  if (config.owner !== "thehinterlandguides-team") errors.push(`owner=${config.owner}`);
+  if (config.extra?.eas?.projectId !== easProjectId) {
+    errors.push(`eas.projectId=${config.extra?.eas?.projectId}`);
+  }
   if (config.android?.package !== packageName) errors.push(`android=${config.android?.package}`);
   if (config.ios?.bundleIdentifier !== packageName) errors.push(`ios=${config.ios?.bundleIdentifier}`);
   if (!String(config.name ?? "").startsWith("The Hinterland Guide")) {

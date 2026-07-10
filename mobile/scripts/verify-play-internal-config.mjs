@@ -18,6 +18,7 @@ const android = config.android ?? {};
 const extra = config.extra ?? {};
 const blocked = new Set(android.blockedPermissions ?? []);
 const permissions = new Set(android.permissions ?? []);
+const expectedProjectId = "278f4a33-e1b1-4468-8d02-a51defe03267";
 
 function assert(condition, message) {
   if (!condition) {
@@ -29,6 +30,14 @@ function assert(condition, message) {
 assert(
   config.name === "The Hinterland Guide Internal",
   "play-internal name must be The Hinterland Guide Internal",
+);
+assert(
+  config.owner === "thehinterlandguides-team",
+  "EAS project owner must be thehinterlandguides-team",
+);
+assert(
+  extra.eas?.projectId === expectedProjectId,
+  `EAS project must be the existing hinterland project (${expectedProjectId})`,
 );
 assert(android.package === "app.thehinterlandguide", "play-internal package must be app.thehinterlandguide");
 assert(extra.appEnv === "play-internal", "extra.appEnv must be play-internal");

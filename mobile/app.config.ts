@@ -14,6 +14,11 @@ type AppEnv =
 const APP_ENV: AppEnv =
   (process.env.APP_ENV as AppEnv | undefined) ?? "development";
 
+// Existing EAS project owned by the `thehinterlandguides-team` Expo
+// organization. Its dashboard display name is `hinterland`; the immutable
+// project ID is what binds builds and credentials to the correct project.
+const EAS_PROJECT_ID = "278f4a33-e1b1-4468-8d02-a51defe03267";
+
 type EntraConfig = {
   clientId: string;
   authority: string;
@@ -104,8 +109,8 @@ function displayName(appEnv: AppEnv): string {
 
 const config: ExpoConfig = {
   name: displayName(APP_ENV),
-  slug: "the-hinterland-guide",
-  owner: "thehinterlandguide",
+  slug: "hinterland",
+  owner: "thehinterlandguides-team",
   version: "0.1.0",
   orientation: "portrait",
   icon: "./assets/images/icon.png",
@@ -187,6 +192,9 @@ const config: ExpoConfig = {
     typedRoutes: true,
   },
   extra: {
+    eas: {
+      projectId: EAS_PROJECT_ID,
+    },
     appEnv: APP_ENV,
     apiBaseUrl: env.apiBaseUrl,
     updatesChannel: env.updatesChannel,

@@ -18,7 +18,8 @@ The active contracts are:
 
 - Mobile packages: `app.thehinterlandguide`,
   `app.thehinterlandguide.staging`, and `app.thehinterlandguide.dev`
-- Expo slug and owner: `the-hinterland-guide` and `thehinterlandguide`
+- EAS project: slug `hinterland`, owner `thehinterlandguides-team`, and
+  immutable project ID `278f4a33-e1b1-4468-8d02-a51defe03267`
 - Deep-link scheme: `hinterland`
 - Settings prefix: `HINTERLAND_`
 - Kid QR payload: `hinterland.kid-handoff.v1`

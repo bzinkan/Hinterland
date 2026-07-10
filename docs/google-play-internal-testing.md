@@ -69,7 +69,9 @@ From `mobile/`:
 ```sh
 # One-time: EAS account setup
 npx eas-cli login
-npx eas-cli project:init    # only if mobile/ has no project id
+# Already linked: owner `thehinterlandguides-team`, project `hinterland`,
+# project ID `278f4a33-e1b1-4468-8d02-a51defe03267`.
+# Do not run project:init unless intentionally replacing that project.
 
 # Build the Android App Bundle for Play Console
 APP_ENV=play-internal npx eas-cli build \
@@ -146,6 +148,9 @@ Working directory: `mobile/`.
      source — EAS manages it remotely via `appVersionSource:
      "remote"` + `autoIncrement: true`).
    - [ ] `extra.appEnv` is `play-internal`.
+   - [ ] `owner` is `thehinterlandguides-team` and `extra.eas.projectId` is
+     `278f4a33-e1b1-4468-8d02-a51defe03267` (the existing EAS project
+     displayed as `hinterland`).
    - [ ] `extra.apiBaseUrl` is `https://api.thehinterlandguide.app`.
    - [ ] `extra.updatesChannel` is `play-internal`.
    - [ ] `extra.entra` is populated and no Firebase config is present.
