@@ -84,7 +84,10 @@ if ! az extension show --name scheduled-query >/dev/null 2>&1; then
 fi
 
 LAW_ID="/subscriptions/${SUBSCRIPTION}/resourceGroups/${RG}/providers/Microsoft.OperationalInsights/workspaces/${LAW_NAME}"
-MODERATION_QUEUE_ID="/subscriptions/${SUBSCRIPTION}/resourceGroups/${RG}/providers/Microsoft.ServiceBus/namespaces/${SB_NAMESPACE}/queues/${MODERATION_QUEUE}"
+# Azure Monitor exposes Service Bus queue metrics from the namespace resource,
+# with the individual queue selected through the EntityName metric dimension.
+# A queue resource ID is not a supported platform-metric alert scope.
+MODERATION_NAMESPACE_ID="/subscriptions/${SUBSCRIPTION}/resourceGroups/${RG}/providers/Microsoft.ServiceBus/namespaces/${SB_NAMESPACE}"
 
 metric_alerts=(
   "${PREFIX}-moderation-queue-depth"
@@ -118,7 +121,7 @@ ensure_metric_alert() {
     --name "$name" \
     --resource-group "$RG" \
     --subscription "$SUBSCRIPTION" \
-    --scopes "$MODERATION_QUEUE_ID" \
+    --scopes "$MODERATION_NAMESPACE_ID" \
     --condition "$condition" \
     --description "$description" \
     --evaluation-frequency 5m \
@@ -179,11 +182,11 @@ if [[ "$APPLY" == 1 ]]; then
 
   ensure_metric_alert \
     "${PREFIX}-moderation-queue-depth" \
-    "avg ActiveMessages > 25" \
+    "avg ActiveMessages > 25 where EntityName includes ${MODERATION_QUEUE}" \
     "Observation moderation queue depth exceeds 25"
   ensure_metric_alert \
     "${PREFIX}-moderation-dlq" \
-    "avg DeadletteredMessages > 0" \
+    "avg DeadletteredMessages > 0 where EntityName includes ${MODERATION_QUEUE}" \
     "Observation moderation DLQ contains work"
 
   WORK_AGE_QUERY=$(cat <<'KQL'
@@ -348,12 +351,44 @@ if [[ "$VERIFY" == 1 ]]; then
   fi
 
   for name in "${metric_alerts[@]}"; do
-    enabled="$(az monitor metrics alert show \
-      --name "$name" --resource-group "$RG" --query enabled --output tsv)"
+    metric_json="$(az monitor metrics alert show \
+      --name "$name" --resource-group "$RG" --output json)"
+    enabled="$(jq -r '.enabled' <<< "$metric_json")"
     [[ "${enabled,,}" == true ]] || { echo "FATAL: metric alert $name disabled" >&2; exit 1; }
-    actions="$(az monitor metrics alert show \
-      --name "$name" --resource-group "$RG" --query 'length(actions)' --output tsv)"
+    actions="$(jq '[.actions[]?] | length' <<< "$metric_json")"
     [[ "$actions" -gt 0 ]] || { echo "FATAL: metric alert $name has no action" >&2; exit 1; }
+
+    case "$name" in
+      "${PREFIX}-moderation-queue-depth") expected_metric="ActiveMessages" ;;
+      "${PREFIX}-moderation-dlq") expected_metric="DeadletteredMessages" ;;
+      *) echo "FATAL: unexpected W1 metric alert $name" >&2; exit 1 ;;
+    esac
+    scope_count="$(jq --arg expected "$MODERATION_NAMESPACE_ID" \
+      '[.scopes[]? | select(. == $expected)] | length' <<< "$metric_json")"
+    [[ "$scope_count" -eq 1 ]] || {
+      echo "FATAL: metric alert $name does not scope the Service Bus namespace" >&2
+      exit 1
+    }
+    criterion_count="$(jq --arg metric "$expected_metric" --arg queue "$MODERATION_QUEUE" '
+      [
+        .criteria.allOf[]?
+        | select(.metricName == $metric)
+        | select(
+            [
+              .dimensions[]?
+              | select(
+                  .name == "EntityName"
+                  and .operator == "Include"
+                  and ([.values[]?] | index($queue) != null)
+                )
+            ] | length > 0
+          )
+      ] | length
+    ' <<< "$metric_json")"
+    [[ "$criterion_count" -eq 1 ]] || {
+      echo "FATAL: metric alert $name lacks its expected EntityName filter" >&2
+      exit 1
+    }
   done
   for name in "${log_alerts[@]}"; do
     enabled="$(az monitor scheduled-query show \

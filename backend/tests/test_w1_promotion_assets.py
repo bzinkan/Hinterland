@@ -140,3 +140,15 @@ def test_monitoring_artifact_covers_w1_and_revocation_signals() -> None:
     assert "monitor scheduled-query delete" in monitoring
     assert "protected alert receiver is not enabled" in monitoring
     assert "gordi-pilot-rg" in monitoring
+    assert "MODERATION_NAMESPACE_ID=" in monitoring
+    assert "MODERATION_QUEUE_ID=" not in monitoring
+    assert '--scopes "$MODERATION_NAMESPACE_ID"' in monitoring
+    assert "avg ActiveMessages > 25 where EntityName includes ${MODERATION_QUEUE}" in monitoring
+    assert (
+        "avg DeadletteredMessages > 0 where EntityName includes ${MODERATION_QUEUE}" in monitoring
+    )
+    assert 'expected_metric="ActiveMessages"' in monitoring
+    assert 'expected_metric="DeadletteredMessages"' in monitoring
+    assert ".criteria.allOf" in monitoring
+    assert '.name == "EntityName"' in monitoring
+    assert '.operator == "Include"' in monitoring
