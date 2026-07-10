@@ -28,9 +28,10 @@ Start with these files, in this order:
 8. `docs/adr/` for decisions that must not be casually reversed. Most active:
    - [ADR 0010](docs/adr/0010-azure-target-architecture.md) — Azure target architecture (Entra External Identities, Hinterland-signed kid JWTs, Azure Postgres, Blob Storage, Container Apps, Key Vault, Azure AI Content Safety, Azure Monitor). Supersedes ADR 0005, 0008, and 0009.
    - [ADR 0014](docs/adr/0014-firebase-gcp-decommission.md) — Firebase/GCP decommission. Azure is the only active runtime, hosting, auth, and CI/deploy platform; GCP/Firebase are historical only until external resources are explicitly deleted.
+   - [ADR 0015](docs/adr/0015-observation-finalization-and-derived-state-rebuild.md) — Observation idempotency, canonical photo finalization, outbox-only moderation, durable rewards, and deterministic rejection/correction rebuilds.
    - [ADR 0006](docs/adr/0006-ingest-pipelines.md) — Ingest pipelines are explicit, replayable, and audited via `ingest_runs`.
    - [ADR 0007](docs/adr/0007-internal-ai-agent-tooling.md) — Multi-agent AI is internal/adult-only; never on a kid-facing request path.
-   - [ADR 0002](docs/adr/0002-no-runtime-llm.md) — Kid-facing runtime LLM calls remain forbidden.
+   - [ADR 0002](docs/adr/0002-llms-are-authortime-not-runtime.md) — Kid-facing runtime LLM calls remain forbidden.
 
 If code and docs disagree, stop and reconcile them in the same PR. Do not let architecture drift silently.
 
@@ -57,6 +58,11 @@ Preserve these through every phase:
 - Kid-facing runtime LLM calls are forbidden. LLMs may be used for author-time tools or adult-facing reviewed summaries only.
 - The kid experience must not depend on iNaturalist, Google/Maps, moderation, or rarity refresh being available at the moment of submission.
 - Moderation is asynchronous. Do not block the hot path on image moderation.
+- Direct BlobCreated/Event Grid moderation is forbidden. Only a committed
+  Observation outbox row may produce moderation work.
+- No child photo may leave Azure before a clean/adult-approved decision.
+- New Observation location is optional `geohash4`; do not persist or log raw
+  child coordinates.
 - iNaturalist submission is asynchronous. A kid can see success before iNat receives the observation.
 - Expedition JSON/content is source of truth. The database is a materialized view.
 - Leaderboard counters live on membership rows. Do not aggregate observations at read time for normal leaderboard reads.
@@ -98,6 +104,8 @@ Current backend baseline:
 Migration scaffolding present:
 
 - `infra-azure/` — Azure setup/decommission scripts and the current manifest.
+- `infra-azure/environments/hinterland-dev.env` — non-secret isolated resource
+  contract used by Observation W1 provisioning and monitoring.
 - `infra-gcp/` — legacy GCP Terraform retained for historical reference only. Do not run it as an active deploy path.
 - `infra/` — legacy AWS CDK stacks, reference only.
 

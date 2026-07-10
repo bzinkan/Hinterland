@@ -12,10 +12,24 @@ container on the configured storage account.
 
 from __future__ import annotations
 
+import hashlib
+from contextlib import suppress
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Annotated, Any, Protocol, cast
 
 from fastapi import Depends, Request
+
+
+class StorageCopyVerificationError(RuntimeError):
+    """A destination blob was not proven identical to its source."""
+
+
+@dataclass(frozen=True)
+class StorageObjectProperties:
+    byte_count: int
+    content_type: str | None
+    etag: str | None
 
 
 class SignedUrlGenerator(Protocol):
@@ -31,8 +45,9 @@ class SignedUrlGenerator(Protocol):
     ) -> tuple[str, datetime]:
         """Return `(signed_url, expires_at)` for a single PUT.
 
-        The URL is bound to `content_type` -- the client MUST PUT with a
-        matching `Content-Type` header or the upload will be rejected.
+        ``content_type`` is returned to the client as a required upload header;
+        Azure SAS does not itself enforce that request header. Server-side
+        canonicalization is the trust boundary.
         """
         ...
 
@@ -55,6 +70,29 @@ class SignedUrlGenerator(Protocol):
         """
         ...
 
+    def get_object_properties(
+        self,
+        *,
+        bucket: str,
+        object_name: str,
+    ) -> StorageObjectProperties:
+        """Return bounded-validation metadata or raise ``FileNotFoundError``."""
+        ...
+
+    def put_object_bytes(
+        self,
+        *,
+        bucket: str,
+        object_name: str,
+        data: bytes,
+        content_type: str,
+        metadata: dict[str, str],
+        overwrite: bool,
+        expected_sha256: str | None = None,
+    ) -> None:
+        """Write canonical bytes and verify retry-safe destination integrity."""
+        ...
+
     def copy_object(
         self,
         *,
@@ -62,10 +100,10 @@ class SignedUrlGenerator(Protocol):
         src_object: str,
         dst_bucket: str,
         dst_object: str,
+        expected_size: int | None = None,
+        expected_sha256: str | None = None,
     ) -> None:
-        """Server-side copy. Used by the moderation worker to move
-        `pending/<id>.jpg` to `observations/<id>.jpg` or
-        `quarantine/<id>.jpg` per ADR 0009 + `docs/moderation.md`."""
+        """Synchronously copy and verify before the caller deletes source."""
         ...
 
     def delete_object(self, *, bucket: str, object_name: str) -> None:
@@ -169,6 +207,73 @@ class BlobSignedUrlGenerator:
         blob = self._service.get_blob_client(container=bucket, blob=object_name)
         return blob.download_blob().readall()
 
+    def get_object_properties(
+        self,
+        *,
+        bucket: str,
+        object_name: str,
+    ) -> StorageObjectProperties:
+        from azure.core.exceptions import ResourceNotFoundError
+
+        blob = self._service.get_blob_client(container=bucket, blob=object_name)
+        try:
+            properties = blob.get_blob_properties()
+        except ResourceNotFoundError as exc:
+            raise FileNotFoundError(object_name) from exc
+        content_settings = getattr(properties, "content_settings", None)
+        content_type = getattr(content_settings, "content_type", None)
+        etag = getattr(properties, "etag", None)
+        return StorageObjectProperties(
+            byte_count=self._blob_size(properties),
+            content_type=content_type if isinstance(content_type, str) else None,
+            etag=str(etag) if etag is not None else None,
+        )
+
+    def put_object_bytes(
+        self,
+        *,
+        bucket: str,
+        object_name: str,
+        data: bytes,
+        content_type: str,
+        metadata: dict[str, str],
+        overwrite: bool,
+        expected_sha256: str | None = None,
+    ) -> None:
+        from azure.core.exceptions import ResourceExistsError
+        from azure.storage.blob import ContentSettings
+
+        blob = self._service.get_blob_client(container=bucket, blob=object_name)
+        try:
+            blob.upload_blob(
+                data,
+                overwrite=overwrite,
+                content_settings=ContentSettings(content_type=content_type),
+                metadata=metadata,
+            )
+        except ResourceExistsError as exc:
+            if overwrite:
+                raise
+            existing = blob.download_blob().readall()
+            digest = hashlib.sha256(existing).hexdigest()
+            if expected_sha256 is None or digest != expected_sha256:
+                raise StorageCopyVerificationError(
+                    "existing canonical blob did not match the expected SHA-256"
+                ) from exc
+            return
+
+        properties = blob.get_blob_properties()
+        if self._blob_size(properties) != len(data):
+            raise StorageCopyVerificationError(
+                "canonical destination size did not match uploaded bytes"
+            )
+        if expected_sha256 is not None:
+            digest = hashlib.sha256(data).hexdigest()
+            if digest != expected_sha256:
+                raise StorageCopyVerificationError(
+                    "canonical source bytes did not match expected SHA-256"
+                )
+
     def copy_object(
         self,
         *,
@@ -176,9 +281,13 @@ class BlobSignedUrlGenerator:
         src_object: str,
         dst_bucket: str,
         dst_object: str,
+        expected_size: int | None = None,
+        expected_sha256: str | None = None,
     ) -> None:
-        # In-account copy: pass the source blob URL with a short-lived read
-        # SAS so the dst container can pull it server-side.
+        # Put Blob From URL is synchronous. Do not use start_copy_from_url
+        # here: it may return while the copy is still pending, and deleting
+        # the source at that point can corrupt the moderation move.
+        from azure.core.exceptions import ResourceExistsError
         from azure.storage.blob import BlobSasPermissions, generate_blob_sas
 
         udk = self._user_delegation_key(timedelta(minutes=5))
@@ -192,8 +301,45 @@ class BlobSignedUrlGenerator:
             expiry=datetime.now(UTC) + timedelta(minutes=5),
         )
         src_url = f"{self._account_endpoint.rstrip('/')}/{src_bucket}/{src_object}?{src_sas}"
+        src = self._service.get_blob_client(container=src_bucket, blob=src_object)
         dst = self._service.get_blob_client(container=dst_bucket, blob=dst_object)
-        dst.start_copy_from_url(src_url)
+        source_properties = src.get_blob_properties()
+        source_size = self._blob_size(source_properties)
+        if expected_size is not None and source_size != expected_size:
+            raise StorageCopyVerificationError(
+                f"source size {source_size} did not match expected size {expected_size}"
+            )
+
+        with suppress(ResourceExistsError):
+            dst.upload_blob_from_url(src_url, overwrite=False)
+        # A prior attempt may have copied successfully and crashed before the
+        # database commit. The verification below is required in both cases.
+
+        destination_properties = dst.get_blob_properties()
+        destination_size = self._blob_size(destination_properties)
+        required_size = expected_size if expected_size is not None else source_size
+        if destination_size != required_size:
+            raise StorageCopyVerificationError(
+                f"destination size {destination_size} did not match expected size {required_size}"
+            )
+
+        required_sha256 = expected_sha256
+        if required_sha256 is None:
+            source_bytes = src.download_blob().readall()
+            required_sha256 = hashlib.sha256(source_bytes).hexdigest()
+        destination_bytes = dst.download_blob().readall()
+        destination_sha256 = hashlib.sha256(destination_bytes).hexdigest()
+        if destination_sha256 != required_sha256:
+            raise StorageCopyVerificationError("destination SHA-256 verification failed")
+
+    @staticmethod
+    def _blob_size(properties: Any) -> int:
+        size = getattr(properties, "size", None)
+        if not isinstance(size, int):
+            size = getattr(properties, "content_length", None)
+        if not isinstance(size, int):
+            raise StorageCopyVerificationError("Azure Blob properties omitted object size")
+        return size
 
     def delete_object(self, *, bucket: str, object_name: str) -> None:
         blob = self._service.get_blob_client(container=bucket, blob=object_name)

@@ -68,6 +68,66 @@ mobile/
 `app/` is the Expo Router root — anything in there becomes a route. `src/`
 holds non-route code (API clients, state stores, hooks).
 
+## Observation durability and release gate
+
+Observation submissions use an owner-scoped SQLite record plus a canonical
+JPEG in the app document directory. The same submission ULID is used for
+presign and create, and the queue resumes from its exact durable stage after
+network loss or process death. A completed row retains the canonical server
+response and hash metadata, but its local JPEG is deleted. The device-wide
+queue limit is 50 entries.
+
+Run the deterministic mobile checks with:
+
+```powershell
+npm run typecheck
+npm test -- --runInBand
+npm run config:play-internal
+```
+
+The committed `.maestro/` workspace drives the complete synthetic-photo,
+no-location, Unknown, upload, persisted completion, and Field Journal return
+flow by stable React Native `testID`. It deliberately uses `clearState: false`:
+the exact store build must already be authenticated as the isolated W1 kid.
+
+Physical execution is a remaining promotion gate, not a result produced by
+the repository checks. At implementation time no exact Play Internal artifact,
+Maestro CLI, or physical device was attached, so no device pass is claimed.
+Run it as follows:
+
+1. Use a physical Android device with no more than 4 GB RAM, enable USB
+   debugging, and install **Hinterland Internal from the Google Play Internal
+   testing opt-in link**. Do not substitute a local APK or Expo export; Play's
+   split install must come from the exact AAB being promoted.
+2. Complete the adult-managed kid handoff, leave that W1 kid signed in, and
+   clear or reconcile any prior local Observation queue entries. The committed
+   flow adds `assets/images/icon.png` to the device gallery as synthetic media.
+3. From `mobile/`, record the installed version and run the workspace with
+   Maestro (Java 17 or 21):
+
+   ```powershell
+   adb devices
+   $serial = "REPLACE_WITH_ADB_SERIAL"
+   adb -s $serial shell dumpsys package com.dragonfly.app |
+     Select-String "versionCode|versionName"
+   maestro --device=$serial test .\.maestro
+   ```
+
+4. Attach the Maestro artifacts, device model/RAM/Android version, ADB serial,
+   Play version code, EAS build ID, and AAB SHA-256 to the promotion record.
+   A green run against any other build or an emulator does not satisfy this
+   gate.
+
+The automated flow complements, but does not replace, these supervised fault
+scenarios on the same exact AAB and device:
+
+- Capture in airplane mode, kill the app, relaunch, reconnect, and confirm one observation.
+- Kill after the Azure PUT, relaunch, and confirm create replays without another photo or reward set.
+- Destroy the picker activity, relaunch, and confirm the pending library result returns only to its initiating account.
+- Switch kid accounts during location, upload, identification, review, and delete requests; confirm no prior-account photo, draft, result, or alert appears.
+- Choose **No location** while location/reverse-geocode work is pending and confirm no coarse area later reappears.
+- Inspect pending, pilot-private, quarantined, rejected, and completed queue states and confirm child surfaces never render local or signed private bytes.
+
 ## Environment switching
 
 `APP_ENV` is read at build/start time by `app.config.ts` and baked into
@@ -85,6 +145,5 @@ staging/production Container Apps exist.
 
 ## What's NOT in here yet
 
-Per `docs/mobile.md` the full stack also includes Nativewind, Sentry,
-expo-sqlite (offline queue), the celebration sequence, and EAS Update wiring.
-Each lands with the phase that needs it — see `AGENTS.md` Phases 7–11.
+Per `docs/mobile.md` the full stack also includes Nativewind, Sentry, and EAS
+Update wiring. Each lands with the phase that needs it — see `AGENTS.md`.

@@ -22,10 +22,13 @@ export type DexListResponse = {
 
 export function listMyDex(
   opts: { limit?: number; before?: string | null } = {},
+  signal?: AbortSignal,
 ): Promise<DexListResponse> {
   const params = new URLSearchParams();
   if (opts.limit !== undefined) params.set("limit", String(opts.limit));
   if (opts.before) params.set("before", opts.before);
   const query = params.toString();
-  return apiRequest<DexListResponse>(`/v1/dex/me${query ? `?${query}` : ""}`);
+  return apiRequest<DexListResponse>(`/v1/dex/me${query ? `?${query}` : ""}`, {
+    signal,
+  });
 }

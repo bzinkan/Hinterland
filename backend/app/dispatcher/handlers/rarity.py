@@ -60,6 +60,7 @@ _TIER_REWARD_WEIGHT: dict[str, int] = {
 
 class RarityHandler:
     name = "rarity"
+    version = "1"
 
     async def handle(self, ctx: Context) -> HandlerResult:
         obs = ctx.observation
@@ -112,8 +113,6 @@ class RarityHandler:
                 )
                 .values(rarest_tier=observed_tier)
             )
-            await ctx.db.commit()
-
         log.info(
             "dispatcher.rarity.complete",
             observation_id=obs.id,

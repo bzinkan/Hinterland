@@ -1,9 +1,8 @@
-"""Container Apps worker that drains the Service Bus `moderation-pending` queue.
+"""Drain committed observation-finalization work from the moderation queue.
 
 Production path under ADR 0010:
 
-    Blob `photos/pending/<id>.jpg` finalize
-        -> Event Grid system topic
+    observation + photo + moderation-outbox transaction commits
         -> Service Bus queue `moderation-pending`
         -> this worker (KEDA-scaled by queue depth)
         -> `app.moderation.processor.process_pending_photo(...)` direct
@@ -22,10 +21,8 @@ Invocation::
 
 Per-message contract:
 
-- Parse the Service Bus message body as a CloudEvent JSON. Extract
-  `(bucket, object_name)` from the `subject` field
-  (`/blobServices/default/containers/<bucket>/blobs/<object_name>`)
-  with a fallback to `data.url` parsing.
+- Parse a project-owned committed-work envelope containing observation,
+  photo, bucket, and object identifiers. BlobCreated CloudEvents are rejected.
 - Open a fresh `AsyncSession` for the message; call
   `process_pending_photo(...)`; on clean the processor itself writes
   the `inat_submit_outbox` row + attempts the iNat-submit enqueue.
@@ -47,20 +44,29 @@ import argparse
 import asyncio
 import json
 from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
 
 import structlog
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.core.config import Settings, get_settings
 from app.core.storage import SignedUrlGenerator, _build_generator_for
-from app.moderation.processor import PhotoNotFound, process_pending_photo
+from app.db import models
+from app.moderation.processor import (
+    ModerationWorkInvalid,
+    PhotoNotFound,
+    process_pending_photo,
+)
 from app.moderation.provider import ModerationUnavailable, Moderator, build_moderator
 
 log = structlog.get_logger()
 
 
 @dataclass(frozen=True)
-class _ParsedBlobLocation:
+class _ParsedModerationWork:
+    observation_id: str
+    photo_id: str
     bucket: str
     object_name: str
 
@@ -102,14 +108,8 @@ def _message_body_to_text(message: object) -> str:
     return "".join(rendered)
 
 
-def parse_blob_created_payload(body: str) -> _ParsedBlobLocation:
-    """Extract ``(bucket, object_name)`` from an Event Grid BlobCreated CloudEvent.
-
-    Tries `subject` first (canonical
-    ``/blobServices/default/containers/<bucket>/blobs/<object>``); falls
-    back to parsing `data.url` if subject parsing fails. Raises
-    ``_MessageParseError`` if neither yields a valid location.
-    """
+def parse_moderation_work_payload(body: str) -> _ParsedModerationWork:
+    """Parse work emitted only after observation finalization commits."""
     try:
         payload = json.loads(body)
     except json.JSONDecodeError as exc:
@@ -117,23 +117,31 @@ def parse_blob_created_payload(body: str) -> _ParsedBlobLocation:
     if not isinstance(payload, dict):
         raise _MessageParseError(f"message body is not a JSON object: {payload!r}")
 
-    subject = payload.get("subject", "")
-    if "/blobs/" in subject and "/containers/" in subject:
-        container_path, object_name = subject.split("/blobs/", 1)
-        bucket = container_path.split("/containers/", 1)[1]
-        if bucket and object_name:
-            return _ParsedBlobLocation(bucket=bucket, object_name=object_name)
+    if payload.get("type") == "Microsoft.Storage.BlobCreated" or "subject" in payload:
+        raise _MessageParseError("BlobCreated events are not valid moderation work")
 
-    url = payload.get("data", {}).get("url", "") if isinstance(payload.get("data"), dict) else ""
-    marker = ".blob.core.windows.net/"
-    if marker in url:
-        path = url.split(marker, 1)[1]
-        if "/" in path:
-            bucket, _, object_name = path.partition("/")
-            if bucket and object_name:
-                return _ParsedBlobLocation(bucket=bucket, object_name=object_name)
+    observation_id = payload.get("observation_id")
+    photo_id = payload.get("photo_id")
+    bucket = payload.get("bucket")
+    object_name = payload.get("object_name")
+    if not all(
+        isinstance(value, str) and bool(value)
+        for value in (observation_id, photo_id, bucket, object_name)
+    ):
+        raise _MessageParseError(f"missing committed-work identifiers: {payload!r}")
+    assert isinstance(observation_id, str)
+    assert isinstance(photo_id, str)
+    assert isinstance(bucket, str)
+    assert isinstance(object_name, str)
+    if not object_name.startswith("pending/finalized/"):
+        raise _MessageParseError("moderation work must reference a finalized canonical object")
 
-    raise _MessageParseError(f"cannot extract (bucket, object_name) from payload: {payload!r}")
+    return _ParsedModerationWork(
+        observation_id=observation_id,
+        photo_id=photo_id,
+        bucket=bucket,
+        object_name=object_name,
+    )
 
 
 async def process_one(
@@ -152,49 +160,141 @@ async def process_one(
     SDK loop (which is harder to fake cleanly).
     """
     try:
-        location = parse_blob_created_payload(body)
+        work = parse_moderation_work_payload(body)
     except _MessageParseError as exc:
         log.warning("moderation.consumer.parse_failed", body_preview=body[:200], reason=str(exc))
         return "dead_letter"
+
+    outbox = (
+        await session.execute(
+            select(models.ModerationOutbox)
+            .where(models.ModerationOutbox.observation_id == work.observation_id)
+            .with_for_update()
+        )
+    ).scalar_one_or_none()
+    if outbox is None or outbox.photo_id != work.photo_id:
+        log.warning(
+            "moderation.consumer.outbox_missing_or_mismatched",
+            observation_id=work.observation_id,
+            photo_id=work.photo_id,
+        )
+        return "dead_letter"
+    if outbox.status == "succeeded":
+        return "complete"
+
+    now = datetime.now(UTC)
+    if outbox.status == "processing" and outbox.lease_until is not None:
+        lease_until = outbox.lease_until
+        if lease_until.tzinfo is None:
+            lease_until = lease_until.replace(tzinfo=UTC)
+        if lease_until > now:
+            return "abandon"
+
+    outbox.status = "processing"
+    outbox.lease_until = now + timedelta(minutes=10)
+    outbox.last_attempt_at = now
+    await session.execute(
+        update(models.Observation)
+        .where(
+            models.Observation.id == work.observation_id,
+            models.Observation.moderation_status.not_in(
+                ("clean", "quarantine", "pilot_private", "rejected")
+            ),
+        )
+        .values(moderation_status="processing")
+    )
+    await session.commit()
 
     try:
         result = await process_pending_photo(
             session,
             storage,
             moderator,
-            bucket=location.bucket,
-            object_name=location.object_name,
+            bucket=work.bucket,
+            object_name=work.object_name,
             settings=settings,
+            expected_photo_id=work.photo_id,
+            expected_observation_id=work.observation_id,
         )
     except PhotoNotFound:
-        # Race with presign commit -- the producer side will retry by
-        # re-firing the BlobCreated event when the upload completes.
-        # Abandon for now so Service Bus delivers it again after the
-        # lock expires.
         log.info(
             "moderation.consumer.photo_not_found_retry",
-            bucket=location.bucket,
-            object_name=location.object_name,
+            bucket=work.bucket,
+            object_name=work.object_name,
         )
-        return "abandon"
+        exhausted = await _mark_failed(session, outbox, "photo_not_found")
+        return "dead_letter" if exhausted else "abandon"
     except ModerationUnavailable as exc:
         log.warning(
             "moderation.consumer.provider_unavailable",
-            bucket=location.bucket,
-            object_name=location.object_name,
+            bucket=work.bucket,
+            object_name=work.object_name,
             reason=str(exc),
         )
-        return "abandon"
+        exhausted = await _mark_failed(session, outbox, f"provider_unavailable: {exc}")
+        return "dead_letter" if exhausted else "abandon"
+    except ModerationWorkInvalid as exc:
+        outbox.status = "dlq"
+        outbox.lease_until = None
+        outbox.last_error = str(exc)
+        await session.execute(
+            update(models.Observation)
+            .where(models.Observation.id == work.observation_id)
+            .values(moderation_status="failed")
+        )
+        await session.commit()
+        return "dead_letter"
+    except Exception as exc:
+        log.warning(
+            "moderation.consumer.processing_failed",
+            observation_id=work.observation_id,
+            error=str(exc),
+        )
+        exhausted = await _mark_failed(session, outbox, f"processing_failed: {exc}")
+        return "dead_letter" if exhausted else "abandon"
+
+    if outbox.status != "succeeded":
+        log.error(
+            "moderation.consumer.processor_left_outbox_incomplete",
+            observation_id=work.observation_id,
+            status=outbox.status,
+        )
+        exhausted = await _mark_failed(
+            session,
+            outbox,
+            "processor_returned_without_atomic_outbox_completion",
+        )
+        return "dead_letter" if exhausted else "abandon"
 
     log.info(
         "moderation.consumer.processed",
-        bucket=location.bucket,
-        object_name=location.object_name,
+        bucket=work.bucket,
+        object_name=work.object_name,
         decision=result.decision,
         observation_id=result.observation_id,
         outbox_status=result.outbox_status,
     )
     return "complete"
+
+
+async def _mark_failed(
+    session: AsyncSession,
+    outbox: models.ModerationOutbox,
+    error: str,
+) -> bool:
+    outbox.retry_count += 1
+    exhausted = outbox.retry_count >= 5
+    outbox.status = "dlq" if exhausted else "failed"
+    outbox.lease_until = None
+    outbox.last_attempt_at = datetime.now(UTC)
+    outbox.last_error = error
+    await session.execute(
+        update(models.Observation)
+        .where(models.Observation.id == outbox.observation_id)
+        .values(moderation_status="failed")
+    )
+    await session.commit()
+    return exhausted
 
 
 async def consume(

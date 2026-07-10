@@ -5,9 +5,9 @@ Per `docs/dispatcher.md` snapshot scenario 11: "API service crashes
 after submission transaction but before dispatch; replay recovers."
 This admin task IS the replay.
 
-Selects observations with `dispatched_at IS NULL` (older than a small
-grace window so we don't race the in-flight create), builds a Context
-for each, runs `dispatch()`, stamps `dispatched_at` on success.
+Selects observations with incomplete durable handler runs (older than a small
+grace window so we don't race the in-flight create), builds a Context, and
+lets the dispatcher resume only pending/failed/blocked handlers.
 
 Same admin-task pattern as cleanup_smoke_users / sweep_stale_reviews:
 
@@ -30,18 +30,15 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 
 from app.core.config import get_settings
 from app.db import models
+from app.derived_state.rebuild import acquire_user_lock
 from app.dispatcher.core import dispatch
 from app.dispatcher.registry import HANDLERS
 from app.dispatcher.types import Context
 
 log = structlog.get_logger()
 
-# Skip observations touched within this window -- avoids racing a request
-# that's still mid-create OR a first-taxon PATCH that just cleared
-# dispatched_at and is about to run its own dispatch (keyed to updated_at,
-# not created_at: the live flow assigns the taxon minutes-to-days after
-# create, so a created_at grace would never shield the PATCH window).
-# 2 minutes is plenty for the worst-case dispatcher run.
+# Skip observations younger than this -- avoids racing a request that's
+# still mid-create. 2 minutes is plenty for the worst-case dispatcher run.
 _GRACE_WINDOW = timedelta(minutes=2)
 
 # Cap a single replay invocation. Phase 11 scale is tiny; this is mostly
@@ -51,16 +48,23 @@ _MAX_PER_RUN = 200
 
 async def replay(session: AsyncSession) -> int:
     cutoff = datetime.now(UTC) - _GRACE_WINDOW
+    active_rebuild = (
+        select(models.DerivedStateRebuild.id)
+        .where(
+            models.DerivedStateRebuild.user_id == models.Observation.user_id,
+            models.DerivedStateRebuild.status.in_(("queued", "running")),
+        )
+        .exists()
+    )
 
     rows = (
         await session.execute(
-            select(models.Observation, models.User, models.Group, models.Photo)
-            .join(models.User, models.Observation.user_id == models.User.id)
-            .join(models.Group, models.Observation.group_id == models.Group.id)
-            .join(models.Photo, models.Observation.photo_id == models.Photo.id)
+            select(models.Observation.id, models.Observation.user_id)
             .where(
-                models.Observation.dispatched_at.is_(None),
+                models.Observation.dispatch_status != "complete",
                 models.Observation.updated_at < cutoff,
+                models.Observation.rejected_at.is_(None),
+                ~active_rebuild,
             )
             .order_by(models.Observation.created_at)
             .limit(_MAX_PER_RUN)
@@ -73,39 +77,91 @@ async def replay(session: AsyncSession) -> int:
 
     replayed = 0
     failed = 0
-    for observation, user, group, photo in rows:
-        ctx = Context(
-            db=session,
-            user=user,
-            group=group,
-            observation=observation,
-            photo=photo,
-        )
+    deferred_to_rebuild = 0
+    skipped_current_state = 0
+    for observation_id, user_id in rows:
         try:
-            await dispatch(ctx, HANDLERS)
-            # dispatch() never raises for handler failures (per-handler
-            # catch-alls), so an unconditional stamp would permanently
-            # end retries for an observation whose Sanctuary write
-            # failed transiently -- and replay is the ONLY delivery
-            # path for contributions repaired by migration 20260703_0009.
-            # Leave the row eligible when world reported failure (or an
-            # identified observation somehow has no world result);
-            # handlers are per-observation idempotent, so re-running is
-            # safe.
-            world_result = ctx.results.get("world")
-            world_failed = world_result is None or bool(world_result.state.get("error"))
-            if world_failed and observation.taxon_id is not None:
-                failed += 1
-                log.warning(
-                    "dispatcher_replay.world_failed_still_eligible",
-                    observation_id=observation.id,
+            # Recheck after taking the shared per-user lock. This closes the
+            # race where a correction/adoption queues a replacement rebuild
+            # after the candidate query but before replay dispatch begins.
+            await acquire_user_lock(session, str(user_id))
+            active_rebuild_id = await session.scalar(
+                select(models.DerivedStateRebuild.id)
+                .where(
+                    models.DerivedStateRebuild.user_id == str(user_id),
+                    models.DerivedStateRebuild.status.in_(("queued", "running")),
                 )
+                .limit(1)
+            )
+            if active_rebuild_id is not None:
+                deferred_to_rebuild += 1
+                await session.commit()
+                log.info(
+                    "dispatcher_replay.deferred_to_rebuild",
+                    observation_id=str(observation_id),
+                    rebuild_id=active_rebuild_id,
+                )
+                continue
+
+            # Candidate rows were read before this user lock. A rebuild may
+            # have queued *and completed* in that gap, leaving no active job.
+            # Reload every context row under the lock and overwrite any
+            # identity-map snapshot before deciding whether dispatch is safe.
+            current = (
+                await session.execute(
+                    select(models.Observation, models.User, models.Group, models.Photo)
+                    .join(models.User, models.Observation.user_id == models.User.id)
+                    .join(models.Group, models.Observation.group_id == models.Group.id)
+                    .join(models.Photo, models.Observation.photo_id == models.Photo.id)
+                    .where(
+                        models.Observation.id == str(observation_id),
+                        models.Observation.user_id == str(user_id),
+                    )
+                    .execution_options(populate_existing=True)
+                )
+            ).one_or_none()
+            if current is None:
+                skipped_current_state += 1
                 await session.commit()
                 continue
-            observation.dispatched_at = datetime.now(UTC)
-            await session.commit()
-            replayed += 1
-            log.info("dispatcher_replay.success", observation_id=observation.id)
+
+            observation, user, group, photo = current
+            if (
+                observation.dispatch_status == "complete"
+                or observation.rejected_at is not None
+                or observation.moderation_status == "rejected"
+                or photo.status == "deleted"
+                or photo.attachment_status == "deleted"
+            ):
+                skipped_current_state += 1
+                await session.commit()
+                log.info(
+                    "dispatcher_replay.skipped_current_state",
+                    observation_id=observation.id,
+                    dispatch_status=observation.dispatch_status,
+                    moderation_status=observation.moderation_status,
+                    photo_status=photo.status,
+                )
+                continue
+
+            ctx = Context(
+                db=session,
+                user=user,
+                group=group,
+                observation=observation,
+                photo=photo,
+            )
+            await dispatch(ctx, HANDLERS)
+            if observation.dispatch_status == "complete":
+                replayed += 1
+                log.info("dispatcher_replay.success", observation_id=observation.id)
+            else:
+                failed += 1
+                log.warning(
+                    "dispatcher_replay.partial",
+                    observation_id=observation.id,
+                    dispatch_status=observation.dispatch_status,
+                )
         except Exception:
             failed += 1
             log.exception("dispatcher_replay.failed", observation_id=observation.id)
@@ -117,6 +173,8 @@ async def replay(session: AsyncSession) -> int:
         candidates=len(rows),
         replayed=replayed,
         failed=failed,
+        deferred_to_rebuild=deferred_to_rebuild,
+        skipped_current_state=skipped_current_state,
     )
     return replayed
 

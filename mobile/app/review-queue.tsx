@@ -20,36 +20,69 @@ import {
   rejectReview,
   type ReviewQueueItem,
 } from "@/src/api/reviewQueue";
+import { useAuthSession } from "@/src/auth/session";
+import {
+  ImperativeRequestSupersededError,
+  runImperativeRequest,
+} from "@/src/auth/requestBoundary";
 
 export default function ReviewQueueScreen() {
   const queryClient = useQueryClient();
+  const session = useAuthSession();
+  const ownerUserId =
+    session.status === "authenticated" ? session.user.id : null;
 
   const query = useQuery({
-    queryKey: ["review-queue", "pending"],
-    queryFn: listReviewQueue,
+    queryKey: ["review-queue", ownerUserId ?? "anonymous", "pending"],
+    queryFn: ({ signal }) => listReviewQueue(signal),
+    enabled: ownerUserId != null,
   });
 
   function invalidate() {
-    void queryClient.invalidateQueries({ queryKey: ["review-queue"] });
+    void queryClient.invalidateQueries({
+      queryKey: ["review-queue", ownerUserId ?? "anonymous"],
+    });
   }
 
   const approve = useMutation({
-    mutationFn: approveReview,
+    mutationFn: (id: string) =>
+      runImperativeRequest((signal) => approveReview(id, signal)),
     onSuccess: () => invalidate(),
-    onError: (err) => Alert.alert("Approve failed", apiErrorMessage(err)),
+    onError: (err) => {
+      if (!(err instanceof ImperativeRequestSupersededError)) {
+        Alert.alert("Approve failed", apiErrorMessage(err));
+      }
+    },
   });
   const reject = useMutation({
-    mutationFn: rejectReview,
+    mutationFn: (id: string) =>
+      runImperativeRequest((signal) => rejectReview(id, signal)),
     onSuccess: () => invalidate(),
-    onError: (err) => Alert.alert("Reject failed", apiErrorMessage(err)),
+    onError: (err) => {
+      if (!(err instanceof ImperativeRequestSupersededError)) {
+        Alert.alert("Reject failed", apiErrorMessage(err));
+      }
+    },
   });
 
-  if (query.isPending) {
+  if (session.status === "initializing" || (ownerUserId && query.isPending)) {
     return (
       <DesktopContainer>
         <View style={styles.center}>
           <Stack.Screen options={{ title: "Review Queue" }} />
           <ActivityIndicator />
+        </View>
+      </DesktopContainer>
+    );
+  }
+
+  if (!ownerUserId) {
+    return (
+      <DesktopContainer>
+        <View style={styles.center}>
+          <Stack.Screen options={{ title: "Review Queue" }} />
+          <Text style={styles.heading}>Adults only</Text>
+          <Text style={styles.body}>Sign in with a parent or teacher account.</Text>
         </View>
       </DesktopContainer>
     );
@@ -109,6 +142,7 @@ export default function ReviewQueueScreen() {
         renderItem={({ item }) => (
           <ReviewCard
             item={item}
+            ownerUserId={ownerUserId}
             onApprove={() => approve.mutate(item.id)}
             onReject={() => reject.mutate(item.id)}
             busy={
@@ -124,18 +158,20 @@ export default function ReviewQueueScreen() {
 
 function ReviewCard({
   item,
+  ownerUserId,
   onApprove,
   onReject,
   busy,
 }: {
   item: ReviewQueueItem;
+  ownerUserId: string;
   onApprove: () => void;
   onReject: () => void;
   busy: boolean;
 }) {
   const url = useQuery({
-    queryKey: ["photo-url", item.photo_id],
-    queryFn: () => getPhotoUrl(item.photo_id),
+    queryKey: ["photo-url", ownerUserId, item.photo_id],
+    queryFn: ({ signal }) => getPhotoUrl(item.photo_id, signal),
     // Signed URLs expire in 5 min; refetch a bit before that.
     staleTime: 4 * 60 * 1000,
   });

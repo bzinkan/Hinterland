@@ -1,6 +1,13 @@
-# Daily iNat token refresh
+# iNaturalist token refresh (dormant post-clean tooling)
 
-Until the Hinterland iNat OAuth app is approved (eligibility ~early August), the iNat CV identify endpoint runs on a 24-hour JWT that has to be rotated daily. [`scripts/refresh-inat-token.sh`](refresh-inat-token.sh) reduces the rotation to a 10-second task.
+W1 and closed beta keep iNaturalist CV and public submission disabled. A token
+in Key Vault is not permission for child-photo egress. This utility remains for
+an eventual legally approved, benchmarked, post-clean CV staging test only.
+
+Do not run it for W1. Before any future use, Risk 0001 must close and
+`INAT_CV_ENABLED`, `INAT_CV_DISCLOSURE_APPROVED`, and
+`INAT_CV_BENCHMARK_APPROVED` must be reviewed independently. Public submit
+remains outside this workflow.
 
 ## The daily ritual
 
@@ -10,7 +17,7 @@ Until the Hinterland iNat OAuth app is approved (eligibility ~early August), the
    ```bash
    bash scripts/refresh-inat-token.sh --clipboard
    ```
-4. **Take a photo** in the mobile dev app — picker should show CV suggestions
+4. **Keep runtime gates false** until the approved post-clean staging probe.
 
 That's it. The script writes the JWT to Key Vault, rolls the Container App revision, and prints when the new token expires.
 
@@ -37,13 +44,12 @@ INAT_REFRESH_RG=hinterland-dev-rg \
   bash scripts/refresh-inat-token.sh --clipboard
 ```
 
-Smoke after every rotation:
+Approved post-clean staging smoke only:
 
-1. Submit a real plant/animal photo in the mobile dev app.
-2. Confirm the API logs contain `observations.identify.scored`.
-3. Confirm the submit screen shows visible iNat suggestions before final save.
-4. Submit a non-organism image and confirm the screen shows the no-match path
-   with **Type my own** and **Skip for now**.
+1. Use only consented benchmark bytes already marked clean/adult-approved.
+2. Call the post-save identify endpoint and confirm cache/model-version state.
+3. Confirm every non-clean lifecycle state fails before provider egress.
+4. Restore all three CV gates to false after the bounded staging probe.
 
 ## Making the rotation a habit
 
@@ -53,7 +59,8 @@ Pick whichever fits your day:
 - **Windows Task Scheduler / cron** event that just pops a notification, since the actual rotation needs the browser session
 - **Add the command to your shell's startup script** so a banner reminds you (`echo "TODO: bash scripts/refresh-inat-token.sh --clipboard"` in `.bashrc`)
 
-If you forget for a day, the kid app still works — the picker greys out the CV suggestions and the kid types the species manually. Mobile already handles `cv_unavailable=true` gracefully; nothing breaks.
+The kid app does not depend on this token. Catalog/manual/Unknown remains the
+W1 path.
 
 ## When this script gets retired
 

@@ -16,6 +16,7 @@ import { ApiError } from "@/src/api/client";
 import type { DexListItem } from "@/src/api/dex";
 import type { ObservationListItem } from "@/src/api/observations";
 import { queryClient } from "@/src/api/queryClient";
+import { useAuthSession } from "@/src/auth/session";
 import {
   DEFAULT_JOURNAL_MODE,
   findCountLabel,
@@ -32,6 +33,9 @@ import { useMyObservations } from "@/src/observation/useMyObservations";
 import { usePhotoUrl } from "@/src/observation/usePhotoUrl";
 
 export default function FieldJournalScreen() {
+  const session = useAuthSession();
+  const ownerUserId =
+    session.status === "authenticated" ? session.user.id : null;
   const [mode, setMode] = useState<JournalMode>(DEFAULT_JOURNAL_MODE);
   const observations = useMyObservations();
   const dex = useMyDex();
@@ -40,10 +44,39 @@ export default function FieldJournalScreen() {
   const speciesItems = dex.data?.pages.flatMap((p) => p.items) ?? [];
 
   const onRefresh = useCallback(() => {
+    if (!ownerUserId) return;
     void observations.refetch();
     void dex.refetch();
-    void queryClient.refetchQueries({ queryKey: ["photo-url"], type: "active" });
-  }, [dex, observations]);
+    void queryClient.refetchQueries({
+      queryKey: ["photo-url", ownerUserId],
+      type: "active",
+    });
+  }, [dex, observations, ownerUserId]);
+
+  if (session.status === "initializing") {
+    return (
+      <DesktopContainer>
+        <View style={styles.center}><ActivityIndicator /></View>
+      </DesktopContainer>
+    );
+  }
+
+  if (session.status === "anonymous") {
+    return (
+      <DesktopContainer>
+        <View style={styles.center}>
+          <Text style={styles.heading}>Sign in to open your Field Journal</Text>
+          <Text style={styles.body}>Each account keeps its finds and photos separate.</Text>
+          <Pressable
+            style={[styles.button, styles.buttonPrimary]}
+            onPress={() => router.push("/sign-in")}
+          >
+            <Text style={styles.buttonText}>Sign in</Text>
+          </Pressable>
+        </View>
+      </DesktopContainer>
+    );
+  }
 
   const header = (
     <JournalHeader
@@ -58,6 +91,7 @@ export default function FieldJournalScreen() {
     return (
       <DesktopContainer>
         <FlatList
+          testID="field-journal-screen"
           data={speciesItems}
           keyExtractor={(item) => item.id}
           numColumns={2}
@@ -75,7 +109,7 @@ export default function FieldJournalScreen() {
               pending={dex.isPending}
               error={dex.error}
               emptyTitle="No species yet"
-              emptyBody="Choose an iNaturalist match when saving a photo to add it here."
+              emptyBody="Choose a catalog organism when saving a photo to add it here."
               onRetry={onRefresh}
             />
           }
@@ -96,6 +130,7 @@ export default function FieldJournalScreen() {
   return (
     <DesktopContainer>
       <FlatList
+        testID="field-journal-screen"
         data={photoItems}
         keyExtractor={(item) => item.id}
         numColumns={2}
@@ -247,8 +282,9 @@ function JournalBodyState({
 }
 
 function JournalCard({ item }: { item: ObservationListItem }) {
-  const mode = photoDisplayMode(item.photo_status);
-  const ts = new Date(item.created_at);
+  const status = item.moderation_status || item.photo_status;
+  const mode = photoDisplayMode(status);
+  const ts = new Date(item.observed_at ?? item.created_at);
 
   return (
     <Pressable
@@ -258,7 +294,7 @@ function JournalCard({ item }: { item: ObservationListItem }) {
       {mode === "image" ? (
         <JournalThumb
           photoId={item.photo_id}
-          checking={isAwaitingModeration(item.photo_status)}
+          checking={isAwaitingModeration(status)}
         />
       ) : (
         <UnavailableThumb mode={mode} />
@@ -311,6 +347,9 @@ function JournalThumb({
   photoId: string;
   checking: boolean;
 }) {
+  const ownerUserId = useAuthSession((state) =>
+    state.status === "authenticated" ? state.user.id : null,
+  );
   const urlQuery = usePhotoUrl(photoId, true);
   const [loadRetried, setLoadRetried] = useState(false);
   const [loadFailed, setLoadFailed] = useState(false);
@@ -349,7 +388,7 @@ function JournalThumb({
           if (!loadRetried) {
             setLoadRetried(true);
             void queryClient.invalidateQueries({
-              queryKey: ["photo-url", photoId],
+              queryKey: ["photo-url", ownerUserId ?? "anonymous", photoId],
             });
           } else {
             setLoadFailed(true);
@@ -554,6 +593,9 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     borderRadius: 6,
     alignItems: "center",
+  },
+  buttonPrimary: {
+    backgroundColor: "#2f6feb",
   },
   buttonGhost: {
     borderColor: "#888",

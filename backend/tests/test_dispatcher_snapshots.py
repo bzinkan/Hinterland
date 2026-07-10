@@ -231,8 +231,8 @@ async def test_scenario_5_unrecorded_species(fake_session: AsyncMock) -> None:
 
 # ---------------------------------------------------------------------------
 # Scenario 9: One handler raises; others still produce rewards.
-# Expected: dispatcher catches the exception, dex_count for the bad
-# handler is empty, other handlers' rewards still flow.
+# Expected: dispatcher catches the exception, records no fabricated result,
+# and independent handlers' rewards still flow.
 # ---------------------------------------------------------------------------
 
 
@@ -262,10 +262,8 @@ async def test_scenario_9_handler_raises_others_still_run(
 
     # Boom handler produced nothing; the other two still emit their rewards.
     assert {r.type for r in rewards} == {"first_find", "rarity_tier"}
-    # And the failed handler still gets a recorded HandlerResult so
-    # downstream handlers' presence checks don't KeyError.
-    assert "boom" in ctx.results
-    assert ctx.results["boom"].rewards == []
+    # A failed handler must not masquerade as a successful predecessor.
+    assert "boom" not in ctx.results
 
 
 # ---------------------------------------------------------------------------
@@ -380,7 +378,7 @@ def _exp_progress(
     exp_id: str,
     completed_step_ids: list[str] | None = None,
 ) -> models.ExpeditionProgress:
-    return models.ExpeditionProgress(
+    progress = models.ExpeditionProgress(
         id=f"prog-{exp_id}",
         user_id=_USER_ID,
         group_id=_GROUP_ID,
@@ -391,6 +389,8 @@ def _exp_progress(
         ),
         completed_at=None,
     )
+    progress.created_at = datetime(2026, 5, 10, 10, 0, 0, tzinfo=UTC)
+    return progress
 
 
 def _wire_expedition_full_dispatch(
@@ -432,6 +432,12 @@ def _wire_expedition_full_dispatch(
     prior_rows = MagicMock()
     prior_rows.all = MagicMock(return_value=[])
 
+    contribution_results: list[MagicMock] = []
+    for _progress_row, _content_row in progress_pairs:
+        result = MagicMock()
+        result.scalar_one_or_none = MagicMock(return_value=_OBS_ID)
+        contribution_results.append(result)
+
     fake_session.execute = AsyncMock(
         side_effect=[
             dex_insert,
@@ -442,6 +448,7 @@ def _wire_expedition_full_dispatch(
             species_cache,
             dex_rows,
             prior_rows,
+            *contribution_results,
         ]
     )
     fake_session.commit = AsyncMock()

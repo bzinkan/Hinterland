@@ -10,7 +10,7 @@ Sister docs:
 - [`docs/google-play-internal-testing.md`](google-play-internal-testing.md)
   for the Play Console process.
 - [`docs/risks/0007-google-play-families-location-policy.md`](risks/0007-google-play-families-location-policy.md)
-  for the precise-location decision that gates the AAB build.
+  for the coarse/no-location gate for the AAB build.
 - [`docs/app-store-compliance-checklist.md`](app-store-compliance-checklist.md)
   for what's blocking moving beyond Internal testing.
 - [`docs/risks/0005-beta-launch-human-action-items.md`](risks/0005-beta-launch-human-action-items.md)
@@ -90,11 +90,32 @@ DRAGONFLY_SMOKE_ENTRA_BEARER="<access-token>" \
 
 ### iNat is off
 
-- [ ] Confirm `DRAGONFLY_INAT_OAUTH_TOKEN` is NOT set on the
-  Container App. Run `az containerapp show` and grep the env list.
-  This guarantees no observation from the pilot leaks to the public
-  iNaturalist project. See
+- [ ] Confirm effective `INAT_CV_ENABLED=false`,
+  `INAT_CV_DISCLOSURE_APPROVED=false`,
+  `INAT_CV_BENCHMARK_APPROVED=false`, and
+  `INAT_SUBMIT_ENABLED=false` under active `HINTERLAND_` and
+  compatibility `DRAGONFLY_` configuration.
+- [ ] Confirm endpoint, producer, consumer, replay, and manual boundaries
+  reject work; submit/replay jobs are absent and stale Service Bus work cannot
+  be processed. Token absence is not the only control. See
   [`docs/risks/0002-async-workers-production-unwired.md`](risks/0002-async-workers-production-unwired.md).
+
+### Observation safety contract
+
+- [ ] Migration completed before API cutover and API/migration/moderation/
+  relay/replay/rebuild jobs report one immutable digest.
+- [ ] Direct Event Grid/BlobCreated moderation is absent; outbox relay is the
+  sole producer.
+- [ ] Effective `MODERATION_PROVIDER=noop`; canary ends `pilot_private`, not
+  `clean`, and no signed URL is issued.
+- [ ] Presign returns `x-ms-blob-type: BlockBlob`; real Azure PUT/finalize and
+  same-ULID replay return one observation/reward set while changed payload is
+  409.
+- [ ] Owner/peer/unrelated/adult/reviewer photo-access probes pass.
+- [ ] Pilot-private seven-day and upload-orphan 24-hour cleanup is verified.
+- [ ] Real-PostgreSQL dispatcher failure/replay passes below 300 ms p95.
+- [ ] Location denial saves and PostgreSQL/Log Analytics contain no raw
+  coordinates or SAS URLs.
 
 ### Location policy decided
 
@@ -107,6 +128,9 @@ DRAGONFLY_SMOKE_ENTRA_BEARER="<access-token>" \
 
 ```sh
 cd mobile
+npm ci
+npm run typecheck
+npm test -- --runInBand
 APP_ENV=play-internal npx eas-cli build \
   --platform android \
   --profile play-internal \
@@ -214,6 +238,9 @@ stop and follow
 - crash during submit that loses kid data
 - incorrect consent state
 - location / privacy surprise
+- unauthorized photo URL or any pre-clean/external photo egress
+- retry/process death duplicates or loses kid data
+- raw coordinate or account-switch privacy surprise
 
 The response playbook (rollback, revision pin, env-var disable,
 comms to families) lives in

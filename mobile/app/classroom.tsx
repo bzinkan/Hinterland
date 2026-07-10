@@ -27,13 +27,19 @@ import {
   listGroups,
   type RosterMember,
 } from "@/src/api/groups";
+import { useAuthSession } from "@/src/auth/session";
+import { ImperativeRequestSupersededError } from "@/src/auth/requestBoundary";
 
 const AGE_BANDS: AgeBand[] = ["9-10", "11-12", "13+"];
 
 export default function ClassroomScreen() {
+  const ownerUserId = useAuthSession((state) =>
+    state.status === "authenticated" ? state.user.id : null,
+  );
   const groupsQuery = useQuery({
-    queryKey: ["groups"],
+    queryKey: ["groups", ownerUserId ?? "anonymous"],
     queryFn: listGroups,
+    enabled: ownerUserId != null,
   });
   const [selectedGroupId, setSelectedGroupId] = useState<string | null>(null);
 
@@ -113,16 +119,25 @@ function GroupPicker({
   const [creating, setCreating] = useState(false);
   const [draft, setDraft] = useState("");
   const queryClient = useQueryClient();
+  const ownerUserId = useAuthSession((state) =>
+    state.status === "authenticated" ? state.user.id : null,
+  );
 
   const create = useMutation({
     mutationFn: createGroup,
     onSuccess: (g) => {
-      void queryClient.invalidateQueries({ queryKey: ["groups"] });
+      void queryClient.invalidateQueries({
+        queryKey: ["groups", ownerUserId ?? "anonymous"],
+      });
       onSelect(g.id);
       setDraft("");
       setCreating(false);
     },
-    onError: (err) => Alert.alert("Couldn't create group", apiErrorMessage(err)),
+    onError: (err) => {
+      if (!(err instanceof ImperativeRequestSupersededError)) {
+        Alert.alert("Couldn't create group", apiErrorMessage(err));
+      }
+    },
   });
 
   if (groups.length === 0) return null;
@@ -177,14 +192,23 @@ function GroupPicker({
 function NoGroupYet({ onCreated }: { onCreated: (g: Group) => void }) {
   const [draft, setDraft] = useState("");
   const queryClient = useQueryClient();
+  const ownerUserId = useAuthSession((state) =>
+    state.status === "authenticated" ? state.user.id : null,
+  );
   const create = useMutation({
     mutationFn: createGroup,
     onSuccess: (g) => {
-      void queryClient.invalidateQueries({ queryKey: ["groups"] });
+      void queryClient.invalidateQueries({
+        queryKey: ["groups", ownerUserId ?? "anonymous"],
+      });
       onCreated(g);
       setDraft("");
     },
-    onError: (err) => Alert.alert("Couldn't create group", apiErrorMessage(err)),
+    onError: (err) => {
+      if (!(err instanceof ImperativeRequestSupersededError)) {
+        Alert.alert("Couldn't create group", apiErrorMessage(err));
+      }
+    },
   });
 
   return (
@@ -215,9 +239,13 @@ function NoGroupYet({ onCreated }: { onCreated: (g: Group) => void }) {
 }
 
 function GroupDetail({ group }: { group: Group }) {
+  const ownerUserId = useAuthSession((state) =>
+    state.status === "authenticated" ? state.user.id : null,
+  );
   const roster = useQuery({
-    queryKey: ["group-members", group.id],
+    queryKey: ["group-members", ownerUserId ?? "anonymous", group.id],
     queryFn: () => listGroupMembers(group.id),
+    enabled: ownerUserId != null,
   });
   const [showAdd, setShowAdd] = useState(false);
   const [handoff, setHandoff] = useState<CreateKidResponse | null>(null);
@@ -305,16 +333,25 @@ function AddKidModal({
   const [name, setName] = useState("");
   const [ageBand, setAgeBand] = useState<AgeBand>("9-10");
   const queryClient = useQueryClient();
+  const ownerUserId = useAuthSession((state) =>
+    state.status === "authenticated" ? state.user.id : null,
+  );
 
   const create = useMutation({
     mutationFn: () => createKid(groupId, name.trim(), ageBand),
     onSuccess: (resp) => {
-      void queryClient.invalidateQueries({ queryKey: ["group-members", groupId] });
+      void queryClient.invalidateQueries({
+        queryKey: ["group-members", ownerUserId ?? "anonymous", groupId],
+      });
       setName("");
       setAgeBand("9-10");
       onCreated(resp);
     },
-    onError: (err) => Alert.alert("Couldn't create kid", apiErrorMessage(err)),
+    onError: (err) => {
+      if (!(err instanceof ImperativeRequestSupersededError)) {
+        Alert.alert("Couldn't create kid", apiErrorMessage(err));
+      }
+    },
   });
 
   return (

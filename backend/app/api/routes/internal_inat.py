@@ -144,9 +144,10 @@ async def submit(
             photo_bytes=image_bytes,
             latitude=obs.latitude,
             longitude=obs.longitude,
-            observed_on=obs.created_at,
+            observed_on=obs.observed_at or obs.created_at,
             taxon_id=obs.taxon_id,
             species_guess=obs.species_name,
+            egress_enabled=settings.inat_submit_enabled,
         )
     except InatUnavailable as exc:
         log.warning("inat.submit.unavailable", observation_id=obs.id, reason=str(exc))

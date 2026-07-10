@@ -8,13 +8,15 @@ results without raising.
 
 from __future__ import annotations
 
+from typing import Any
+
 import httpx
 import pytest
 import respx
 
 from app.core.config import Settings
 from app.inat.client import InatUnavailable, build_inat_client
-from app.inat.cv import score_image
+from app.inat.cv import score_image as _score_image
 from app.inat.observations import SpeciesCount, get_species_counts
 from app.inat.taxa import get_taxon
 
@@ -32,6 +34,21 @@ def client(settings: Settings) -> httpx.AsyncClient:
 # ---------------------------------------------------------------------------
 # score_image
 # ---------------------------------------------------------------------------
+
+
+async def score_image(*args: Any, **kwargs: Any) -> Any:
+    kwargs["egress_enabled"] = True
+    return await _score_image(*args, **kwargs)
+
+
+@respx.mock
+async def test_score_image_kill_switch_blocks_before_http(client: httpx.AsyncClient) -> None:
+    route = respx.post("https://api.inaturalist.org/v1/computervision/score_image").mock(
+        return_value=httpx.Response(200, json={"results": []})
+    )
+    with pytest.raises(InatUnavailable, match="egress is disabled"):
+        await _score_image(client, image_bytes=b"child-photo")
+    assert route.called is False
 
 
 @respx.mock

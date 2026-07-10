@@ -25,6 +25,12 @@ adult-supervised W1 pilot.
 - [ ] Play Console internal tester list created outside the repo.
 - [ ] Consent captured for each pilot family before kid provisioning.
 - [ ] Physical Android pilot script passes before first kid test.
+- [ ] Exact release AAB passes airplane-mode/kill-after-PUT/lost-response
+      recovery with exactly one observation, counter update, and reward set.
+- [ ] Account switching exposes no prior child's query, image, signed-photo,
+      draft, or SQLite queue state.
+- [ ] Location denial saves and PostgreSQL/log inspection finds no raw
+      coordinates.
 
 Internal Testing may defer Data Safety, Designed for Families opt-in, content
 rating, and listing-permission copy. Those become blockers before Closed/Open/
@@ -41,15 +47,18 @@ Production tracks.
       contributions after `DELETE /v1/me`.
 - [ ] Screenshots use seeded test data only.
 - [ ] Third-party SDK audit complete. Phase 1 should have no ad SDKs.
-- [ ] iNat public submission policy reviewed after Risk 0001 closes.
+- [ ] Azure Content Safety, review/rebuild, retention, and operational canary
+      gates pass before Closed Testing.
+- [ ] Optional post-clean iNat CV has separate disclosure and Risk 0001
+      benchmark approval before enablement.
+- [ ] Public iNaturalist submission remains disabled; future enablement needs a
+      separate consent/geoprivacy ADR and store-disclosure review.
 
 ## Google Play Data Safety Draft Answers
 
 - Photos: collected for app functionality.
-- Approximate location: collected for app functionality and app
-  personalization (observation pins; expedition suggestions are ranked from
-  an on-device geohash4 cell, roughly 20 by 40 km — raw coordinates never leave the
-  device for that feature).
+- Optional approximate area (`geohash4` only): collected for app functionality
+  and coarse Expedition relevance; raw coordinates are discarded before upload.
 - User content/species selection: collected for app functionality.
 - Email address: adult accounts only, for account management/auth.
 - Encrypted in transit: yes.

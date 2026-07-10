@@ -25,8 +25,8 @@ export function parentSignup(displayName: string): Promise<UserResponse> {
   });
 }
 
-export function getMe(): Promise<CurrentUser> {
-  return apiRequest<CurrentUser>("/v1/me");
+export function getMe(signal?: AbortSignal): Promise<CurrentUser> {
+  return apiRequest<CurrentUser>("/v1/me", { signal });
 }
 
 export type AccountDeletionResponse = {
@@ -35,8 +35,13 @@ export type AccountDeletionResponse = {
   requested_at: string;
 };
 
-export function requestAccountDeletion(): Promise<AccountDeletionResponse> {
-  return apiRequest<AccountDeletionResponse>("/v1/me", { method: "DELETE" });
+export function requestAccountDeletion(
+  signal?: AbortSignal,
+): Promise<AccountDeletionResponse> {
+  return apiRequest<AccountDeletionResponse>("/v1/me", {
+    method: "DELETE",
+    signal,
+  });
 }
 
 export type KidExchangeResponse = {

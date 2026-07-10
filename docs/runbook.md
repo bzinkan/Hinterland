@@ -1,10 +1,21 @@
 # Hinterland Azure Runbook
 
 ADR 0010 makes Azure the active runtime. ADR 0014 removes the old GCP/Firebase
-rollback path. GCP Cloud Run/Cloud SQL/Cloud Tasks/Firebase instructions are
-historical only and must not be used as deploy gates.
+rollback path. ADR 0015 defines Observation finalization, outbox-only
+moderation, durable rewards, and rebuild recovery.
 
-## Public Smoke
+## Environment Boundary
+
+Active dev resources are in the Gordi-backed Azure subscription and isolated
+`hinterland-dev-rg`. Never target `gordi-pilot-rg`. Public/runtime resources use
+Hinterland names; compatibility environment variables and JWKS path may retain
+`DRAGONFLY_`/`dragonfly` under ADR 0013.
+
+Record subscription, resource group, image digest, Alembic revision, API
+revision, job executions, and smoke request IDs for each promotion. Never put
+SAS URLs, child photos, manual child text, or raw coordinates in tickets.
+
+## Public And Authenticated Smoke
 
 ```bash
 curl -fsS https://api.thehinterlandguide.app/health
@@ -12,21 +23,8 @@ curl -fsS https://api.thehinterlandguide.app/ready
 curl -fsS https://api.thehinterlandguide.app/.well-known/dragonfly-kid-jwks.json
 ```
 
-Expected:
-
-- `/health` returns `{"status":"ok", ...}`.
-- `/ready` returns 200 when required dependencies are configured.
-- JWKS returns at least kid `k1-2026-06` until the first key rotation.
-
-The public landing/support/legal site has its own deploy and smoke checklist in
-[`landing-deploy-runbook.md`](landing-deploy-runbook.md). Use it after landing
-PRs merge and before putting `https://thehinterlandguide.app` URLs into Google Play
-Console fields.
-
-## Authenticated Parent/Kid Smoke
-
-The Azure smoke does not automate Entra interactive sign-in. Supply an Entra
-access token for a test parent via env var:
+The authenticated parent/kid smoke requires an operator-provided test-parent
+Entra token:
 
 ```bash
 DRAGONFLY_API_BASE_URL=https://api.thehinterlandguide.app \
@@ -34,197 +32,245 @@ DRAGONFLY_SMOKE_ENTRA_BEARER="<access-token>" \
 python scripts/smoke_azure_parent_kid.py
 ```
 
-Flow:
+It records consent, resolves parent signup, creates a group/kid, exchanges the
+kid handoff, calls `/v1/me`, and verifies starter Expedition visibility. The old
+Firebase smoke must not be restored.
 
-1. `POST /v1/auth/consent`
-2. `POST /v1/auth/parent-signup`
-3. `POST /v1/groups`
-4. `POST /v1/groups/{group_id}/kids`
-5. `POST /v1/auth/kid-exchange`
-6. `GET /v1/me` as the kid
+## Migrations-First Deployment
 
-The old Phase 4 Firebase smoke path has been removed. Do not recreate it as a
-deploy gate for the Azure runtime.
+Use `.github/workflows/deploy-azure-api-dev.yml`. Required secrets are
+`AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, `AZURE_SUBSCRIPTION_ID`, and optional
+test-only smoke tokens.
 
-## Deploy API Dev
+The required order is:
 
-GitHub Actions workflow: `.github/workflows/deploy-azure-api-dev.yml`.
+1. remove both iNaturalist token environment aliases from the old API, apply
+   W1 flags, delete iNaturalist jobs, verify no inherited iNaturalist-queue
+   roles, and discover/remove moderation subscriptions from every Event Grid
+   system topic sourced by the photo storage account;
+2. build from the repository root and resolve one immutable
+   `repository@sha256:...` digest;
+3. run the read-only Observation duplicate/counter/location preflight;
+4. update/start the migration job with that digest and wait for
+   `alembic upgrade head` to succeed;
+5. ingest the checked-in taxonomy catalog and sync Expedition content from the
+   migration digest;
+6. run `hinterland-legacy-reconcile` before any outbox relay so
+   old `pending/<photo_id>.jpg` rows become verified canonical work;
+7. run an initial `hinterland-state-rebuild` pass before recreating dispatcher
+   replay; dispatcher replay also excludes users with queued/running rebuilds;
+8. pin every consumer and scheduled job to the same digest;
+9. update the API only after migration success;
+10. run legacy reconciliation and derived-state rebuild again after cutover to
+    close the old-revision race; both remain scheduled for the compatibility
+    release; and
+11. run public, authenticated, Observation, privacy, and worker canaries.
 
-Required GitHub secrets:
+The root build context is mandatory because the image is also the Expedition
+content version. `job start --image` is not a substitute for `job update`: a
+start-time override can replace template environment/command configuration.
 
-- `AZURE_CLIENT_ID`
-- `AZURE_TENANT_ID`
-- `AZURE_SUBSCRIPTION_ID`
-- optional `DRAGONFLY_SMOKE_ENTRA_BEARER`
-
-Workflow shape:
-
-1. Authenticate with Azure federated identity.
-2. Build backend image in ACR `hinterlandacrdev` (build context = repo root so
-   `content/expeditions/` ships inside the image).
-3. Update Container App `hinterland-api` in resource group `hinterland-dev-rg`.
-4. Run `alembic upgrade head`.
-5. Point the expedition content sync job at the new image, then start it. This
-   is required: a green API deploy must mean starter expeditions are in
-   Postgres.
-6. Smoke public probes.
-7. Run authenticated smoke when the token secret is configured.
-
-Manual deploy (run from the repo root — the build context must be the repo
-root so the expedition content ships inside the image):
+Before first use, provision/contain the W1 jobs and lifecycle contract from
+Git Bash (not the Windows `bash.exe` WSL alias) with:
 
 ```bash
-az acr build \
-  --registry hinterlandacrdev \
-  --image hinterland-api:<git-sha> \
-  --file backend/Dockerfile \
-  .
-
-az containerapp update \
-  --name hinterland-api \
-  --resource-group hinterland-dev-rg \
-  --image hinterlandacrdev.azurecr.io/hinterland-api:<git-sha>
-
-az containerapp job update \
-  --name hinterland-sync-expeditions \
-  --resource-group hinterland-dev-rg \
-  --image hinterlandacrdev.azurecr.io/hinterland-api:<git-sha>
-
-EXECUTION_NAME="$(az containerapp job start \
-  --name hinterland-sync-expeditions \
-  --resource-group hinterland-dev-rg \
-  --query name \
-  --output tsv)"
-
-for attempt in {1..60}; do
-  STATUS="$(az containerapp job execution show \
-    --name hinterland-sync-expeditions \
-    --job-execution-name "${EXECUTION_NAME}" \
-    --resource-group hinterland-dev-rg \
-    --query properties.status \
-    --output tsv)"
-  case "${STATUS}" in
-    Succeeded) break ;;
-    Failed|Canceled) exit 1 ;;
-  esac
-  sleep 10
-done
+MERGE_SHA="$(git rev-parse HEAD)"
+az acr build --registry hinterlandacrdev \
+  --image "hinterland-api:${MERGE_SHA}" \
+  --file backend/Dockerfile .
+DIGEST="$(az acr repository show --name hinterlandacrdev \
+  --image "hinterland-api:${MERGE_SHA}" --query digest -o tsv | tr -d '\r')"
+export HINTERLAND_PHASE9_IMAGE="hinterlandacrdev.azurecr.io/hinterland-api@${DIGEST}"
+MSYS_NO_PATHCONV=1 bash infra-azure/phase-9-observation-w1.sh
 ```
 
-Run the sync job after every deploy: the image IS the expedition content
-version, and the job materializes `/app/content/expeditions` into Postgres.
-The job's template pins whatever image it was provisioned with, so the
-`az containerapp job update --image` step is mandatory — starting the job
-without it re-syncs the previous image's content. Do not pass `--image` on
-`job start` instead: start-time container overrides replace the whole
-template, dropping the job's env vars and command.
-Wait for the execution to reach `Succeeded`; treating "job accepted" as deploy
-success can leave the phone with an empty or stale quest board.
+Submission-key columns remain nullable only for the migration-first window so
+the previous API can keep inserting. The new API always writes them. The
+legacy reconciler fills any compatibility rows, removes race-written raw
+coordinates, and registers only verified canonical photos for relay.
 
-The authenticated smoke script now fails unless a kid token can load
-`backyard_starter` from `/v1/expeditions/available`, which catches a missing or
-failed expedition sync before the phone build sees an empty quest board.
+If preflight finds migration-managed duplicate photo/review/counter repair,
+review the JSON and rerun with the exact report acknowledgement token. Duplicate
+submission keys are hard blockers and cannot be waived. Never edit an applied
+Alembic revision.
 
-The old Cloud Run workflow is a manual no-op. If a GCP service is accidentally
-recreated, treat it as an incident and decommission it under ADR 0014 after the
-Azure API smoke checks still pass.
+The Cloud Run workflow is manual/no-op. Recreating a GCP runtime is an incident,
+not a rollback strategy.
 
 ## Local Database And Migrations
 
 ```bash
 make dev-db
 make db-migrate
+powershell -File scripts/verify_observation_postgres.ps1
 ```
 
-Deployed migrations should run from the controlled Azure deploy workflow or a
-one-off operator shell using the same `DRAGONFLY_DATABASE_*` settings as the
-Container App. Do not add app-startup migrations.
+The Observation verification script runs migrations and concurrency,
+failure/replay, review race, rebuild, and dispatcher-p95 tests against a
+disposable PostgreSQL 16 container.
 
-## Mobile Internal Pilot Gate
+## W1 Internal Testing Configuration
 
-Before uploading an AAB to Google Play Internal Testing:
+Effective configuration must remain:
+
+```text
+MODERATION_PROVIDER=noop
+INAT_CV_ENABLED=false
+INAT_CV_DISCLOSURE_APPROVED=false
+INAT_CV_BENCHMARK_APPROVED=false
+INAT_SUBMIT_ENABLED=false
+OBSERVATION_IDEMPOTENCY_REQUIRED=true
+```
+
+Set both active `HINTERLAND_` and compatibility `DRAGONFLY_` names where the
+environment may contain either. The old API has no CV flag, so containment must
+remove both OAuth-token environment aliases before build/migration. The
+repaired revision additionally requires explicit CV gates, so token absence is
+not the only permanent control. Delete/disable the iNaturalist consumer and
+replay jobs, and revoke direct or inherited runtime access to the inert submit
+queue while preserving stale work without processing.
+
+Enumerate all Event Grid system topics whose `source` is the photo storage
+account; Azure-generated topic names are not stable. Confirm none of their
+subscriptions targets the moderation queue. The
+`moderation_outbox` relay is the sole producer. NoOp must end in
+`pilot_private`, never `clean`.
+
+Bootstrap enables the repaired consumer before the relay and drains the active
+queue. Stale BlobCreated envelopes are dead-lettered without provider egress;
+attached observations are independently recovered from PostgreSQL into the
+outbox. A nonzero active count after the bounded drain blocks deployment. Review
+the printed DLQ count and verify its alert before promotion.
+
+## Observation Canary
+
+Run with a test kid token against the deployed API:
 
 ```bash
-cd mobile
-npm ci
-npm run typecheck
-APP_ENV=play-internal npm run config:play-internal
+HINTERLAND_API_BASE_URL=https://api.thehinterlandguide.app \
+HINTERLAND_SMOKE_BEARER="<test-kid-token>" \
+python scripts/smoke_observation_w1.py
 ```
 
-The config check must verify:
+The canary verifies BlockBlob upload headers, verified finalization, identical
+presign/create replay, persisted reward equality, exactly one list entry,
+NoOp-to-`pilot_private`, and signed-photo denial. A changed request under the
+same idempotency key must return 409.
 
-- package `com.dragonfly.app`
-- display name `Hinterland Internal`
-- update channel `play-internal`
-- `ACCESS_FINE_LOCATION` blocked
-- `ACCESS_COARSE_LOCATION` explicitly requested
+The exact Play Internal AAB must additionally pass airplane-mode capture, kill
+after PUT, relaunch/reconnect, lost-create-response, account switch, catalog vs
+manual/Unknown, no-location, and no-raw-coordinate inspection.
 
-Then run the physical-device script in
-[`android-internal-pilot-test-script.md`](android-internal-pilot-test-script.md).
-For `play-internal` and production, native adult setup is web-first through
-`https://parents.thehinterlandguide.app`; kids sign in through the native QR handoff
-screen.
+## Photo Access Probe
 
-## Moderation
+Probe owner child, peer child, unrelated user, managing adult, and reviewer.
+Expected access:
 
-W1 Internal Testing may run with `DRAGONFLY_MODERATION_PROVIDER=noop` and iNat
-submission disabled. Closed beta must wire Azure async moderation first.
+- clean: owner and authorized managing adult/reviewer;
+- quarantine: authorized adult reviewer only;
+- pending, pilot-private, failed, rejected, or deleted: nobody receives a URL;
+- peer children: never.
 
-Target closed-beta shape:
+A URL outside this matrix is a stop-pilot privacy incident. Rotate affected
+credentials only after preserving request IDs and state evidence.
 
-- Blob `pending/` event or explicit queue message starts moderation.
-- Worker calls Azure AI Content Safety.
-- Clean photos move to `observations/`.
-- Flagged photos move to `quarantine/` and create a `review_queue` row.
-- Provider outage holds/retries pending and does not default-allow.
+## Moderation Outbox And Worker
 
-Adult review actions:
+Scheduled W1 jobs include:
 
-- `approve`: move/copy to `observations/`, resolve review, allow downstream iNat submit.
-- `reject`: mark photo deleted, resolve review, decrement observation counter.
+- `hinterland-mod-outbox-relay`
+- `hinterland-moderation-job`
+- `hinterland-legacy-reconcile` (temporary cutover guard)
+- `hinterland-dispatcher-replay`
+- `hinterland-state-rebuild`
+- `hinterland-obs-retention`
+- `hinterland-obs-health`
+- `hinterland-sweep-stale-reviews`
 
-## iNaturalist Submit
+W1 runs NoOp; pilot-private bytes receive no URL and purge after seven days.
+Before closed beta, staging must prove strict four-category Content Safety
+validation, duplicate delivery/lease expiry, verified destination copy,
+database failure after copy, retry, and DLQ. Never delete a source while Azure
+copy remains pending.
 
-iNat submission stays off until risk 0001 is closed: project account/OAuth token
-obtained and the 50-photo CV benchmark is run.
+## Dispatcher Recovery
 
-Closed-beta target:
-
-- clean moderation path enqueues iNat submit
-- idempotency key = Hinterland observation id
-- retries with DLQ/dead-letter visibility
-- terminal failures alert but never affect the kid submission response
-
-**Flipping `DRAGONFLY_INAT_SUBMIT_ENABLED` OFF while messages are queued:**
-producers stop writing outbox rows and the consumer's startup guard refuses
-to submit, but already-queued `inat-submit` messages just sit there — the
-queue has no message TTL, KEDA keeps spawning no-op worker executions, and
-the matching `inat_submit_outbox` rows stay `pending`/`enqueued` with no
-alert. After a deliberate flip-off, drain the queue explicitly (dead-letter
-or purge via `az servicebus queue`) and reconcile the outbox rows so the
-state is visible instead of silently stranded.
-
-## Dispatcher Replay And p95
-
-Dispatcher logs `dispatcher.complete` with `duration_ms`. Use Log Analytics to
-measure p95 once at least 50 real observations exist.
-
-Replay crashed/un-dispatched observations through:
+`dispatcher.complete` logs `duration_ms`. Replay claims only pending,
+failed, or blocked handler rows with `FOR UPDATE SKIP LOCKED` and the same user
+advisory lock as finalization/rebuild.
 
 ```bash
 cd backend
 uv run python -m admin.dispatcher_replay
 ```
 
-Scheduled Azure jobs should eventually run:
+Do not call the submission endpoint, hand-edit counters, or fabricate
+predecessor state. The saved Observation remains visible with
+`dispatch_status=pending|partial` while rewards catch up.
 
-- `python -m admin.rarity_refresh`
-- `python -m admin.sweep_stale_reviews`
-- `python -m admin.dispatcher_replay`
+## Review And Rebuild Recovery
+
+Approve/reject/stale-review must converge through the shared review service so
+only one actor resolves a row. Rejection tombstones and queues the per-user
+rebuild; it never decrements selected counters in place.
+
+The rebuild coalesces by user, acquires the user lock, and replaces counters,
+Dex, Expedition contribution, Sanctuary, handler ledgers, and rewards in one
+transaction. It retries five times. For terminal failure, preserve error and
+Observation IDs, correct the cause, and explicitly requeue. Never repair only
+one projection.
+
+After a canary rejection, verify the photo is inaccessible and replacement
+first-find/Expedition/Sanctuary state is consistent. Rebuild emits no
+celebration or notification.
+
+## iNaturalist Egress
+
+Public submission stays disabled for W1 and closed beta. Optional post-clean CV
+also stays disabled until disclosure/legal approval and the reviewed 50-image
+benchmark. A configured token is not permission to enable either feature.
+
+If any gate flips unexpectedly:
+
+1. stop/disable producer and consumer jobs;
+2. restore both feature gates to false;
+3. dead-letter or quarantine queued work without processing it; and
+4. determine whether any photo left Azure and begin the privacy incident path.
+
+Never purge evidence before reconciliation.
+
+## Mobile Internal Pilot Gate
+
+```bash
+cd mobile
+npm ci
+npm run typecheck
+npm test -- --runInBand
+APP_ENV=play-internal npm run config:play-internal
+```
+
+Verify `com.dragonfly.app`, display name `Hinterland Internal`, update channel
+`play-internal`, fine location blocked, coarse foreground only, and current
+Hinterland API URL. Then run the physical-device pilot script.
+
+## Alerts And Closed-Beta Gate
+
+Apply `infra-azure/phase-9-observation-monitoring.sh` and synthetically verify
+receivers for:
+
+- moderation/pending-photo age and moderation DLQ;
+- rebuild backlog, five-attempt failure, and duration;
+- dispatcher partial/blocked backlog and p95;
+- idempotency conflicts and state mismatches;
+- retention backlog; and
+- Observation job failures.
+
+Closed beta requires one digest everywhere, outbox-only producer, real Content
+Safety safe/flagged/unavailable/malformed probes, review/rebuild canary, and 24
+hours or 25 submissions with zero duplicates, unauthorized reads, or stuck
+work.
 
 ## Account Deletion
-
-The app-visible endpoint is:
 
 ```bash
 curl -X DELETE \
@@ -232,22 +278,15 @@ curl -X DELETE \
   https://api.thehinterlandguide.app/v1/me
 ```
 
-Immediate effect: sets `users.disabled_at`, busts the auth cache, and returns
-`{"status":"deletion_requested", ...}`. Full erasure of linked child data,
-photos, and any iNaturalist project-account contribution remains an operator
-follow-up until the legal policy is finalized.
+Immediate effect disables the user and invalidates auth cache. Full linked data
+and Blob erasure follows the reviewed asynchronous workflow/retention policy.
 
 ## Incident Triggers
 
-Hard stop the pilot and follow `android-internal-pilot-stop-plan.md` if any of
-these appear:
-
-- auth failure exposing wrong user data
-- child can reach public chat or social features
-- photo appears publicly without a moderation decision
-- submit crash loses kid data
-- incorrect consent state
-- location/privacy surprise
+Hard-stop W1 for wrong-user data, unauthorized photo URL, pre-clean/external
+photo egress, duplicated/lost retry work, raw coordinate leakage, incorrect
+consent, or account-switch presentation leakage. Preserve evidence and follow
+`android-internal-pilot-stop-plan.md`.
 
 ## Runtime AI Violation
 

@@ -28,12 +28,9 @@
     },
     {
       "id": "off_the_beaten_path",
-      "description": "Find something at least 50 meters from your other finds today",
-      "match": {
-        "kind": "not_within_radius_of_existing",
-        "radius_meters": 50
-      },
-      "hint": "Push yourself away from the spot everyone photographs. Around the corner, behind the building, the far edge."
+      "description": "Find something you have never added to your Dex",
+      "match": { "kind": "not_in_dex" },
+      "hint": "Look in a different micro-habitat: under a leaf, along a wall, or beside a drain."
     }
   ]
 }

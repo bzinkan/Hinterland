@@ -116,6 +116,7 @@ def _wire_cache(fake_session: AsyncMock, *, hit: models.GeoCache | None) -> None
     fake_session.execute = AsyncMock(return_value=result)
     fake_session.add = MagicMock()
     fake_session.flush = AsyncMock()
+    fake_session.commit = AsyncMock()
     fake_session.rollback = AsyncMock()
 
 
@@ -160,6 +161,7 @@ async def test_cache_miss_calls_geocoder_and_writes_row(fake_session: AsyncMock)
     assert written.rounded_lat == "39.103"
     assert written.rounded_lng == "-84.512"
     assert written.place_name == "Cincinnati, OH"
+    fake_session.commit.assert_awaited_once()
 
 
 async def test_cache_miss_geocoder_none_no_write(fake_session: AsyncMock) -> None:
@@ -195,7 +197,7 @@ def _build_client(fake_session: AsyncMock, geocoder: _StaticGeocoder) -> Iterato
 
 def test_reverse_endpoint_requires_bearer(fake_session: AsyncMock) -> None:
     for client in _build_client(fake_session, _StaticGeocoder(None)):
-        response = client.get("/v1/geocode/reverse?lat=39.1&lng=-84.5")
+        response = client.post("/v1/geocode/reverse", json={"geohash4": "dngy"})
         assert response.status_code == 401
 
 
@@ -206,25 +208,26 @@ def test_reverse_endpoint_returns_place_name_on_cache_miss(
     _wire_cache(fake_session, hit=None)
 
     for client in _build_client(fake_session, _StaticGeocoder("Cincinnati, OH")):
-        response = client.get(
-            "/v1/geocode/reverse?lat=39.1&lng=-84.5",
+        response = client.post(
+            "/v1/geocode/reverse",
+            json={"geohash4": "dngy"},
             headers={"Authorization": "Bearer fake"},
         )
         assert response.status_code == 200
         body = response.json()
         assert body["place_name"] == "Cincinnati, OH"
-        assert body["lat"] == 39.1
-        assert body["lng"] == -84.5
+        assert body["geohash4"] == "dngy"
 
 
-def test_reverse_endpoint_validates_lat_range(
+def test_reverse_endpoint_validates_geohash4(
     monkeypatch: pytest.MonkeyPatch, fake_session: AsyncMock
 ) -> None:
     _stub_token_verifier(monkeypatch)
 
     for client in _build_client(fake_session, _StaticGeocoder(None)):
-        response = client.get(
-            "/v1/geocode/reverse?lat=99&lng=-84.5",
+        response = client.post(
+            "/v1/geocode/reverse",
+            json={"geohash4": "not-a-geohash"},
             headers={"Authorization": "Bearer fake"},
         )
         assert response.status_code == 422

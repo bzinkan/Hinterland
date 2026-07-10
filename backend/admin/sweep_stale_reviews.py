@@ -25,11 +25,12 @@ import asyncio
 from datetime import UTC, datetime, timedelta
 
 import structlog
-from sqlalchemy import select, update
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.core.config import get_settings
 from app.db import models
+from app.moderation.review_service import ReviewResolutionConflict, reject_review_item
 
 log = structlog.get_logger()
 
@@ -43,58 +44,50 @@ async def sweep(session: AsyncSession) -> int:
     """Auto-reject stale pending reviews. Returns the count resolved."""
     cutoff = datetime.now(UTC) - _STALE_AFTER
 
-    # Pull all stale rows + the joined photo + observation in one query
-    # so we know what to decrement.
     stale = (
-        await session.execute(
-            select(models.ReviewQueueItem, models.Photo, models.Observation)
-            .join(models.Photo, models.ReviewQueueItem.photo_id == models.Photo.id)
-            .outerjoin(
-                models.Observation,
-                models.ReviewQueueItem.observation_id == models.Observation.id,
-            )
-            .where(
-                models.ReviewQueueItem.status == "pending",
-                models.ReviewQueueItem.created_at < cutoff,
+        (
+            await session.execute(
+                select(models.ReviewQueueItem).where(
+                    models.ReviewQueueItem.status == "pending",
+                    models.ReviewQueueItem.created_at < cutoff,
+                )
             )
         )
-    ).all()
+        .scalars()
+        .all()
+    )
 
     if not stale:
         log.info("sweep_stale_reviews.nothing_to_do")
         return 0
 
     now = datetime.now(UTC)
-    for review, photo, observation in stale:
-        photo.status = "deleted"
-        photo.moderated_at = now
-
-        # Decrement counter only when the original observation row is
-        # known. Same skip-if-missing posture as the reject endpoint.
-        if observation is not None:
-            await session.execute(
-                update(models.Membership)
-                .where(
-                    models.Membership.user_id == observation.user_id,
-                    models.Membership.group_id == observation.group_id,
-                )
-                .values(observation_count=models.Membership.observation_count - 1)
+    resolved = 0
+    for review in stale:
+        try:
+            await reject_review_item(
+                session,
+                review=review,
+                reviewer_user_id=None,
+                nonblocking=True,
             )
-
-        review.status = "rejected"
-        review.reviewer_user_id = None  # auto-reject -- no human reviewer
-        review.resolved_at = now
+        except ReviewResolutionConflict:
+            # Another reviewer/sweeper won after the candidate read. Release
+            # this transaction's advisory lock and move on.
+            await session.rollback()
+            continue
 
         log.info(
             "sweep_stale_reviews.auto_rejected",
             review_id=review.id,
-            photo_id=photo.id,
+            photo_id=review.photo_id,
             age_days=(now - review.created_at).days,
         )
+        await session.commit()
+        resolved += 1
 
-    await session.commit()
-    log.info("sweep_stale_reviews.complete", count=len(stale))
-    return len(stale)
+    log.info("sweep_stale_reviews.complete", count=resolved)
+    return resolved
 
 
 async def main() -> None:

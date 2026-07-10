@@ -1,14 +1,5 @@
 import { apiRequest } from "@/src/api/client";
 
-// ---------------------------------------------------------------------------
-// Dispatcher reward shape (mirrors backend ``RewardType`` Literal in
-// ``backend/app/dispatcher/types.py``).
-//
-// Sanctuary reward types (``world_unlock``, ``world_evolution``) were added
-// in PR #99 when ``WorldHandler`` was wired into the dispatcher. The mobile
-// reveal modal filters for these two types after a successful submit.
-// ---------------------------------------------------------------------------
-
 export type RewardType =
   | "first_find"
   | "repeat_find"
@@ -32,40 +23,59 @@ export type ObservationReward = {
   payload: Record<string, unknown>;
 };
 
-// ---------------------------------------------------------------------------
-// POST /v1/photos/presign
-// ---------------------------------------------------------------------------
-
 export type PhotoPresignResponse = {
   photo_id: string;
-  upload_url: string;
+  upload_url: string | null;
+  /** Current Observation upload-header contract. Apply verbatim. */
+  upload_headers?: Record<string, string>;
+  /** One-release compatibility with the existing Azure API. */
+  required_headers?: Record<string, string>;
   object_name: string;
   bucket: string;
   content_type: string;
-  expires_at: string;
-  // Headers to send verbatim on the PUT to upload_url (e.g. Azure's
-  // x-ms-blob-type). Optional because deployed API builds may predate
-  // this field; callers fall back to legacyPutHeaders().
-  required_headers?: Record<string, string>;
+  expires_at: string | null;
+  attachment_status?: "reserved" | "attached" | "deleted";
+  observation_id?: string | null;
 };
 
-export function presignPhoto(): Promise<PhotoPresignResponse> {
+export function presignPhoto(
+  idempotencyKey: string,
+  signal?: AbortSignal,
+): Promise<PhotoPresignResponse> {
   return apiRequest<PhotoPresignResponse>("/v1/photos/presign", {
     method: "POST",
     body: { content_type: "image/jpeg" },
+    headers: { "Idempotency-Key": idempotencyKey },
+    signal,
   });
 }
 
-// ---------------------------------------------------------------------------
-// POST /v1/observations
-// ---------------------------------------------------------------------------
+export type IdentificationSource =
+  | "catalog"
+  | "cv"
+  | "manual_text"
+  | "unknown"
+  | "legacy";
+
+export type LocationSource =
+  | "device_coarse"
+  | "manual_coarse"
+  | "none"
+  | "legacy_coarsened";
+
+export type DispatchStatus = "pending" | "partial" | "complete" | "unverified";
 
 export type ObservationCreate = {
   photo_id: string;
-  latitude: number;
-  longitude: number;
+  /** Accepted only for one legacy release; new clients send geohash4. */
+  latitude?: number | null;
+  longitude?: number | null;
+  observed_at?: string;
+  geohash4?: string | null;
+  location_source?: Exclude<LocationSource, "legacy_coarsened">;
   taxon_id?: number | null;
   species_name?: string | null;
+  identification_source?: Exclude<IdentificationSource, "cv" | "legacy">;
   place_name?: string | null;
   ecology_tags?: Record<string, string>;
 };
@@ -75,56 +85,59 @@ export type Observation = {
   user_id: string;
   group_id: string;
   photo_id: string;
-  latitude: number;
-  longitude: number;
+  latitude: number | null;
+  longitude: number | null;
   geohash4: string | null;
+  observed_at: string | null;
+  location_source: LocationSource;
   taxon_id: number | null;
   species_name: string | null;
+  identification_source: IdentificationSource;
+  identification_revision: number;
   place_name: string | null;
-  ecology_tags: Record<string, string>;
-  // Dispatcher-returned rewards. Present on the create response, and on
-  // PATCH responses when the patch sets or changes ``taxon_id`` -- that
-  // second dispatch is what advances taxon-based expedition steps. Absent
-  // or [] when nothing was dispatched. Field is optional so list /
-  // list-item types do not break.
-  rewards?: ObservationReward[];
+  ecology_tags?: Record<string, string>;
+  moderation_status: string;
+  dispatch_status: DispatchStatus;
+  rewards: ObservationReward[];
 };
 
 export function createObservation(
   payload: ObservationCreate,
+  idempotencyKey: string,
+  signal?: AbortSignal,
 ): Promise<Observation> {
   return apiRequest<Observation>("/v1/observations", {
     method: "POST",
     body: payload,
+    headers: { "Idempotency-Key": idempotencyKey },
+    signal,
   });
 }
 
-// ---------------------------------------------------------------------------
-// PATCH /v1/observations/{id}
-// ---------------------------------------------------------------------------
+export function getObservation(
+  observationId: string,
+  signal?: AbortSignal,
+): Promise<Observation> {
+  return apiRequest<Observation>(`/v1/observations/${observationId}`, { signal });
+}
 
-export type ObservationPatch = {
-  taxon_id?: number | null;
-  species_name?: string | null;
-  place_name?: string | null;
-};
+/** Generic PATCH is intentionally limited to non-derived display metadata. */
+export type ObservationPatch = { place_name?: string | null };
 
 export function patchObservation(
   observationId: string,
   payload: ObservationPatch,
+  signal?: AbortSignal,
 ): Promise<Observation> {
   return apiRequest<Observation>(`/v1/observations/${observationId}`, {
     method: "PATCH",
     body: payload,
+    signal,
   });
 }
 
-// ---------------------------------------------------------------------------
-// POST /v1/observations/{id}/identify
-// ---------------------------------------------------------------------------
-
 export type CvSuggestion = {
-  taxon_id: number | null;
+  taxon_id: number;
   common_name: string | null;
   scientific_name: string | null;
   score: number;
@@ -140,16 +153,13 @@ export type IdentifyResponse = {
 
 export function identifyObservation(
   observationId: string,
+  signal?: AbortSignal,
 ): Promise<IdentifyResponse> {
   return apiRequest<IdentifyResponse>(
     `/v1/observations/${observationId}/identify`,
-    { method: "POST" },
+    { method: "POST", signal },
   );
 }
-
-// ---------------------------------------------------------------------------
-// GET /v1/observations/me
-// ---------------------------------------------------------------------------
 
 export type ObservationListItem = {
   id: string;
@@ -158,13 +168,18 @@ export type ObservationListItem = {
   photo_id: string;
   photo_object_name: string;
   photo_status: string;
-  latitude: number;
-  longitude: number;
+  latitude: number | null;
+  longitude: number | null;
   geohash4: string | null;
+  observed_at: string | null;
+  location_source: LocationSource;
   taxon_id: number | null;
   species_name: string | null;
+  identification_source: IdentificationSource;
   place_name: string | null;
-  ecology_tags: Record<string, string>;
+  ecology_tags?: Record<string, string>;
+  moderation_status: string;
+  dispatch_status: DispatchStatus;
   created_at: string;
 };
 
@@ -175,6 +190,7 @@ export type ObservationListResponse = {
 
 export function listMyObservations(
   opts: { limit?: number; before?: string | null } = {},
+  signal?: AbortSignal,
 ): Promise<ObservationListResponse> {
   const params = new URLSearchParams();
   if (opts.limit !== undefined) params.set("limit", String(opts.limit));
@@ -182,17 +198,30 @@ export function listMyObservations(
   const query = params.toString();
   return apiRequest<ObservationListResponse>(
     `/v1/observations/me${query ? `?${query}` : ""}`,
+    { signal },
   );
 }
 
-// ---------------------------------------------------------------------------
-// GET /v1/observations/{id}
-// ---------------------------------------------------------------------------
-
-export type ObservationDetail = ObservationListItem & {
-  rewards: ObservationReward[];
+export type IdentificationUpdate = {
+  taxon_id?: number | null;
+  manual_text?: string | null;
+  source: "catalog" | "cv" | "manual_text" | "unknown";
+  expected_revision: number;
 };
 
-export function getObservation(observationId: string): Promise<ObservationDetail> {
-  return apiRequest<ObservationDetail>(`/v1/observations/${observationId}`);
+export type IdentificationUpdateResponse = {
+  observation: Observation;
+  rebuild_id: string;
+  rebuild_status: "queued" | "running" | "succeeded" | "failed";
+};
+
+export function updateObservationIdentification(
+  observationId: string,
+  payload: IdentificationUpdate,
+  signal?: AbortSignal,
+): Promise<IdentificationUpdateResponse> {
+  return apiRequest<IdentificationUpdateResponse>(
+    `/v1/observations/${observationId}/identification`,
+    { method: "POST", body: payload, signal },
+  );
 }

@@ -44,7 +44,10 @@ class _StubStorage:
         src_object: str,
         dst_bucket: str,
         dst_object: str,
+        expected_size: int | None = None,
+        expected_sha256: str | None = None,
     ) -> None:
+        del expected_size, expected_sha256
         self.copy_calls.append((src_bucket, src_object, dst_bucket, dst_object))
 
     def delete_object(self, *, bucket: str, object_name: str) -> None:
@@ -237,8 +240,9 @@ def _wire_resolve(
 ) -> None:
     """Sequence the session.execute side_effects for the approve / reject flows.
 
-    Both flows: user lookup -> review lookup -> membership check -> photo
-    lookup.
+    Both flows: user lookup -> review lookup -> membership check. Approval then
+    reads the photo. Rejection resolves the subject without a row lock, takes
+    the user advisory lock, and only then locks review/photo/observation rows.
 
     Approve flow with outbox writes (Risk 0002 transactional outbox): when
     ``review.observation_id`` is set, the handler also runs
@@ -246,10 +250,8 @@ def _wire_resolve(
     ``update(InatSubmitOutbox)``. Pass ``approve_outbox=True`` to wire
     those two extra side_effects.
 
-    Reject flow: when ``observation`` is passed (observation_id present),
-    the handler runs ``select(Observation)`` and an ``update(Membership)``
-    to decrement the kid's counter. Pass ``observation=...`` (without
-    ``approve_outbox``) to wire those.
+    Reject flow: when ``observation`` is passed, the handler tombstones it,
+    acquires the per-user rebuild lock, and coalesces/creates a rebuild job.
     """
     user_result = MagicMock()
     user_result.scalar_one_or_none = MagicMock(return_value=user)
@@ -268,23 +270,46 @@ def _wire_resolve(
     obs_result = MagicMock()
     obs_result.scalar_one_or_none = MagicMock(return_value=observation)
 
-    update_result = MagicMock()
+    subject_result = MagicMock()
+    subject_result.scalar_one_or_none = MagicMock(
+        return_value=observation.user_id if observation is not None else None
+    )
+
+    lock_result = MagicMock()
+    rebuild_result = MagicMock()
+    rebuild_result.scalar_one_or_none = MagicMock(return_value=None)
     outbox_update_result = MagicMock()
 
-    side_effects: list[Any] = [user_result, review_result, membership_result, photo_result]
+    side_effects: list[Any] = [user_result, review_result, membership_result]
     if approve_outbox:
         # Approve flow with inat_submit_enabled=True: select(Observation)
         # + update(InatSubmitOutbox).
-        side_effects.extend([obs_result, outbox_update_result])
+        side_effects.extend([photo_result, obs_result, outbox_update_result])
     elif approve_obs_only:
         # Approve flow with Option B inat_submit_enabled=False: only
         # the select(Observation) lookup; no outbox write.
-        side_effects.append(obs_result)
+        side_effects.extend([photo_result, obs_result])
     elif observation is not None:
-        # Reject flow: select(Observation) + update(Membership).
-        side_effects.extend([obs_result, update_result])
+        # Reject flow: subject read, outer advisory lock, locked review/photo/
+        # observation, then enqueue_rebuild's re-entrant lock and active lookup.
+        side_effects.extend(
+            [
+                subject_result,
+                lock_result,
+                review_result,
+                photo_result,
+                obs_result,
+                MagicMock(),
+                rebuild_result,
+            ]
+        )
+    else:
+        # Approval/error paths still read the photo after authorization.
+        side_effects.append(photo_result)
     fake_session.execute = AsyncMock(side_effect=side_effects)
     fake_session.commit = AsyncMock()
+    fake_session.flush = AsyncMock()
+    fake_session.add = MagicMock()
 
 
 def test_approve_404_when_review_missing(
@@ -404,11 +429,14 @@ def test_approve_happy_path_moves_photo_back_and_marks_review(
     assert storage.delete_calls == [("dragonfly-photos-test", f"quarantine/{_PHOTO_ID}.jpg")]
     assert photo.status == "clean"
     assert photo.object_name == f"observations/{_PHOTO_ID}.jpg"
+    assert photo.canonical_object_name == photo.object_name
     assert review.status == "approved"
     assert review.reviewer_user_id == _USER_ID
 
     # Observation flipped + outbox row inserted in the same transaction.
     assert obs.moderation_status == "clean"
+    assert obs.moderation_source == "adult"
+    assert obs.moderation_policy_version == "adult-review-v1"
     added = fake_session.add.call_args.args[0]
     assert isinstance(added, models.InatSubmitOutbox)
     assert added.observation_id == _OBS_ID
@@ -472,6 +500,8 @@ def test_approve_happy_path_option_b_skips_outbox(
     assert review.status == "approved"
     # Observation flipped but NO outbox row added.
     assert obs.moderation_status == "clean"
+    assert obs.moderation_source == "adult"
+    assert obs.moderation_policy_version == "adult-review-v1"
     fake_session.add.assert_not_called()
     # Enqueue never attempted.
     assert enqueue_calls == []
@@ -485,7 +515,7 @@ def test_approve_happy_path_option_b_skips_outbox(
 # ---------------------------------------------------------------------------
 
 
-def test_reject_decrements_counter_and_marks_photo_deleted(
+def test_reject_tombstones_observation_and_queues_rebuild(
     monkeypatch: pytest.MonkeyPatch, fake_session: AsyncMock
 ) -> None:
     _stub_token_verifier(monkeypatch)
@@ -512,6 +542,25 @@ def test_reject_decrements_counter_and_marks_photo_deleted(
         assert body["photo_status"] == "deleted"
 
     assert photo.status == "deleted"
+    assert photo.attachment_status == "deleted"
     assert review.status == "rejected"
     assert review.reviewer_user_id == _USER_ID
+    assert obs.moderation_status == "rejected"
+    assert obs.moderation_source == "adult"
+    assert obs.moderation_policy_version == "adult-review-v1"
+    assert obs.rejected_at is not None
+    rebuild = fake_session.add.call_args.args[0]
+    assert isinstance(rebuild, models.DerivedStateRebuild)
+    assert rebuild.user_id == obs.user_id
+    assert rebuild.trigger_observation_id == obs.id
     fake_session.commit.assert_awaited_once()
+    statements = [str(call.args[0]) for call in fake_session.execute.await_args_list]
+    advisory_index = next(
+        index for index, statement in enumerate(statements) if "pg_advisory_xact_lock" in statement
+    )
+    review_lock_index = next(
+        index
+        for index, statement in enumerate(statements)
+        if "review_queue" in statement and "FOR UPDATE" in statement
+    )
+    assert advisory_index < review_lock_index

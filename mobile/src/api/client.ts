@@ -6,7 +6,12 @@
  * - Raises a typed `ApiError` on non-2xx, with the server's error envelope.
  */
 import { env } from "@/src/config/env";
-import { getBearerToken } from "@/src/auth/token";
+import {
+  bearerTokenSnapshotIsCurrent,
+  getBearerToken,
+  getBearerTokenSnapshot,
+} from "@/src/auth/token";
+import { runImperativeRequest } from "@/src/auth/requestBoundary";
 
 export type ApiErrorBody = {
   error: {
@@ -44,6 +49,20 @@ export async function apiRequest<T>(
   path: string,
   options: RequestOptions = {},
 ): Promise<T> {
+  if ((options.method ?? "GET") !== "GET") {
+    return runImperativeRequest((boundarySignal) =>
+      performApiRequest<T>(path, options, boundarySignal),
+    );
+  }
+  return performApiRequest<T>(path, options);
+}
+
+async function performApiRequest<T>(
+  path: string,
+  options: RequestOptions,
+  boundarySignal?: AbortSignal,
+): Promise<T> {
+  const combined = combineSignals(options.signal, boundarySignal);
   const headers: Record<string, string> = {
     Accept: "application/json",
     ...options.headers,
@@ -54,34 +73,85 @@ export async function apiRequest<T>(
   }
 
   if (!options.unauthenticated) {
-    const token = await getBearerToken();
-    if (token) {
-      headers["Authorization"] = `Bearer ${token}`;
+    try {
+      const snapshot = boundarySignal
+        ? await getBearerTokenSnapshot()
+        : { token: await getBearerToken(), generation: null };
+      if (
+        combined.signal?.aborted ||
+        (snapshot.generation !== null && !bearerTokenSnapshotIsCurrent(snapshot))
+      ) {
+        throw abortError();
+      }
+      const token = snapshot.token;
+      if (token) {
+        headers["Authorization"] = `Bearer ${token}`;
+      }
+    } catch (error) {
+      combined.cleanup();
+      throw error;
     }
   }
 
   const url = `${env.apiBaseUrl}${path}`;
-  const res = await fetch(url, {
-    method: options.method ?? "GET",
-    headers,
-    body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
-    signal: options.signal,
-  });
+  try {
+    const res = await fetch(url, {
+      method: options.method ?? "GET",
+      headers,
+      body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
+      signal: combined.signal,
+    });
 
-  if (!res.ok) {
-    let body: ApiErrorBody | null = null;
-    try {
-      body = (await res.json()) as ApiErrorBody;
-    } catch {
-      // Non-JSON response (proxy 502, etc.) -- leave body null.
+    if (!res.ok) {
+      let body: ApiErrorBody | null = null;
+      try {
+        body = (await res.json()) as ApiErrorBody;
+      } catch {
+        // Non-JSON response (proxy 502, etc.) -- leave body null.
+      }
+      const message = body?.error?.message ?? `${options.method ?? "GET"} ${path} -> ${res.status}`;
+      throw new ApiError(res.status, body, message);
     }
-    const message = body?.error?.message ?? `${options.method ?? "GET"} ${path} -> ${res.status}`;
-    throw new ApiError(res.status, body, message);
-  }
 
-  // 204 No Content
-  if (res.status === 204) {
-    return undefined as T;
+    // 204 No Content
+    if (res.status === 204) {
+      return undefined as T;
+    }
+    return (await res.json()) as T;
+  } finally {
+    combined.cleanup();
   }
-  return (await res.json()) as T;
+}
+
+function combineSignals(
+  first?: AbortSignal,
+  second?: AbortSignal,
+): { signal: AbortSignal | undefined; cleanup: () => void } {
+  const signals = [first, second].filter(
+    (signal): signal is AbortSignal => signal !== undefined,
+  );
+  if (signals.length <= 1) {
+    return { signal: signals[0], cleanup: () => undefined };
+  }
+  if (signals[0] === signals[1]) {
+    return { signal: signals[0], cleanup: () => undefined };
+  }
+  const controller = new AbortController();
+  const abort = () => controller.abort();
+  for (const signal of signals) {
+    if (signal.aborted) controller.abort();
+    else signal.addEventListener("abort", abort, { once: true });
+  }
+  return {
+    signal: controller.signal,
+    cleanup: () => {
+      for (const signal of signals) signal.removeEventListener("abort", abort);
+    },
+  };
+}
+
+function abortError(): Error {
+  const error = new Error("The authenticated request was superseded.");
+  error.name = "AbortError";
+  return error;
 }

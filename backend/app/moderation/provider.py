@@ -1,6 +1,6 @@
 """Pluggable photo-moderation providers.
 
-`NoOpModerator`            -- treats every photo as clean. Default in dev / CI.
+`NoOpModerator`            -- records a private pilot result. It never clears a photo.
 `AzureContentSafetyModerator` -- production. Calls Azure AI Content Safety
    `image:analyze`. Per ADR 0010 the quarantine threshold is
    `severity >= settings.content_safety_severity_threshold` (default 4 /
@@ -32,7 +32,7 @@ class ModerationUnavailable(Exception):
     """
 
 
-Decision = Literal["clean", "flagged"]
+Decision = Literal["clean", "flagged", "pilot_private"]
 
 
 @dataclass(frozen=True)
@@ -49,7 +49,10 @@ class Moderator(Protocol):
 
 class NoOpModerator:
     async def moderate(self, image_bytes: bytes) -> ModerationResult:
-        return ModerationResult(decision="clean", labels={})
+        # A disabled provider is not evidence that a child's photo is safe.
+        # W1 keeps the bytes private and short-lived instead of allowing the
+        # NoOp result to masquerade as a real moderation clearance.
+        return ModerationResult(decision="pilot_private", labels={"provider": "noop"})
 
 
 class AzureContentSafetyModerator:
@@ -117,23 +120,41 @@ class AzureContentSafetyModerator:
             )
             raise ModerationUnavailable(f"Content Safety client error: {res.status_code}")
 
-        payload = cast(dict[str, object], res.json())
+        try:
+            payload = cast(dict[str, object], res.json())
+        except ValueError as exc:
+            log.warning("moderation.acs.invalid_json")
+            raise ModerationUnavailable("Content Safety returned invalid JSON") from exc
+        if not isinstance(payload, dict):
+            raise ModerationUnavailable("Content Safety returned a non-object payload")
+
         analyses = payload.get("categoriesAnalysis")
         if not isinstance(analyses, list):
-            return ModerationResult(decision="clean", labels={})
+            raise ModerationUnavailable("Content Safety response omitted categoriesAnalysis")
 
         labels: dict[str, str] = {}
         flagged: dict[str, str] = {}
         for entry in analyses:
             if not isinstance(entry, dict):
-                continue
+                raise ModerationUnavailable("Content Safety returned a malformed category entry")
             category = entry.get("category")
-            severity = entry.get("severity", 0)
-            if not isinstance(category, str) or not isinstance(severity, int):
-                continue
+            severity = entry.get("severity")
+            if not isinstance(category, str) or category not in self.CATEGORIES:
+                raise ModerationUnavailable("Content Safety returned an unknown category")
+            if category in labels:
+                raise ModerationUnavailable("Content Safety returned a duplicate category")
+            if isinstance(severity, bool) or not isinstance(severity, int):
+                raise ModerationUnavailable("Content Safety returned a non-integer severity")
+            if severity not in (0, 2, 4, 6):
+                raise ModerationUnavailable("Content Safety returned an invalid severity")
             labels[category] = str(severity)
             if severity >= self._severity_threshold:
                 flagged[category] = str(severity)
+
+        if set(labels) != set(self.CATEGORIES):
+            missing = sorted(set(self.CATEGORIES) - set(labels))
+            log.warning("moderation.acs.incomplete", missing=missing)
+            raise ModerationUnavailable("Content Safety returned an incomplete category set")
 
         decision: Decision = "flagged" if flagged else "clean"
         log.info(

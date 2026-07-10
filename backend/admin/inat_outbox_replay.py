@@ -64,6 +64,10 @@ async def replay(session: AsyncSession, settings: Settings) -> int:
     flipped from `pending` to `enqueued`). Rows whose enqueue still
     fails stay in `pending` with `retry_count` + `last_error` bumped.
     """
+    if not settings.inat_submit_enabled:
+        log.info("inat_outbox_replay.disabled")
+        return 0
+
     cutoff = datetime.now(UTC) - _GRACE_WINDOW
 
     rows = (

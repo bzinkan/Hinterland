@@ -28,11 +28,21 @@ _OBS_ID = "01J0OBSID00000000000000ULID"
 
 
 def _settings_with_sb(*, namespace: str = "dragonfly-sb-test.servicebus.windows.net") -> Settings:
-    return Settings(env="local", service_bus_namespace=namespace)
+    return Settings(env="local", service_bus_namespace=namespace, inat_submit_enabled=True)
 
 
 def _settings_without_sb() -> Settings:
-    return Settings(env="local", service_bus_namespace="")
+    return Settings(env="local", service_bus_namespace="", inat_submit_enabled=True)
+
+
+async def test_returns_disabled_before_service_bus_check() -> None:
+    settings = Settings(
+        env="local",
+        service_bus_namespace="dragonfly-sb-test.servicebus.windows.net",
+        inat_submit_enabled=False,
+    )
+    result = await enqueue_inat_submit(_OBS_ID, settings=settings)
+    assert result == InatEnqueueResult(success=False, reason="disabled")
 
 
 async def test_returns_not_configured_when_namespace_empty() -> None:

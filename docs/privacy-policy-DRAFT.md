@@ -1,16 +1,16 @@
-# Dragonfly Privacy Policy (DRAFT)
+# Hinterland Privacy Policy (DRAFT)
 
 > **STATUS: DRAFT, NOT FOR PUBLICATION.** This captures the Azure-era product
 > facts. Counsel must review the final text before closed/public store release.
 
-Last updated: 2026-06-04 (draft)
+Last updated: 2026-07-09 (draft)
 
-## What Dragonfly is
+## What Hinterland is
 
-Dragonfly is a citizen-science field app for curious explorers of all ages.
-People photograph real outdoor organisms, build a personal Dex, complete expeditions, and may
-eventually contribute approved observations to iNaturalist through a
-Dragonfly-owned project account.
+Hinterland is a citizen-science field app for curious explorers of all ages.
+People photograph real outdoor organisms, build a personal Dex, and complete
+Expeditions. Public iNaturalist contribution is not enabled for W1 or closed
+beta and requires a separate consent/geoprivacy decision.
 
 A parent or teacher creates the kid account. Kids do not enter email addresses,
 do not see ads, and do not communicate through public chat, direct messages, or
@@ -19,11 +19,13 @@ kid-to-kid free text.
 ## What we collect from a kid account
 
 - A photo of an organism, stored privately in Azure Blob Storage.
-- Observation location. The Play Internal pilot uses coarse location.
+- An optional four-character coarse-area geohash for an observation. No
+  location is valid; new clients discard raw coordinates before upload.
 - A coarse location cell (a grid square roughly 20 by 40 kilometers, computed on the device) when the
   app suggests expeditions. Raw coordinates are not sent for this feature, and
   the app never asks for new location permission to do it.
-- Species identification chosen by the kid, optionally suggested by iNaturalist.
+- Species identification chosen from the project catalog, manual display text,
+  or Unknown. Pre-save iNaturalist image suggestions are disabled.
 - Timestamp, display name, age band, group membership, Dex/reward/Sanctuary
   progress.
 
@@ -55,16 +57,19 @@ are served from Azure Static Web Apps.
   rewards, review queue, and Sanctuary state. Rank suggested expeditions by
   the kid's general area using the coarse on-device location cell.
 - **Moderation.** Photos are reviewed asynchronously. The closed-beta target is
-  Azure AI Content Safety; W1 Internal Testing may run with noop moderation and
-  adult-supervised manual review only.
-- **Scientific contribution.** iNaturalist public submission is off for W1
-  Internal Testing. For closed beta and later, approved observations may be
-  submitted through the Dragonfly project account, not under the kid's name.
-  Any such submission uses iNaturalist's "obscured" geoprivacy setting and
-  coordinates rounded to roughly 1 kilometer — the precise location never
-  leaves our systems.
+  Azure AI Content Safety. W1 NoOp records `pilot_private`, is not a safety
+  approval, grants no signed-photo access, and purges after seven days.
+- **Scientific contribution.** iNaturalist public submission is off for W1 and
+  closed beta. Optional post-clean CV also stays off until reviewed disclosure,
+  consent, and accuracy gates pass.
 - **Operations.** Structured logs help debug failures. Photo bytes are never
-  logged.
+  logged. Raw coordinates, signed photo URLs, and child-entered manual species
+  text are not logged.
+
+Photo containers are private. A child can receive a signed URL only for their
+own clean photo; peer children cannot. Authorized managing adults may access a
+clean photo and authorized reviewers may access a quarantined photo. Pending,
+pilot-private, failed, rejected, and deleted photos receive no signed URL.
 
 ## What we do not do
 
@@ -79,7 +84,7 @@ are served from Azure Static Web Apps.
 Parents can request access, export, or deletion of their own account and linked
 kid accounts. The app includes an account-deletion request button in Settings.
 The immediate API effect is `users.disabled_at`; full deletion of linked child
-data, photos, and future iNaturalist contributions remains an operator follow-up
+data, photos, and any historical iNaturalist contributions remains an operator follow-up
 until legal copy and retention policy are finalized.
 
 Consent events are persisted in `parent_consent_records` with a receipt id,

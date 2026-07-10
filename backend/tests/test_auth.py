@@ -404,10 +404,18 @@ def test_kid_exchange_rejects_invalid_token(
     assert response.headers["www-authenticate"] == "Bearer"
 
 
+@pytest.mark.parametrize(
+    "path",
+    [
+        "/.well-known/dragonfly-kid-jwks.json",
+        "/.well-known/hinterland-kid-jwks.json",
+    ],
+)
 def test_kid_jwks_endpoint_returns_keys(
     monkeypatch: pytest.MonkeyPatch,
+    path: str,
 ) -> None:
-    """GET /.well-known/dragonfly-kid-jwks.json returns the published JWKS."""
+    """Both additive-rebrand JWKS paths return the published key set."""
     if not hasattr(auth_routes_module, "public_jwks"):
         pytest.skip("public_jwks not present yet")
 
@@ -430,7 +438,7 @@ def test_kid_jwks_endpoint_returns_keys(
 
     app = create_app(Settings(env="local", app_version="test"))
     with TestClient(app) as test_client:
-        response = test_client.get("/.well-known/dragonfly-kid-jwks.json")
+        response = test_client.get(path)
 
     assert response.status_code == 200
     body = response.json()

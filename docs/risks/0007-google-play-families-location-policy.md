@@ -2,7 +2,7 @@
 
 - **Status:** Mitigated for Play Internal; keep open until device verification
 - **Date filed:** 2026-06-03
-- **Updated:** 2026-07-02
+- **Updated:** 2026-07-09 for ADR 0015
 - **Chosen option:** Option B, coarse/foreground location for `play-internal`
 - **Owner:** Brian
 
@@ -13,8 +13,15 @@ The `play-internal` Android build must not request
 `android.permission.ACCESS_COARSE_LOCATION` and blocks fine location in
 `mobile/app.config.ts`.
 
-This preserves location semantics for observations while reducing the child
-privacy/compliance risk before any Google Play Internal Testing upload.
+Location is optional. When accepted, mobile computes `geohash4` locally from
+an approximate fix and discards raw coordinates before SQLite or network
+writes. Denial/disabled services save with no location. Imported library photos
+never silently inherit current device location.
+
+The server persists only optional `geohash4` plus
+`device_coarse|manual_coarse|none`. One compatibility release may accept legacy
+coordinates, but converts them in memory and never persists or logs them.
+Radius-based Expedition rules decline when only coarse/no location is present.
 
 ## Code State
 
@@ -65,6 +72,11 @@ BEFORE any play-internal build that includes this feature.
       permission.
 - [ ] Install on a physical Android device from Internal Testing.
 - [ ] Confirm the runtime location prompt matches coarse/approximate behavior.
+- [ ] Deny location and confirm the Observation still saves.
+- [ ] Inspect PostgreSQL and Log Analytics for no raw coordinates or
+      coordinate-bearing URLs.
+- [ ] Import a library image and confirm current device location is not applied
+      without a separate explicit choice.
 - [ ] Record the chosen option and device result in the private pilot journal.
 
 ## Rule

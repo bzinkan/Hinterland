@@ -17,8 +17,7 @@ Sister docs:
   for the Play Console upload procedure that produced the build under
   test.
 - [`docs/risks/0007-google-play-families-location-policy.md`](risks/0007-google-play-families-location-policy.md)
-  for the precise-location mitigation option that gates the kid-flow
-  permission prompt below.
+  for the coarse/no-location gate below.
 
 This pilot is **adult-supervised, known-family kid testing only** —
 1–3 kids age 9–12, with at least one adult per session, on the Play
@@ -92,21 +91,19 @@ the tapping.
   - **Camera** (via expo-camera).
   - **Photo library** (implicit via expo-image-picker; no Android
     13+ permission prompt expected).
-  - **Location** — the prompt the kid sees must match the option
-    recorded in
-    [`docs/risks/0007-google-play-families-location-policy.md`](risks/0007-google-play-families-location-policy.md)
-    for this build:
-    - Option A → no precise-location prompt; manual location picker.
-    - Option B → coarse-only prompt (`ACCESS_COARSE_LOCATION`). This is the
-      chosen `play-internal` path.
-    - Option D → pilot deferred; this script should not be running.
+  - **Location** — optional coarse-only prompt
+    (`ACCESS_COARSE_LOCATION`) or no-location path. Fine/precise location is a
+    hard stop.
   - **Nothing else.** No microphone, no contacts, no SMS, no
     calendar. If any of those prompt, stop immediately.
 - [ ] Kid captures or selects ONE safe outdoor organism photo (the
   adult chose the target organism beforehand).
-- [ ] Kid confirms the species manually. The pilot does not require
-  iNat CV to be live — manual species confirmation is the documented
-  fallback for the W1 pilot.
+- [ ] Confirmation preview uses `contain` and shows the complete image.
+- [ ] Kid selects from bundled/project catalog. In a second dry run, manual
+  display text or Unknown saves without earning a Dex species. Pre-save iNat
+  CV is off.
+- [ ] Kid may add approximate location or no location. Denial cannot block
+  save; a library photo does not silently inherit current device location.
 - [ ] Kid taps submit on the observation.
 - [ ] Kid sees the success / reward screen. Submission must NOT block
   on iNat, Google/Maps, moderation, or rarity refresh — the kid
@@ -131,20 +128,30 @@ the tapping.
   (no consent re-prompt, no third-party SDK login dialog, no
   unexpected permission prompt).
 
+### Recovery and account-isolation pass
+
+- [ ] Enable airplane mode, capture/confirm, and verify child-friendly local
+  safe-copy messaging instead of a raw API error.
+- [ ] Restore network, let Azure PUT finish, kill before create response,
+  relaunch, and verify the queue resumes with the same submission ULID.
+- [ ] Confirm exactly one server observation, membership increment, and reward
+  set. The queue JPEG remains until reconciliation, then clears.
+- [ ] Sign out with unsynced work and verify the adult warning. Sign in as a
+  different kid and verify prior queue, draft, server query, image, and signed
+  photo state is invisible.
+- [ ] Sign back in as the original kid and resume or explicitly discard only
+  that kid's work.
+
 ## Adult review (parent account, after the kid step)
 
 Switch back to the parent's device.
 
 - [ ] Open the **Adult tools** section on the Settings tab and tap
   the review-queue link.
-- [ ] Confirm the review queue renders without 500s. Either:
-  - Empty state renders cleanly (expected — clean outdoor photos
-    should not trigger moderation; moderation is the noop path in
-    W1 per
-    [`docs/risks/0002-async-workers-production-unwired.md`](risks/0002-async-workers-production-unwired.md)),
-    OR
-  - A pending item renders with a working photo thumbnail and
-    visible Approve / Reject buttons.
+- [ ] Confirm review queue renders without 500s. Empty is expected: W1 NoOp is
+  `pilot_private`, not clean/quarantine, and grants no thumbnail.
+- [ ] Operator canary confirms `pilot_private`, no signed-photo URL, and no
+  iNaturalist outbox/queue work.
 - [ ] Confirm the kid-facing surface had no public / social /
   free-text features visible during the kid's run — no public chat,
   no DMs, no kid-to-kid free text, no public feed. (This is an

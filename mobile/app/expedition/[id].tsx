@@ -19,14 +19,20 @@ import {
   restartExpedition,
 } from "@/src/api/expeditions";
 import { nextObjective, progressLabel } from "@/src/expeditions/logic";
+import { useAuthSession } from "@/src/auth/session";
+import { ImperativeRequestSupersededError } from "@/src/auth/requestBoundary";
 
 export default function ExpeditionDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const queryClient = useQueryClient();
+  const ownerUserId = useAuthSession((state) =>
+    state.status === "authenticated" ? state.user.id : null,
+  );
 
   const mine = useQuery({
-    queryKey: ["expeditions", "me"],
-    queryFn: listMyExpeditions,
+    queryKey: ["expeditions", ownerUserId ?? "anonymous", "me"],
+    queryFn: ({ signal }) => listMyExpeditions(signal),
+    enabled: ownerUserId != null,
   });
 
   const focus = useMutation({
@@ -35,6 +41,7 @@ export default function ExpeditionDetailScreen() {
       void queryClient.invalidateQueries({ queryKey: ["expeditions"] });
     },
     onError: (err) => {
+      if (err instanceof ImperativeRequestSupersededError) return;
       const message =
         err instanceof ApiError ? `${err.status}: ${err.message}` : String(err);
       Alert.alert("Couldn't focus quest", message);
@@ -47,6 +54,7 @@ export default function ExpeditionDetailScreen() {
       void queryClient.invalidateQueries({ queryKey: ["expeditions"] });
     },
     onError: (err) => {
+      if (err instanceof ImperativeRequestSupersededError) return;
       const message =
         err instanceof ApiError ? `${err.status}: ${err.message}` : String(err);
       Alert.alert("Couldn't start over", message);

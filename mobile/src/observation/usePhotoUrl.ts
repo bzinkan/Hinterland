@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 
 import { getPhotoUrl } from "@/src/api/photos";
+import { useAuthSession } from "@/src/auth/session";
 
 /**
  * Signed GET URL for one photo, cached just under the server's 5-minute
@@ -18,10 +19,13 @@ import { getPhotoUrl } from "@/src/api/photos";
  * data is a background refetch.
  */
 export function usePhotoUrl(photoId: string, enabled: boolean) {
+  const ownerUserId = useAuthSession((state) =>
+    state.status === "authenticated" ? state.user.id : null,
+  );
   return useQuery({
-    queryKey: ["photo-url", photoId],
-    queryFn: () => getPhotoUrl(photoId),
-    enabled,
+    queryKey: ["photo-url", ownerUserId ?? "anonymous", photoId],
+    queryFn: ({ signal }) => getPhotoUrl(photoId, signal),
+    enabled: enabled && ownerUserId != null,
     staleTime: 4 * 60 * 1000,
     gcTime: 5 * 60 * 1000,
     refetchInterval: 4 * 60 * 1000,

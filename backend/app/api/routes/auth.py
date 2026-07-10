@@ -605,10 +605,14 @@ async def dev_login(
 
 
 # ---------------------------------------------------------------------------
-# GET /.well-known/dragonfly-kid-jwks.json -- public JWKS for kid tokens
+# GET public JWKS for kid tokens (additive rebrand aliases)
 # ---------------------------------------------------------------------------
 
 
+@well_known_router.get(
+    "/.well-known/hinterland-kid-jwks.json",
+    include_in_schema=False,
+)
 @well_known_router.get(
     "/.well-known/dragonfly-kid-jwks.json",
     include_in_schema=False,

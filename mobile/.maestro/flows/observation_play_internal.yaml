@@ -1,0 +1,49 @@
+appId: com.dragonfly.app
+name: observation_play_internal
+tags:
+  - play-internal
+  - observation
+---
+- addMedia:
+    - "../../assets/images/icon.png"
+- launchApp:
+    clearState: false
+- extendedWaitUntil:
+    visible:
+      id: "tab-observe"
+    timeout: 30000
+- tapOn:
+    id: "tab-observe"
+- assertVisible:
+    id: "observe-screen"
+- tapOn:
+    id: "observation-library-button"
+- runFlow: "../partials/pick_first_android_image.yaml"
+- extendedWaitUntil:
+    visible:
+      id: "observation-confirm-screen"
+    timeout: 30000
+- assertVisible:
+    id: "observation-confirm-image"
+- tapOn:
+    id: "observation-confirm-button"
+- extendedWaitUntil:
+    visible:
+      id: "observation-submit-screen"
+    timeout: 30000
+- tapOn:
+    id: "observation-no-location-button"
+- tapOn:
+    id: "observation-unknown-button"
+- tapOn:
+    id: "observation-save-button"
+- extendedWaitUntil:
+    visible:
+      id: "observation-stage-complete"
+    timeout: 120000
+- tapOn:
+    id: "observation-done-button"
+- extendedWaitUntil:
+    visible:
+      id: "field-journal-screen"
+    timeout: 30000

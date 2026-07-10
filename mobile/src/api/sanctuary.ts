@@ -204,6 +204,6 @@ export type SanctuarySnapshotDto = {
  * Read-only, current-user-scoped. The route takes no parameters; a hostile
  * caller cannot pass `?user_id=...` to fetch another user's Sanctuary.
  */
-export function getMySanctuary(): Promise<SanctuarySnapshotDto> {
-  return apiRequest<SanctuarySnapshotDto>("/v1/sanctuary/me");
+export function getMySanctuary(signal?: AbortSignal): Promise<SanctuarySnapshotDto> {
+  return apiRequest<SanctuarySnapshotDto>("/v1/sanctuary/me", { signal });
 }

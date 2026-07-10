@@ -20,6 +20,39 @@ def test_settings_accept_typed_environment_overrides() -> None:
     assert settings.readiness_database_required is True
 
 
+def test_dragonfly_environment_remains_supported(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("HINTERLAND_INAT_CV_ENABLED", raising=False)
+    monkeypatch.setenv("DRAGONFLY_INAT_CV_ENABLED", "true")
+
+    assert Settings().inat_cv_enabled is True
+    assert Settings().inat_cv_egress_allowed is False
+
+
+def test_inat_photo_egress_defaults_disabled() -> None:
+    settings = Settings()
+
+    assert settings.inat_cv_enabled is False
+    assert settings.inat_submit_enabled is False
+    assert settings.observation_idempotency_required is False
+
+
+def test_cv_requires_enable_disclosure_and_benchmark_gates() -> None:
+    settings = Settings(
+        inat_cv_enabled=True,
+        inat_cv_disclosure_approved=True,
+        inat_cv_benchmark_approved=True,
+    )
+    assert settings.inat_cv_egress_allowed is True
+
+
+def test_hinterland_can_require_observation_idempotency(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("HINTERLAND_OBSERVATION_IDEMPOTENCY_REQUIRED", "true")
+
+    assert Settings().observation_idempotency_required is True
+
+
 def test_content_root_defaults_to_image_path() -> None:
     # backend/Dockerfile bakes content/expeditions/ into the image here;
     # local runs override via DRAGONFLY_CONTENT_ROOT (see the
@@ -69,7 +102,7 @@ def test_settings_read_hinterland_env_vars(monkeypatch: pytest.MonkeyPatch) -> N
     assert settings.organism_fallback_provider == "azure_vision"
 
 
-def test_dragonfly_env_vars_win_over_hinterland_env_vars(
+def test_hinterland_env_vars_win_over_dragonfly_env_vars(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("HINTERLAND_ENV", "prod")
@@ -79,8 +112,8 @@ def test_dragonfly_env_vars_win_over_hinterland_env_vars(
 
     settings = Settings()
 
-    assert settings.env == "dev"
-    assert settings.dev_login_key == "dragonfly-key"
+    assert settings.env == "prod"
+    assert settings.dev_login_key == "hinterland-key"
 
 
 def test_stub_auth_allowed_fails_closed_outside_local() -> None:

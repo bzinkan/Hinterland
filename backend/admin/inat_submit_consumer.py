@@ -108,6 +108,7 @@ async def process_one(
     inat_client: httpx.AsyncClient,
     *,
     body: str,
+    egress_enabled: bool = False,
 ) -> str:
     """Handle one Service Bus message body.
 
@@ -192,6 +193,7 @@ async def process_one(
             observed_on=obs.created_at,
             taxon_id=obs.taxon_id,
             species_guess=obs.species_name,
+            egress_enabled=egress_enabled,
         )
     except InatUnavailable as exc:
         log.warning(
@@ -263,6 +265,9 @@ async def consume(
     Returns the number of messages processed. ``max_messages=None`` runs
     until terminated; an integer bounds the loop for smoke tests.
     """
+    if not settings.inat_submit_enabled:
+        log.warning("inat.consumer.disabled")
+        return 0
     if not settings.service_bus_enabled:
         log.warning("inat.consumer.not_configured")
         return 0
@@ -306,7 +311,11 @@ async def consume(
                         body = _message_body_to_text(message)
                         async with sessions() as session:
                             disposition = await process_one(
-                                session, storage, inat_client, body=body
+                                session,
+                                storage,
+                                inat_client,
+                                body=body,
+                                egress_enabled=settings.inat_submit_enabled,
                             )
                         if disposition == "complete":
                             await receiver.complete_message(message)

@@ -18,17 +18,24 @@ The logical product invariants are unchanged:
 | `users` | Entra-backed adults and Hinterland-signed kid identities |
 | `groups` | Invite-only class/family groups with join codes |
 | `memberships` | User membership plus leaderboard counters |
-| `photos` | Azure Blob object lifecycle state |
-| `observations` | Kid observations and denormalized display fields |
+| `photos` | Azure Blob attachment state plus verified canonical metadata |
+| `observations` | Authoritative kid observations, moderation, identification, dispatch status, and persisted rewards |
 | `dex_entries` | First species finds per user |
 | `expedition_content` | Materialized view of repo-authored expedition JSON |
 | `expedition_progress` | Per-user progress through active expeditions |
 | `review_queue` | Teacher/adult review for quarantined photos |
 | `ingest_runs` | Replayable ingest audit and cursor state |
 | `job_state` | Durable cursors for scheduled/background jobs |
-| `species_cache` | Cached iNaturalist taxa metadata |
-| `geo_cache` | Cached reverse geocode and nearby-place data |
+| `species_cache` | Versioned project-owned runtime taxonomy catalog |
+| `taxonomy_packs` | Published immutable pack metadata and Blob location |
+| `cv_suggestion_cache` | Post-clean suggestions keyed by canonical photo SHA-256 and CV model version |
+| `geo_cache` | Coarse-geohash reverse-geocode cache |
 | `rarity_cache` | Regional rarity tiers consumed by `RarityHandler` |
+| `observation_idempotency` | Operation-scoped request hashes for presign/create replay |
+| `moderation_outbox` | Committed canonical-photo work awaiting Service Bus relay |
+| `observation_handler_runs` | Versioned per-handler status, state, attempts, and rewards |
+| `derived_state_rebuilds` | Adult-visible rejection/correction compensation jobs |
+| `expedition_observation_contributions` | One-observation-per-expedition replay gate |
 | `sanctuary_zone_state` | Per-user per-zone observation counts and depth tier |
 | `sanctuary_elements` | Per-user record of which named Sanctuary unlocks have fired |
 | `sanctuary_observation_contributions` | Idempotency gate keyed on `observation_id` for `WorldHandler` replay |
@@ -43,13 +50,19 @@ The logical product invariants are unchanged:
 | Load group members | `select * from memberships where group_id = $1` |
 | Group leaderboard | `select * from memberships where group_id = $1 order by dex_count desc` |
 | User observations | `select * from observations where user_id = $1 order by created_at desc` |
+| Submission replay | Read `observation_idempotency` by `(user_id, idempotency_ulid, operation)` and compare normalized request hash |
 | Group observations | `select * from observations where group_id = $1 order by created_at desc` |
 | User Dex | `select * from dex_entries where user_id = $1 order by first_seen_at desc` |
 | First find | `insert into dex_entries (...) on conflict (user_id, taxon_id) do nothing` |
 | Expedition progress | `select * from expedition_progress where user_id = $1` |
 | Active expedition focus | `select * from expedition_progress where user_id = $1 and focused_at is not null` |
 | Review queue | `select * from review_queue where group_id = $1 and status = 'pending'` |
+| Handler replay claim | Lock pending/failed/blocked `observation_handler_runs` with `FOR UPDATE SKIP LOCKED` |
+| Derived rebuild claim | Coalesce/lock `derived_state_rebuilds` by `user_id` |
 | Rarity lookup | `select * from rarity_cache where region_geohash = $1 and taxon_id = $2` |
+| Taxonomy search | Search active `species_cache` normalized/indexed name and aliases; no live fallback |
+| Taxonomy pack | Read active `taxonomy_packs` by pack ID/version and sign the private Blob |
+| CV suggestion replay | Read `cv_suggestion_cache` by canonical photo SHA-256 and model version |
 | Ingest replay | `select * from ingest_runs where source = $1 and status = 'failed'` |
 | Sanctuary zone state | `select * from sanctuary_zone_state where user_id = $1 and zone_id = $2` |
 | Sanctuary first-fire | `insert into sanctuary_elements (...) on conflict (user_id, zone_id, element_id) do nothing` |
@@ -60,13 +73,19 @@ The logical product invariants are unchanged:
 
 `POST /v1/observations` must commit the core product state in one transaction:
 
-1. Insert the observation row.
-2. Update the membership observation counter.
-3. Attempt `dex_entries` insert with `ON CONFLICT DO NOTHING`.
-4. If the insert wins, update the membership Dex counter.
-5. Run deterministic dispatcher handlers against already-persisted state.
-6. Store reward output on the observation row.
-7. Enqueue async work for iNaturalist submission and other slow tasks.
+1. Acquire the per-user PostgreSQL advisory lock.
+2. Recheck the operation-scoped idempotency key/request hash and lock the photo
+   reservation.
+3. Attach the verified canonical photo and insert exactly one observation.
+4. Increment the membership observation counter exactly once.
+5. Insert one pending handler ledger row per registered handler.
+6. Insert the moderation outbox row.
+7. Persist the successful create idempotency result.
+
+After that transaction commits, the dispatcher runs under the same per-user
+serialization contract and persists handler state/rewards. An infrastructure
+or handler failure does not roll back the authoritative observation; it leaves
+`dispatch_status=pending|partial` for durable replay.
 
 The first-find check must not become read-then-write. The database unique
 constraint is the source of truth under concurrency.
@@ -75,6 +94,82 @@ constraint is the source of truth under concurrency.
 Expedition steps, such as `{ "life_stage": "flower" }`. Tags are optional,
 validated against the approved key/value catalog at `POST /v1/observations`,
 and are never free text or runtime-LLM output.
+
+## Observation And Photo Field Contract
+
+`photos.attachment_status` is separate from moderation:
+
+- `reserved`: SAS issued, not attached to an observation;
+- `attached`: canonical JPEG verified and linked;
+- `deleted`: bytes must not be served.
+
+Verified photo metadata includes canonical object name, byte count, decoded
+dimensions, SHA-256, and verification time. One photo may back only one
+observation. The photo and observation share a submission ULID unique per user.
+
+`observations.moderation_status` is one of `pending`, `processing`, `clean`,
+`quarantine`, `pilot_private`, `rejected`, or `failed`, with a separate
+`moderation_source` (`none|noop|azure|adult`) and policy version. Attachment or
+Blob arrival never implies a moderation decision.
+
+Observations record `observed_at`, optional `geohash4`, and
+`location_source=device_coarse|manual_coarse|none|legacy_coarsened`. New raw
+latitude/longitude is not durable data. Compatibility latitude/longitude input
+is converted in memory, never stored or logged.
+
+Identification records a project-catalog taxon ID or manual/Unknown choice,
+`identification_source`, and `identification_revision`. When a taxon ID is
+present, the server ignores client-supplied names and uses the catalog's
+canonical display name. Manual and Unknown observations are Dex-ineligible.
+
+## Handler And Work Ledgers
+
+`observation_handler_runs` is keyed by observation, stable handler name, and
+handler version. Rows record dependency-aware status, attempt count, JSON state,
+and persisted rewards. `dispatched_at` is set only when every required handler
+succeeds; `dispatch_status=partial` means durable recovery remains.
+
+`moderation_outbox` is unique per observation. Only its committed rows may
+produce Service Bus messages. Direct BlobCreated/Event Grid moderation is
+forbidden.
+
+`derived_state_rebuilds` coalesces per user. Rejection and revision-checked
+identification correction enqueue it transactionally. Expedition contribution
+gates prevent one observation from advancing the same step twice under replay.
+
+## Additive Migration Procedure
+
+The Observation repair uses new Alembic revisions; applied migrations are not
+edited. Deployment must:
+
+1. report duplicate photo, submission, review, and negative-counter keys;
+2. keep the earliest observation for a duplicated photo, tombstone later rows,
+   and queue affected users for rebuild;
+3. backfill compatible legacy submission keys while leaving the columns
+   nullable for the old-API migration-first window; the new API always writes
+   them and the scheduled cutover reconciler fills any race rows;
+4. map observed photos to attached/pending and leave unattached rows reserved;
+5. set legacy `observed_at=created_at`;
+6. retain only an existing `geohash4`, null precise coordinates, and mark the
+   source `legacy_coarsened`;
+7. register every attached pending legacy observation in `moderation_outbox`;
+8. canonicalize old `pending/<photo_id>.jpg` bytes before the relay can publish
+   them, rejecting invalid/missing bytes and queuing a rebuild;
+9. mark historical derived state `unverified` and queue rebuilds;
+10. validate unique/check constraints only after reconciliation; and
+11. retain compatibility columns/status mappings for one mobile release.
+
+## Rejection And Identification Correction
+
+Rejection tombstones the authoritative observation, immediately denies photo
+access, and queues a rebuild instead of piecemeal counter decrements. A
+revision-checked identification correction uses the same rebuild path.
+
+The rebuild acquires the same user advisory lock and atomically regenerates
+membership counters, Dex, Expedition contribution, rarity, Sanctuary, handler
+ledger, and stored rewards from accepted observations ordered by
+`(observed_at, id)`. Expedition enrollment/start times remain intact. Normal
+reads never aggregate observations at request time.
 
 ## Expedition Progress
 
@@ -100,8 +195,7 @@ review queue items.
 Sanctuary is per-user derived state -- a materialized view of observation
 outcomes, not an authoritative source. Authoritative state lives on
 `observations`, `dex_entries`, and `memberships` rows. Sanctuary state is
-derived from observation history via `WorldHandler` (Phase 2, not implemented
-yet) and the four tables below.
+derived from observation history via `WorldHandler` and the four tables below.
 
 ### `sanctuary_zone_state`
 

@@ -10,9 +10,7 @@ from app.api.routes.species import facts_from_payload
 from app.core.config import Settings
 from app.db import models
 from app.db.session import get_db_session
-from app.inat.client import InatUnavailable
 from app.main import create_app
-from app.services import species_cache as species_cache_service
 from tests.helpers.auth import stub_token_verifier
 
 _FIREBASE_UID = "firebase-kid-001"
@@ -151,21 +149,14 @@ def test_facts_cache_hit_returns_stripped_summary(
     assert body["conservation_status"] == "least concern"
 
 
-def test_facts_degrade_gracefully_when_inat_down(
+def test_facts_degrade_gracefully_when_catalog_has_no_source_facts(
     monkeypatch: pytest.MonkeyPatch,
     species_client: TestClient,
     fake_session: AsyncMock,
 ) -> None:
-    """iNat unreachable + cache empty -> 200 facts_available=false, never 5xx."""
+    """A minimal reviewed catalog row remains useful without live lookup."""
     _stub_token_verifier(monkeypatch)
-    user_result = MagicMock()
-    user_result.scalar_one_or_none = MagicMock(return_value=_user_row())
-    fake_session.execute = AsyncMock(return_value=user_result)
-
-    async def unavailable(*args: object, **kwargs: object) -> dict[str, object] | None:
-        raise InatUnavailable("iNat taxa transport error")
-
-    monkeypatch.setattr(species_cache_service, "get_source_payload", unavailable)
+    _wire_cache_hit(fake_session, {})
 
     response = species_client.get(
         f"/v1/species/{_TAXON_ID}",
@@ -175,7 +166,7 @@ def test_facts_degrade_gracefully_when_inat_down(
     body = response.json()
     assert body["facts_available"] is False
     assert body["summary"] is None
-    assert body["common_name"] is None
+    assert body["common_name"] == "Northern Cardinal"
 
 
 def test_facts_404_when_taxon_unknown(
@@ -186,12 +177,9 @@ def test_facts_404_when_taxon_unknown(
     _stub_token_verifier(monkeypatch)
     user_result = MagicMock()
     user_result.scalar_one_or_none = MagicMock(return_value=_user_row())
-    fake_session.execute = AsyncMock(return_value=user_result)
-
-    async def missing(*args: object, **kwargs: object) -> dict[str, object] | None:
-        return None
-
-    monkeypatch.setattr(species_cache_service, "get_source_payload", missing)
+    missing_result = MagicMock()
+    missing_result.scalar_one_or_none = MagicMock(return_value=None)
+    fake_session.execute = AsyncMock(side_effect=[user_result, missing_result])
 
     response = species_client.get(
         f"/v1/species/{_TAXON_ID}",

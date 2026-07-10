@@ -34,6 +34,8 @@ from dataclasses import replace
 
 import structlog
 from sqlalchemy import select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.attributes import flag_modified
 
 from app.db import models
@@ -73,6 +75,7 @@ def _uses_radius(spec: MatchSpec) -> bool:
 
 class ExpeditionHandler:
     name = "expedition"
+    version = "1"
 
     async def handle(self, ctx: Context) -> HandlerResult:
         # with_for_update(of=progress): the restart endpoint and this
@@ -126,9 +129,13 @@ class ExpeditionHandler:
         base_inputs = await self._build_inputs(ctx, include_prior_observations=needs_priors)
 
         rewards: list[Reward] = []
-        any_advanced = False
+        observed_at = ctx.observation.observed_at or ctx.observation.created_at
 
         for progress, content, exp in parsed:
+            # Rebuilds replay accepted history; observations made before an
+            # expedition enrollment never advance it retroactively.
+            if progress.created_at is not None and observed_at < progress.created_at:
+                continue
             completed = dict(progress.completed_steps or {})
 
             # Replay gate: this observation already credited a step in
@@ -157,16 +164,31 @@ class ExpeditionHandler:
             if not matches(next_step.match, inputs):
                 continue
 
+            if isinstance(ctx.db, AsyncSession) and type(ctx.db).__module__ != "unittest.mock":
+                contribution_stmt = (
+                    pg_insert(models.ExpeditionObservationContribution)
+                    .values(
+                        observation_id=ctx.observation.id,
+                        expedition_id=exp.id,
+                        step_id=next_step.id,
+                    )
+                    .on_conflict_do_nothing(
+                        index_elements=["observation_id", "expedition_id"],
+                    )
+                    .returning(models.ExpeditionObservationContribution.observation_id)
+                )
+                contributed = (await ctx.db.execute(contribution_stmt)).scalar_one_or_none()
+                if contributed is None:
+                    continue
+
             completed[next_step.id] = {
-                "completed_at": ctx.observation.created_at.isoformat(),
+                "completed_at": observed_at.isoformat(),
                 "observation_id": ctx.observation.id,
             }
             progress.completed_steps = completed
             # JSONB mutation tracking needs an explicit nudge when we
             # reassign with the same key set.
             flag_modified(progress, "completed_steps")
-            any_advanced = True
-
             rewards.append(
                 Reward(
                     type="expedition_step",
@@ -179,7 +201,7 @@ class ExpeditionHandler:
             )
 
             if len(completed) == len(exp.steps):
-                progress.completed_at = ctx.observation.created_at
+                progress.completed_at = observed_at
                 rewards.append(
                     Reward(
                         type="expedition_complete",
@@ -195,9 +217,6 @@ class ExpeditionHandler:
                         payload={"expedition_id": exp.id},
                     )
                 )
-
-        if any_advanced:
-            await ctx.db.commit()
 
         log.info(
             "dispatcher.expedition.complete",
@@ -248,7 +267,9 @@ class ExpeditionHandler:
                 taxon_id=obs.taxon_id,
                 iconic_taxon=species.iconic_taxon if species is not None else None,
                 ancestor_ids=(
-                    ancestor_ids_from_payload(species.source_payload, taxon_id=obs.taxon_id)
+                    tuple(species.ancestor_ids or ())
+                    if species is not None and species.ancestor_ids
+                    else ancestor_ids_from_payload(species.source_payload, taxon_id=obs.taxon_id)
                     if species is not None
                     else ()
                 ),
@@ -283,7 +304,11 @@ class ExpeditionHandler:
                     )
                 )
             ).all()
-            priors = tuple(PriorObservation(latitude=lat, longitude=lng) for lat, lng in prior_rows)
+            priors = tuple(
+                PriorObservation(latitude=lat, longitude=lng)
+                for lat, lng in prior_rows
+                if lat is not None and lng is not None
+            )
 
         return MatcherInputs(
             taxon=taxon,

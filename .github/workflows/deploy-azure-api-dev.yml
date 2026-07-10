@@ -1,8 +1,6 @@
 name: Deploy Azure API dev
 
-# Manual until the Azure federated-identity secrets are configured in GitHub.
-# Once AZURE_CLIENT_ID / AZURE_TENANT_ID / AZURE_SUBSCRIPTION_ID exist, this
-# can be safely re-enabled on push to main.
+# Manual until the Azure federated identity and W1 promotion gates are ready.
 on:
   workflow_dispatch:
 
@@ -15,11 +13,22 @@ env:
   AZURE_ACR_NAME: hinterlandacrdev
   AZURE_CONTAINER_APP: hinterland-api
   IMAGE_REPOSITORY: hinterland-api
+  PREFLIGHT_JOB: hinterland-obs-preflight
+  MIGRATION_JOB: hinterland-migrate
+  LEGACY_RECONCILE_JOB: hinterland-legacy-reconcile
+  STATE_REBUILD_JOB: hinterland-state-rebuild
   EXPEDITION_SYNC_JOB: hinterland-sync-expeditions
+  TAXONOMY_SYNC_JOB: hinterland-taxa-catalog-ingest
+  AZURE_STORAGE_ACCOUNT: hinterlandphotosdev
+  AZURE_UAMI_NAME: hinterland-api-mi
+  SERVICE_BUS_NAMESPACE: hinterland-sb-dev
+  MODERATION_QUEUE: moderation-pending
+  INAT_QUEUE: inat-submit
+  HINTERLAND_KID_JWKS_PATH: /.well-known/dragonfly-kid-jwks.json
 
 jobs:
   deploy:
-    name: Build, deploy, migrate, smoke
+    name: Contain, build, migrate, pin, deploy, smoke
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -33,105 +42,433 @@ jobs:
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
-      - name: Build image in ACR
+      - name: Verify isolated target
+        run: |
+          set -euo pipefail
+          test "${AZURE_RESOURCE_GROUP}" = "hinterland-dev-rg"
+          test "${AZURE_RESOURCE_GROUP}" != "gordi-pilot-rg"
+          az group show --name "${AZURE_RESOURCE_GROUP}" --output none
+
+      - name: Contain Observation egress before build
+        run: |
+          set -euo pipefail
+          # The old API has no CV feature flag; removing its token environment
+          # aliases is the only effective pre-deploy route kill switch.
+          az containerapp update \
+            --name "${AZURE_CONTAINER_APP}" \
+            --resource-group "${AZURE_RESOURCE_GROUP}" \
+            --remove-env-vars \
+              HINTERLAND_INAT_OAUTH_TOKEN \
+              DRAGONFLY_INAT_OAUTH_TOKEN \
+            --output none
+          az containerapp update \
+            --name "${AZURE_CONTAINER_APP}" \
+            --resource-group "${AZURE_RESOURCE_GROUP}" \
+            --set-env-vars \
+              HINTERLAND_MODERATION_PROVIDER=noop \
+              DRAGONFLY_MODERATION_PROVIDER=noop \
+              HINTERLAND_INAT_CV_ENABLED=false \
+              DRAGONFLY_INAT_CV_ENABLED=false \
+              HINTERLAND_INAT_CV_DISCLOSURE_APPROVED=false \
+              DRAGONFLY_INAT_CV_DISCLOSURE_APPROVED=false \
+              HINTERLAND_INAT_CV_BENCHMARK_APPROVED=false \
+              DRAGONFLY_INAT_CV_BENCHMARK_APPROVED=false \
+              HINTERLAND_INAT_SUBMIT_ENABLED=false \
+              DRAGONFLY_INAT_SUBMIT_ENABLED=false \
+            --output none
+          token_env_count="$(az containerapp show \
+            --name "${AZURE_CONTAINER_APP}" \
+            --resource-group "${AZURE_RESOURCE_GROUP}" \
+            --query "length(properties.template.containers[0].env[?name=='HINTERLAND_INAT_OAUTH_TOKEN' || name=='DRAGONFLY_INAT_OAUTH_TOKEN'])" \
+            --output tsv)"
+          test "${token_env_count}" = "0"
+
+          for forbidden in \
+            hinterland-inat-job \
+            hinterland-inat-submit-worker \
+            hinterland-inat-outbox-replay; do
+            az containerapp job delete \
+              --name "${forbidden}" \
+              --resource-group "${AZURE_RESOURCE_GROUP}" \
+              --yes --output none 2>/dev/null || true
+            if az containerapp job show \
+              --name "${forbidden}" \
+              --resource-group "${AZURE_RESOURCE_GROUP}" >/dev/null 2>&1; then
+              echo "Forbidden iNaturalist job still exists: ${forbidden}" >&2
+              exit 1
+            fi
+          done
+          inat_jobs_tsv="$(az containerapp job list \
+            --resource-group "${AZURE_RESOURCE_GROUP}" \
+            --query "[?starts_with(name, 'hinterland-') && (contains(name, 'inat') || contains(name, 'inaturalist'))].name" \
+            --output tsv)"
+          mapfile -t inat_jobs <<< "${inat_jobs_tsv}"
+          for forbidden in "${inat_jobs[@]}"; do
+            test -n "${forbidden}" || continue
+            az containerapp job delete \
+              --name "${forbidden}" \
+              --resource-group "${AZURE_RESOURCE_GROUP}" \
+              --yes --output none
+          done
+          remaining_inat_jobs="$(az containerapp job list \
+            --resource-group "${AZURE_RESOURCE_GROUP}" \
+            --query "length([?starts_with(name, 'hinterland-') && (contains(name, 'inat') || contains(name, 'inaturalist'))])" \
+            --output tsv)"
+          test "${remaining_inat_jobs}" = "0"
+
+          storage_id="$(az storage account show \
+            --name "${AZURE_STORAGE_ACCOUNT}" \
+            --resource-group "${AZURE_RESOURCE_GROUP}" \
+            --query id --output tsv)"
+          storage_topics_tsv="$(az eventgrid system-topic list \
+            --resource-group "${AZURE_RESOURCE_GROUP}" \
+            --query "[].name" --output tsv)"
+          mapfile -t storage_topics <<< "${storage_topics_tsv}"
+          for system_topic in "${storage_topics[@]}"; do
+            test -n "${system_topic}" || continue
+            topic_source="$(az eventgrid system-topic show \
+              --name "${system_topic}" \
+              --resource-group "${AZURE_RESOURCE_GROUP}" \
+              --query source --output tsv)"
+            test "${topic_source,,}" = "${storage_id,,}" || continue
+            direct_subscriptions_tsv="$(az eventgrid system-topic event-subscription list \
+              --system-topic-name "${system_topic}" \
+              --resource-group "${AZURE_RESOURCE_GROUP}" \
+              --query "[?(destination.resourceId && contains(destination.resourceId, '/queues/${MODERATION_QUEUE}')) || (filter.subjectBeginsWith && contains(filter.subjectBeginsWith, '/containers/photos/blobs/pending/'))].name" \
+              --output tsv)"
+            mapfile -t direct_subscriptions <<< "${direct_subscriptions_tsv}"
+            for subscription in "${direct_subscriptions[@]}"; do
+              test -n "${subscription}" || continue
+              az eventgrid system-topic event-subscription delete \
+                --system-topic-name "${system_topic}" \
+                --resource-group "${AZURE_RESOURCE_GROUP}" \
+                --name "${subscription}" --yes --output none
+            done
+            remaining="$(az eventgrid system-topic event-subscription list \
+              --system-topic-name "${system_topic}" \
+              --resource-group "${AZURE_RESOURCE_GROUP}" \
+              --query "length([?(destination.resourceId && contains(destination.resourceId, '/queues/${MODERATION_QUEUE}')) || (filter.subjectBeginsWith && contains(filter.subjectBeginsWith, '/containers/photos/blobs/pending/'))])" \
+              --output tsv)"
+            test "${remaining}" = "0"
+          done
+
+          # Queue-scoped deletion is insufficient when a namespace role is
+          # inherited. Bootstrap replaces broad roles with moderation-only
+          # grants; every deploy verifies iNaturalist access stays absent.
+          uami_principal="$(az identity show \
+            --name "${AZURE_UAMI_NAME}" \
+            --resource-group "${AZURE_RESOURCE_GROUP}" \
+            --query principalId --output tsv)"
+          subscription_id="$(az account show --query id --output tsv)"
+          inat_queue_id="/subscriptions/${subscription_id}/resourceGroups/${AZURE_RESOURCE_GROUP}/providers/Microsoft.ServiceBus/namespaces/${SERVICE_BUS_NAMESPACE}/queues/${INAT_QUEUE}"
+          moderation_queue_id="/subscriptions/${subscription_id}/resourceGroups/${AZURE_RESOURCE_GROUP}/providers/Microsoft.ServiceBus/namespaces/${SERVICE_BUS_NAMESPACE}/queues/${MODERATION_QUEUE}"
+          for role in \
+            "Azure Service Bus Data Sender" \
+            "Azure Service Bus Data Receiver" \
+            "Azure Service Bus Data Owner"; do
+            remaining=1
+            for attempt in $(seq 1 12); do
+              remaining="$(az role assignment list \
+                --assignee-object-id "${uami_principal}" \
+                --scope "${inat_queue_id}" \
+                --include-inherited \
+                --query "[?roleDefinitionName=='${role}'] | length(@)" \
+                --output tsv)"
+              test "${remaining}" = "0" && break
+              sleep 10
+            done
+            test "${remaining}" = "0"
+          done
+          for role in "Azure Service Bus Data Sender" "Azure Service Bus Data Receiver"; do
+            direct=0
+            for attempt in $(seq 1 12); do
+              direct="$(az role assignment list \
+                --assignee-object-id "${uami_principal}" \
+                --scope "${moderation_queue_id}" \
+                --query "[?roleDefinitionName=='${role}'] | length(@)" \
+                --output tsv)"
+              test "${direct}" != "0" && break
+              sleep 10
+            done
+            test "${direct}" != "0"
+          done
+
+      - name: Build immutable image
         run: |
           set -euo pipefail
           ACR_LOGIN_SERVER="$(az acr show \
             --name "${AZURE_ACR_NAME}" \
             --resource-group "${AZURE_RESOURCE_GROUP}" \
-            --query loginServer \
-            --output tsv)"
-          IMAGE="${ACR_LOGIN_SERVER}/${IMAGE_REPOSITORY}:${GITHUB_SHA}"
-          echo "ACR_LOGIN_SERVER=${ACR_LOGIN_SERVER}" >> "${GITHUB_ENV}"
-          echo "IMAGE=${IMAGE}" >> "${GITHUB_ENV}"
-          # Context is the repo root (not backend/) so content/expeditions/
-          # ships inside the image; ignore rules come from the repo-root
-          # .dockerignore.
+            --query loginServer --output tsv)"
           az acr build \
             --registry "${AZURE_ACR_NAME}" \
             --image "${IMAGE_REPOSITORY}:${GITHUB_SHA}" \
             --image "${IMAGE_REPOSITORY}:latest" \
             --file backend/Dockerfile \
             .
+          DIGEST="$(az acr repository show \
+            --name "${AZURE_ACR_NAME}" \
+            --image "${IMAGE_REPOSITORY}:${GITHUB_SHA}" \
+            --query digest --output tsv)"
+          test -n "${DIGEST}"
+          echo "IMAGE=${ACR_LOGIN_SERVER}/${IMAGE_REPOSITORY}@${DIGEST}" >> "${GITHUB_ENV}"
 
-      - name: Deploy Container App revision
+      - name: Run read-only Observation migration preflight
+        run: |
+          set -euo pipefail
+          az containerapp job update \
+            --name "${PREFLIGHT_JOB}" \
+            --resource-group "${AZURE_RESOURCE_GROUP}" \
+            --image "${IMAGE}" --output none
+          execution="$(az containerapp job start \
+            --name "${PREFLIGHT_JOB}" \
+            --resource-group "${AZURE_RESOURCE_GROUP}" \
+            --query name --output tsv)"
+          for attempt in $(seq 1 60); do
+            status="$(az containerapp job execution show \
+              --name "${PREFLIGHT_JOB}" \
+              --resource-group "${AZURE_RESOURCE_GROUP}" \
+              --job-execution-name "${execution}" \
+              --query properties.status --output tsv)"
+            case "${status}" in
+              Succeeded) exit 0 ;;
+              Failed|Canceled) echo "Observation preflight blocked deploy." >&2; exit 1 ;;
+            esac
+            sleep 10
+          done
+          echo "Observation preflight timed out." >&2
+          exit 1
+
+      - name: Run additive migrations first
+        run: |
+          set -euo pipefail
+          az containerapp job update \
+            --name "${MIGRATION_JOB}" \
+            --resource-group "${AZURE_RESOURCE_GROUP}" \
+            --image "${IMAGE}" --output none
+          execution="$(az containerapp job start \
+            --name "${MIGRATION_JOB}" \
+            --resource-group "${AZURE_RESOURCE_GROUP}" \
+            --query name --output tsv)"
+          for attempt in $(seq 1 60); do
+            status="$(az containerapp job execution show \
+              --name "${MIGRATION_JOB}" \
+              --resource-group "${AZURE_RESOURCE_GROUP}" \
+              --job-execution-name "${execution}" \
+              --query properties.status --output tsv)"
+            case "${status}" in
+              Succeeded) exit 0 ;;
+              Failed|Canceled) echo "Migration failed." >&2; exit 1 ;;
+            esac
+            sleep 10
+          done
+          echo "Migration timed out." >&2
+          exit 1
+
+      - name: Sync taxonomy catalog and Expedition content before rebuilds
+        run: |
+          set -euo pipefail
+          for job in "${TAXONOMY_SYNC_JOB}" "${EXPEDITION_SYNC_JOB}"; do
+            az containerapp job update \
+              --name "${job}" \
+              --resource-group "${AZURE_RESOURCE_GROUP}" \
+              --image "${IMAGE}" --output none
+            execution="$(az containerapp job start \
+              --name "${job}" \
+              --resource-group "${AZURE_RESOURCE_GROUP}" \
+              --query name --output tsv)"
+            succeeded=0
+            for attempt in $(seq 1 60); do
+              status="$(az containerapp job execution show \
+                --name "${job}" \
+                --resource-group "${AZURE_RESOURCE_GROUP}" \
+                --job-execution-name "${execution}" \
+                --query properties.status --output tsv)"
+              case "${status}" in
+                Succeeded) succeeded=1; break ;;
+                Failed|Canceled) echo "${job} failed." >&2; exit 1 ;;
+              esac
+              sleep 10
+            done
+            test "${succeeded}" = "1"
+          done
+
+      - name: Reconcile legacy pending photos before consumers
+        run: |
+          set -euo pipefail
+          az containerapp job update \
+            --name "${LEGACY_RECONCILE_JOB}" \
+            --resource-group "${AZURE_RESOURCE_GROUP}" \
+            --image "${IMAGE}" --output none
+          execution="$(az containerapp job start \
+            --name "${LEGACY_RECONCILE_JOB}" \
+            --resource-group "${AZURE_RESOURCE_GROUP}" \
+            --query name --output tsv)"
+          for attempt in $(seq 1 60); do
+            status="$(az containerapp job execution show \
+              --name "${LEGACY_RECONCILE_JOB}" \
+              --resource-group "${AZURE_RESOURCE_GROUP}" \
+              --job-execution-name "${execution}" \
+              --query properties.status --output tsv)"
+            case "${status}" in
+              Succeeded) exit 0 ;;
+              Failed|Canceled) echo "Legacy pending-photo reconciliation failed." >&2; exit 1 ;;
+            esac
+            sleep 10
+          done
+          echo "Legacy pending-photo reconciliation timed out." >&2
+          exit 1
+
+      - name: Rebuild adopted state before dispatcher replay
+        run: |
+          set -euo pipefail
+          az containerapp job update \
+            --name "${STATE_REBUILD_JOB}" \
+            --resource-group "${AZURE_RESOURCE_GROUP}" \
+            --image "${IMAGE}" --output none
+          execution="$(az containerapp job start \
+            --name "${STATE_REBUILD_JOB}" \
+            --resource-group "${AZURE_RESOURCE_GROUP}" \
+            --query name --output tsv)"
+          for attempt in $(seq 1 60); do
+            status="$(az containerapp job execution show \
+              --name "${STATE_REBUILD_JOB}" \
+              --resource-group "${AZURE_RESOURCE_GROUP}" \
+              --job-execution-name "${execution}" \
+              --query properties.status --output tsv)"
+            case "${status}" in
+              Succeeded) exit 0 ;;
+              Failed|Canceled) echo "Initial derived-state rebuild failed." >&2; exit 1 ;;
+            esac
+            sleep 10
+          done
+          echo "Initial derived-state rebuild timed out." >&2
+          exit 1
+
+      - name: Pin every Hinterland consumer and job
+        run: |
+          set -euo pipefail
+          required_jobs=(
+            hinterland-obs-preflight
+            hinterland-migrate
+            hinterland-legacy-reconcile
+            hinterland-moderation-job
+            hinterland-mod-outbox-relay
+            hinterland-dispatcher-replay
+            hinterland-state-rebuild
+            hinterland-obs-retention
+            hinterland-obs-health
+            hinterland-sweep-stale-reviews
+            hinterland-sync-expeditions
+            hinterland-taxa-catalog-ingest
+          )
+          for job in "${required_jobs[@]}"; do
+            az containerapp job show \
+              --name "${job}" \
+              --resource-group "${AZURE_RESOURCE_GROUP}" --output none
+          done
+          jobs_tsv="$(az containerapp job list \
+            --resource-group "${AZURE_RESOURCE_GROUP}" \
+            --query "[?starts_with(name, 'hinterland-')].name" --output tsv)"
+          test -n "${jobs_tsv}"
+          mapfile -t jobs <<< "${jobs_tsv}"
+          for job in "${jobs[@]}"; do
+            test -n "${job}" || continue
+            az containerapp job update \
+              --name "${job}" \
+              --resource-group "${AZURE_RESOURCE_GROUP}" \
+              --remove-env-vars \
+                HINTERLAND_INAT_OAUTH_TOKEN \
+                DRAGONFLY_INAT_OAUTH_TOKEN \
+              --output none
+            az containerapp job update \
+              --name "${job}" \
+              --resource-group "${AZURE_RESOURCE_GROUP}" \
+              --image "${IMAGE}" \
+              --set-env-vars \
+                HINTERLAND_MODERATION_PROVIDER=noop \
+                DRAGONFLY_MODERATION_PROVIDER=noop \
+                HINTERLAND_INAT_CV_ENABLED=false \
+                DRAGONFLY_INAT_CV_ENABLED=false \
+                HINTERLAND_INAT_CV_DISCLOSURE_APPROVED=false \
+                DRAGONFLY_INAT_CV_DISCLOSURE_APPROVED=false \
+                HINTERLAND_INAT_CV_BENCHMARK_APPROVED=false \
+                DRAGONFLY_INAT_CV_BENCHMARK_APPROVED=false \
+                HINTERLAND_INAT_SUBMIT_ENABLED=false \
+                DRAGONFLY_INAT_SUBMIT_ENABLED=false \
+              --output none
+          done
+
+      - name: Deploy API after migrations
         run: |
           set -euo pipefail
           az containerapp update \
             --name "${AZURE_CONTAINER_APP}" \
             --resource-group "${AZURE_RESOURCE_GROUP}" \
-            --image "${IMAGE}"
+            --image "${IMAGE}" \
+            --set-env-vars \
+              HINTERLAND_MODERATION_PROVIDER=noop \
+              DRAGONFLY_MODERATION_PROVIDER=noop \
+              HINTERLAND_INAT_CV_ENABLED=false \
+              DRAGONFLY_INAT_CV_ENABLED=false \
+              HINTERLAND_INAT_CV_DISCLOSURE_APPROVED=false \
+              DRAGONFLY_INAT_CV_DISCLOSURE_APPROVED=false \
+              HINTERLAND_INAT_CV_BENCHMARK_APPROVED=false \
+              DRAGONFLY_INAT_CV_BENCHMARK_APPROVED=false \
+              HINTERLAND_INAT_SUBMIT_ENABLED=false \
+              DRAGONFLY_INAT_SUBMIT_ENABLED=false \
+              HINTERLAND_OBSERVATION_IDEMPOTENCY_REQUIRED=true \
+              DRAGONFLY_OBSERVATION_IDEMPOTENCY_REQUIRED=true \
+            --output none
 
-      - name: Run Alembic migrations
+      - name: Close the old-revision compatibility race
         run: |
           set -euo pipefail
-          # `az containerapp exec` opens an SSH-like session and currently
-          # expects stdin to be a TTY. GitHub Actions does not provide one, so
-          # run it under `script` to allocate a pseudo-terminal while preserving
-          # the child command exit code with `-e`.
-          script -q -e -c "az containerapp exec --name '${AZURE_CONTAINER_APP}' --resource-group '${AZURE_RESOURCE_GROUP}' --command '/app/.venv/bin/alembic upgrade head'" /dev/null
-
-      - name: Start expedition content sync job
-        # The image IS the content version; the manual Container Apps Job
-        # materializes /app/content/expeditions into Postgres. The job's
-        # template pins whatever image it was provisioned with, so retarget
-        # it to this run's image before starting -- otherwise the job would
-        # sync the previous image's content. (Use `job update`, not a
-        # start-time --image override: start-time container overrides
-        # replace the whole template, dropping env vars and command.)
-        run: |
-          set -euo pipefail
-          az containerapp job update \
-            --name "${EXPEDITION_SYNC_JOB}" \
-            --resource-group "${AZURE_RESOURCE_GROUP}" \
-            --image "${IMAGE}"
-          EXECUTION_NAME="$(az containerapp job start \
-            --name "${EXPEDITION_SYNC_JOB}" \
-            --resource-group "${AZURE_RESOURCE_GROUP}" \
-            --query name \
-            --output tsv)"
-
-          for attempt in {1..60}; do
-            STATUS="$(az containerapp job execution show \
-              --name "${EXPEDITION_SYNC_JOB}" \
-              --job-execution-name "${EXECUTION_NAME}" \
+          for job in "${LEGACY_RECONCILE_JOB}" "${STATE_REBUILD_JOB}"; do
+            execution="$(az containerapp job start \
+              --name "${job}" \
               --resource-group "${AZURE_RESOURCE_GROUP}" \
-              --query properties.status \
-              --output tsv)"
-            case "${STATUS}" in
-              Succeeded)
-                echo "Expedition content sync succeeded."
-                exit 0
-                ;;
-              Failed|Canceled)
-                echo "Expedition content sync ended with status ${STATUS}."
-                exit 1
-                ;;
-            esac
-            echo "Expedition content sync status: ${STATUS:-unknown}; waiting..."
-            sleep 10
+              --query name --output tsv)"
+            succeeded=0
+            for attempt in $(seq 1 60); do
+              status="$(az containerapp job execution show \
+                --name "${job}" \
+                --resource-group "${AZURE_RESOURCE_GROUP}" \
+                --job-execution-name "${execution}" \
+                --query properties.status --output tsv)"
+              case "${status}" in
+                Succeeded) succeeded=1; break ;;
+                Failed|Canceled) echo "Post-cutover job ${job} failed." >&2; exit 1 ;;
+              esac
+              sleep 10
+            done
+            test "${succeeded}" = "1"
           done
 
-          echo "Expedition content sync did not finish in time."
-          exit 1
-
-      - name: Smoke probes
+      - name: Smoke public readiness surfaces
         run: |
           set -euo pipefail
           FQDN="$(az containerapp show \
             --name "${AZURE_CONTAINER_APP}" \
             --resource-group "${AZURE_RESOURCE_GROUP}" \
-            --query properties.configuration.ingress.fqdn \
-            --output tsv)"
+            --query properties.configuration.ingress.fqdn --output tsv)"
           API_BASE_URL="https://${FQDN}"
           echo "API_BASE_URL=${API_BASE_URL}" >> "${GITHUB_ENV}"
+          echo "HINTERLAND_API_BASE_URL=${API_BASE_URL}" >> "${GITHUB_ENV}"
           curl --fail --silent --show-error "${API_BASE_URL}/health"
           curl --fail --silent --show-error "${API_BASE_URL}/ready"
-          curl --fail --silent --show-error "${API_BASE_URL}/.well-known/dragonfly-kid-jwks.json"
-          PUBLIC_API_BASE_URL="https://api.thehinterlandguide.app"
-          curl --fail --silent --show-error "${PUBLIC_API_BASE_URL}/health"
-          curl --fail --silent --show-error "${PUBLIC_API_BASE_URL}/ready"
-          curl --fail --silent --show-error "${PUBLIC_API_BASE_URL}/.well-known/dragonfly-kid-jwks.json"
+          curl --fail --silent --show-error \
+            "${API_BASE_URL}${HINTERLAND_KID_JWKS_PATH}"
+          curl --fail --silent --show-error \
+            "https://api.thehinterlandguide.app/health"
+          curl --fail --silent --show-error \
+            "https://api.thehinterlandguide.app/ready"
+          curl --fail --silent --show-error \
+            "https://api.thehinterlandguide.app${HINTERLAND_KID_JWKS_PATH}"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
 
       - name: Authenticated parent/kid smoke
         env:
@@ -139,7 +476,71 @@ jobs:
         run: |
           set -euo pipefail
           if [ -z "${DRAGONFLY_SMOKE_ENTRA_BEARER:-}" ]; then
-            echo "DRAGONFLY_SMOKE_ENTRA_BEARER is not configured; skipping authenticated smoke."
+            echo "Parent smoke token is not configured; skipping."
             exit 0
           fi
           DRAGONFLY_API_BASE_URL="${API_BASE_URL}" python scripts/smoke_azure_parent_kid.py
+
+      - name: W1 Observation canary
+        env:
+          HINTERLAND_SMOKE_BEARER: ${{ secrets.HINTERLAND_SMOKE_KID_BEARER }}
+        run: |
+          set -euo pipefail
+          if [ -z "${HINTERLAND_SMOKE_BEARER:-}" ]; then
+            echo "Observation canary token is not configured; skipping."
+            exit 0
+          fi
+          python -m pip install ./backend
+          python scripts/smoke_observation_w1.py
+
+      - name: Verify one deployed digest
+        run: |
+          set -euo pipefail
+          api_image="$(az containerapp show \
+            --name "${AZURE_CONTAINER_APP}" \
+            --resource-group "${AZURE_RESOURCE_GROUP}" \
+            --query 'properties.template.containers[0].image' --output tsv)"
+          test "${api_image}" = "${IMAGE}"
+          api_token_count="$(az containerapp show \
+            --name "${AZURE_CONTAINER_APP}" \
+            --resource-group "${AZURE_RESOURCE_GROUP}" \
+            --query "length(properties.template.containers[0].env[?name=='HINTERLAND_INAT_OAUTH_TOKEN' || name=='DRAGONFLY_INAT_OAUTH_TOKEN'])" \
+            --output tsv)"
+          test "${api_token_count}" = "0"
+          api_safe_gate_count="$(az containerapp show \
+            --name "${AZURE_CONTAINER_APP}" \
+            --resource-group "${AZURE_RESOURCE_GROUP}" \
+            --query "length(properties.template.containers[0].env[?((name=='HINTERLAND_MODERATION_PROVIDER' || name=='DRAGONFLY_MODERATION_PROVIDER') && value=='noop') || ((name=='HINTERLAND_INAT_CV_ENABLED' || name=='DRAGONFLY_INAT_CV_ENABLED' || name=='HINTERLAND_INAT_CV_DISCLOSURE_APPROVED' || name=='DRAGONFLY_INAT_CV_DISCLOSURE_APPROVED' || name=='HINTERLAND_INAT_CV_BENCHMARK_APPROVED' || name=='DRAGONFLY_INAT_CV_BENCHMARK_APPROVED' || name=='HINTERLAND_INAT_SUBMIT_ENABLED' || name=='DRAGONFLY_INAT_SUBMIT_ENABLED') && value=='false')])" \
+            --output tsv)"
+          test "${api_safe_gate_count}" = "10"
+          jobs_tsv="$(az containerapp job list \
+            --resource-group "${AZURE_RESOURCE_GROUP}" \
+            --query "[?starts_with(name, 'hinterland-')].name" \
+            --output tsv)"
+          mapfile -t jobs <<< "${jobs_tsv}"
+          test -n "${jobs_tsv}"
+          job_images_tsv="$(az containerapp job list \
+            --resource-group "${AZURE_RESOURCE_GROUP}" \
+            --query "[?starts_with(name, 'hinterland-')].properties.template.containers[0].image" \
+            --output tsv)"
+          mapfile -t job_images <<< "${job_images_tsv}"
+          test -n "${job_images_tsv}"
+          for job_image in "${job_images[@]}"; do
+            test -n "${job_image}" || continue
+            test "${job_image}" = "${IMAGE}"
+          done
+          for job in "${jobs[@]}"; do
+            test -n "${job}" || continue
+            token_count="$(az containerapp job show \
+              --name "${job}" \
+              --resource-group "${AZURE_RESOURCE_GROUP}" \
+              --query "length(properties.template.containers[0].env[?name=='HINTERLAND_INAT_OAUTH_TOKEN' || name=='DRAGONFLY_INAT_OAUTH_TOKEN'])" \
+              --output tsv)"
+            safe_gate_count="$(az containerapp job show \
+              --name "${job}" \
+              --resource-group "${AZURE_RESOURCE_GROUP}" \
+              --query "length(properties.template.containers[0].env[?((name=='HINTERLAND_MODERATION_PROVIDER' || name=='DRAGONFLY_MODERATION_PROVIDER') && value=='noop') || ((name=='HINTERLAND_INAT_CV_ENABLED' || name=='DRAGONFLY_INAT_CV_ENABLED' || name=='HINTERLAND_INAT_CV_DISCLOSURE_APPROVED' || name=='DRAGONFLY_INAT_CV_DISCLOSURE_APPROVED' || name=='HINTERLAND_INAT_CV_BENCHMARK_APPROVED' || name=='DRAGONFLY_INAT_CV_BENCHMARK_APPROVED' || name=='HINTERLAND_INAT_SUBMIT_ENABLED' || name=='DRAGONFLY_INAT_SUBMIT_ENABLED') && value=='false')])" \
+              --output tsv)"
+            test "${token_count}" = "0"
+            test "${safe_gate_count}" = "10"
+          done

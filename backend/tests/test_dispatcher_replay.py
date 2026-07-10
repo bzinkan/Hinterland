@@ -45,16 +45,26 @@ def _wire(
     fake_session: AsyncMock,
     *,
     rows: list[tuple[models.Observation, models.User, models.Group, models.Photo]],
-    handler_raises: bool = False,
+    active_rebuild_id: str | None = None,
+    current_rows: list[tuple[models.Observation, models.User, models.Group, models.Photo] | None]
+    | None = None,
 ) -> None:
     """Mock the SELECT, then for each row mock whatever execute() calls
     the dispatcher's handlers issue. We stub HANDLERS to a single
     no-op handler so we don't have to mock every per-handler query."""
     list_result = MagicMock()
-    list_result.all = MagicMock(return_value=rows)
+    list_result.all = MagicMock(
+        return_value=[(observation.id, observation.user_id) for observation, *_ in rows]
+    )
     side_effects: list[Any] = [list_result]
+    if active_rebuild_id is None:
+        for current in current_rows if current_rows is not None else rows:
+            current_result = MagicMock()
+            current_result.one_or_none = MagicMock(return_value=current)
+            side_effects.append(current_result)
     fake_session.execute = AsyncMock(side_effect=side_effects)
-    fake_session.commit = AsyncMock(side_effect=Exception("boom") if handler_raises else None)
+    fake_session.scalar = AsyncMock(return_value=active_rebuild_id)
+    fake_session.commit = AsyncMock()
     fake_session.rollback = AsyncMock()
 
 
@@ -65,12 +75,19 @@ def fake_session() -> AsyncMock:
 
 @pytest.fixture(autouse=True)
 def _stub_handlers(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Replace HANDLERS with an empty list so dispatch() is a no-op
-    that doesn't issue any DB queries -- lets us test the replay
-    orchestration without mocking the per-handler query sequences."""
+    """Stub the durable dispatcher while preserving its public outcome contract."""
     import admin.dispatcher_replay as mod
 
     monkeypatch.setattr(mod, "HANDLERS", [])
+    monkeypatch.setattr(mod, "acquire_user_lock", AsyncMock())
+
+    async def fake_dispatch(ctx: Any, _handlers: object) -> list[object]:
+        ctx.observation.dispatch_status = "complete"
+        ctx.observation.dispatched_at = datetime.now(UTC)
+        await ctx.db.commit()
+        return []
+
+    monkeypatch.setattr(mod, "dispatch", fake_dispatch)
 
 
 async def test_replay_no_rows_returns_zero(fake_session: AsyncMock) -> None:
@@ -78,6 +95,9 @@ async def test_replay_no_rows_returns_zero(fake_session: AsyncMock) -> None:
     count = await replay(fake_session)
     assert count == 0
     fake_session.commit.assert_not_called()
+    statement = str(fake_session.execute.await_args.args[0])
+    assert "derived_state_rebuilds" in statement
+    assert "NOT (EXISTS" in statement
 
 
 async def test_replay_stamps_dispatched_at_on_success(fake_session: AsyncMock) -> None:
@@ -90,66 +110,79 @@ async def test_replay_stamps_dispatched_at_on_success(fake_session: AsyncMock) -
     fake_session.commit.assert_awaited_once()
 
 
-async def test_replay_keeps_identified_row_eligible_when_world_fails(
-    fake_session: AsyncMock,
+async def test_replay_handles_dispatch_failure_per_row(
+    fake_session: AsyncMock, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """dispatch() never raises for handler failures, so an unconditional
-    stamp would end retries for an observation whose Sanctuary write
-    failed -- and replay is the only delivery path for contributions
-    repaired by migration 20260703_0009. With HANDLERS stubbed empty,
-    ctx.results has no world entry, which the guard treats as failure
-    for identified observations."""
-    obs = _obs()
-    obs.taxon_id = 12345
-    _wire(fake_session, rows=[(obs, _user(), _group(), _photo())])
-
-    count = await replay(fake_session)
-    assert count == 0
-    assert obs.dispatched_at is None
-    # The row's transaction still commits (handler side effects persist).
-    fake_session.commit.assert_awaited_once()
-
-
-async def test_replay_stamps_identified_row_when_world_healthy(
-    fake_session: AsyncMock,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+    """Infrastructure failures roll back per candidate and do not stop the batch."""
     import admin.dispatcher_replay as mod
-    from app.dispatcher.types import HandlerResult
 
-    async def fake_dispatch(ctx: Any, handlers: Any) -> list[Any]:
-        ctx.results["world"] = HandlerResult(
-            rewards=[], state={"contribution_id": "o1", "replay": False}
-        )
-        return []
+    async def failing_dispatch(_ctx: Any, _handlers: object) -> list[object]:
+        raise RuntimeError("boom")
 
-    monkeypatch.setattr(mod, "dispatch", fake_dispatch)
-
-    obs = _obs()
-    obs.taxon_id = 12345
-    _wire(fake_session, rows=[(obs, _user(), _group(), _photo())])
-
-    count = await replay(fake_session)
-    assert count == 1
-    assert obs.dispatched_at is not None
-
-
-async def test_replay_handles_dispatch_failure_per_row(fake_session: AsyncMock) -> None:
-    """If commit raises (simulating handler chaos), rollback is issued
-    per row and the replay count stays at 0. The in-memory model may
-    have a `dispatched_at` set just before the failed commit, but
-    that's discarded by the rollback at the DB level -- which is
-    what the next replay run will see."""
+    monkeypatch.setattr(mod, "dispatch", failing_dispatch)
     obs1 = _obs()
     obs2 = _obs()
     obs2.id = "o2"
     _wire(
         fake_session,
         rows=[(obs1, _user(), _group(), _photo()), (obs2, _user(), _group(), _photo())],
-        handler_raises=True,
     )
 
     count = await replay(fake_session)
     assert count == 0  # neither succeeded
     # Rollback called for each row that failed.
     assert fake_session.rollback.await_count == 2
+
+
+async def test_replay_defers_candidate_when_rebuild_was_queued_after_select(
+    fake_session: AsyncMock,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import admin.dispatcher_replay as mod
+
+    dispatch = AsyncMock()
+    monkeypatch.setattr(mod, "dispatch", dispatch)
+    obs = _obs()
+    _wire(
+        fake_session,
+        rows=[(obs, _user(), _group(), _photo())],
+        active_rebuild_id="rebuild-1",
+    )
+
+    count = await replay(fake_session)
+
+    assert count == 0
+    dispatch.assert_not_awaited()
+    mod.acquire_user_lock.assert_awaited_once_with(fake_session, obs.user_id)
+    fake_session.commit.assert_awaited_once()
+
+
+async def test_replay_reloads_and_skips_rejected_state_after_completed_rebuild(
+    fake_session: AsyncMock,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import admin.dispatcher_replay as mod
+
+    dispatch = AsyncMock()
+    monkeypatch.setattr(mod, "dispatch", dispatch)
+    candidate = _obs()
+    current = _obs()
+    current.dispatch_status = "unverified"
+    current.moderation_status = "rejected"
+    current.rejected_at = datetime.now(UTC)
+    current_photo = _photo()
+    current_photo.status = "deleted"
+    current_photo.attachment_status = "deleted"
+    _wire(
+        fake_session,
+        rows=[(candidate, _user(), _group(), _photo())],
+        current_rows=[(current, _user(), _group(), current_photo)],
+    )
+
+    count = await replay(fake_session)
+
+    assert count == 0
+    dispatch.assert_not_awaited()
+    reload_statement = fake_session.execute.await_args_list[1].args[0]
+    assert reload_statement.get_execution_options()["populate_existing"] is True
+    fake_session.commit.assert_awaited_once()

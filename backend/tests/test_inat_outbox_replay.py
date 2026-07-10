@@ -25,11 +25,12 @@ def _settings_with_sb() -> Settings:
     return Settings(
         env="local",
         service_bus_namespace="dragonfly-sb-test.servicebus.windows.net",
+        inat_submit_enabled=True,
     )
 
 
 def _settings_without_sb() -> Settings:
-    return Settings(env="local", service_bus_namespace="")
+    return Settings(env="local", service_bus_namespace="", inat_submit_enabled=True)
 
 
 def _outbox_row(
@@ -75,6 +76,17 @@ async def test_replay_returns_zero_when_no_pending_rows(fake_session: AsyncMock)
     count = await replay(fake_session, _settings_with_sb())
     assert count == 0
     fake_session.commit.assert_not_called()
+
+
+async def test_replay_disabled_does_not_read_or_enqueue(fake_session: AsyncMock) -> None:
+    settings = Settings(
+        env="local",
+        service_bus_namespace="dragonfly-sb-test.servicebus.windows.net",
+        inat_submit_enabled=False,
+    )
+
+    assert await replay(fake_session, settings) == 0
+    fake_session.execute.assert_not_awaited()
 
 
 async def test_replay_flips_pending_to_enqueued_on_successful_enqueue(

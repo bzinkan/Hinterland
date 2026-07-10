@@ -16,8 +16,7 @@ Related reading:
 - [`one-week-kid-pilot-checklist.md`](one-week-kid-pilot-checklist.md)
   for the day-by-day pilot checklist this doc feeds.
 - [`risks/0007-google-play-families-location-policy.md`](risks/0007-google-play-families-location-policy.md)
-  for the precise-location risk and the four mitigation options the
-  pilot needs to pick from before the AAB is uploaded.
+  for the coarse/no-location release gate.
 
 ## ⚠️ One-time setup warnings
 
@@ -118,10 +117,17 @@ Working directory: `mobile/`.
 
    Must exit 0 before you spend an EAS build minute.
 
+   Run the complete Jest suite, including Observation queue/component tests:
+
+   ```sh
+   npm test -- --runInBand
+   ```
+
 3. **Inspect the resolved Expo config** and verify the
    `play-internal` branch of `app.config.ts` resolved correctly:
 
    ```sh
+   APP_ENV=play-internal npm run config:play-internal
    APP_ENV=play-internal npx expo config --type public
    ```
 
@@ -141,6 +147,8 @@ Working directory: `mobile/`.
    - [ ] `extra.apiBaseUrl` is `https://api.thehinterlandguide.app`.
    - [ ] `extra.updatesChannel` is `play-internal`.
    - [ ] `extra.entra` is populated and no Firebase config is present.
+   - [ ] `ACCESS_FINE_LOCATION` is blocked and only coarse foreground
+     location is requested.
 
    If `android.package` is anything other than `com.dragonfly.app`:
    STOP. You are in the wrong `APP_ENV`. Re-run with
@@ -188,17 +196,9 @@ Working directory: `mobile/`.
   track: STOP. Play Console rejects non-monotonic `versionCode` and
   a bad upload can invalidate later uploads on the same track. (On
   the very first `play-internal` upload, any value is acceptable.)
-- If risk
-  [`risks/0007-google-play-families-location-policy.md`](risks/0007-google-play-families-location-policy.md)
-  is still Open and no option (A / B / C / D) has been picked: the
-  default-if-no-choice is **Option C** (adult-supervised,
-  known-family, internal-test only with explicit consent + Brian's
-  manual review of every captured location pin). Acknowledge the
-  choice in the risk doc AND record the option label verbatim in
-  the session journal per
-  [`one-week-kid-pilot-checklist.md`](one-week-kid-pilot-checklist.md)
-  Gate 1 before uploading the AAB — silent Option C selection is
-  explicitly called out as a hazard in risk 0007.
+- If the generated manifest includes `ACCESS_FINE_LOCATION`, STOP. W1 has no
+  precise-location option: approximate/coarse foreground location or no
+  location only.
 
 ## 3. Upload the AAB to Internal testing
 
@@ -258,19 +258,16 @@ app's onboarding suggests:
 3. **Photo capture happens outdoors with the adult present.** Indoor
    capture sessions are fine; the adult signs off on every photo
    before submission.
-4. **Real location is collected** by the current build (see risk 0007).
-   The pilot operator (Brian) is responsible for picking and applying
-   one of the four mitigation options in risk 0007 BEFORE the AAB is
-   built -- if option A (disable precise location) is selected, the
-   AAB rebuilds with the location plugin removed.
+4. **Location is optional and coarse.** Mobile computes `geohash4` locally and
+   discards raw coordinates. Denial saves with no location, and a library
+   photo never silently inherits current device location.
 5. **Each pilot family has signed parental consent** captured via the
    in-app `/consent` page (the public unauthenticated endpoint). Brian
    confirms the consent log row exists before the kid account is
    provisioned.
-6. **No iNaturalist submission unless the operator has explicitly
-   enabled it** for the pilot. The current build defaults to the iNat
-   noop path; flipping `DRAGONFLY_INAT_OAUTH_TOKEN` on the Container
-   App is what enables submissions. Leave it unset for the W1 pilot.
+6. **No iNaturalist CV or public submission.** Independent gates are false,
+   endpoint/producer/consumer/replay/manual boundaries reject work, and old
+   worker jobs remain absent. A configured token is not permission for egress.
 7. **No screenshots are shared outside the pilot family + Brian.** If
    Brian needs a screenshot for a bug report, the photo content and
    any kid display name are blurred before the screenshot leaves the

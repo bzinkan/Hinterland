@@ -8,9 +8,9 @@ runtime-generated (ADR 0002 forbids kid-facing runtime LLM output; the
 Phase-13 follow-up layers author-time REVIEWED blurbs on top of this
 same response shape).
 
-Degradation contract mirrors identify's `cv_unavailable`: when iNat is
-unreachable and the taxon isn't cached yet, the endpoint returns 200
-with `facts_available=false` so the kid UI simply shows nothing extra.
+The audited PostgreSQL catalog is the only runtime authority. Missing source
+facts degrade to `facts_available=false`; child requests never trigger a live
+iNaturalist lookup.
 """
 
 from __future__ import annotations
@@ -20,18 +20,15 @@ import re
 from typing import Annotated
 from urllib.parse import urlparse
 
-import structlog
 from fastapi import APIRouter, HTTPException, Path, status
 from pydantic import BaseModel
+from sqlalchemy import select
 
 from app.core.auth import CurrentUserDep, resolve_current_user_row
+from app.db import models
 from app.db.session import DbSessionDep
-from app.inat.client import InatClientDep, InatUnavailable
-from app.services import species_cache
 
 router = APIRouter(prefix="/v1/species", tags=["species"])
-
-log = structlog.get_logger()
 
 _TAG_RE = re.compile(r"<[^>]+>")
 
@@ -140,37 +137,26 @@ async def get_species_facts(
     taxon_id: Annotated[int, Path(ge=1, le=2_147_483_647)],
     current_user: CurrentUserDep,
     session: DbSessionDep,
-    inat_client: InatClientDep,
 ) -> SpeciesFactsResponse:
     await resolve_current_user_row(session, current_user)
-
-    try:
-        payload = await species_cache.get_source_payload(session, inat_client, taxon_id)
-    except InatUnavailable as exc:
-        # iNat down + cache empty: the kid UI quietly shows no facts.
-        # Same graceful-degradation contract as identify's cv_unavailable.
-        log.warning(
-            "species.facts.unavailable",
-            taxon_id=taxon_id,
-            reason=str(exc),
+    row = (
+        await session.execute(
+            select(models.SpeciesCache).where(
+                models.SpeciesCache.taxon_id == taxon_id,
+                models.SpeciesCache.active.is_(True),
+            )
         )
-        return SpeciesFactsResponse(
-            taxon_id=taxon_id,
-            common_name=None,
-            scientific_name=None,
-            rank=None,
-            iconic_taxon=None,
-            summary=None,
-            wikipedia_url=None,
-            observations_worldwide=None,
-            conservation_status=None,
-            facts_available=False,
-        )
-
-    if payload is None:
+    ).scalar_one_or_none()
+    if row is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Taxon not found")
 
-    # Persist a fresh cache fill (no-op on a pure cache hit).
-    await session.commit()
-
-    return facts_from_payload(taxon_id, payload)
+    # Kid-facing requests are catalog-only. The audited ingest may retain a
+    # reviewed source payload for optional facts, but this route never fills a
+    # miss from iNaturalist or any other third party.
+    response = facts_from_payload(taxon_id, dict(row.source_payload or {}))
+    response.common_name = row.common_name or response.common_name
+    response.scientific_name = row.scientific_name or response.scientific_name
+    response.rank = row.rank or response.rank
+    response.iconic_taxon = row.iconic_taxon or response.iconic_taxon
+    response.facts_available = bool(row.source_payload)
+    return response

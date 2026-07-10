@@ -33,9 +33,11 @@ describe("Field Journal display rules", () => {
   });
 
   test("maps photo statuses to display modes", () => {
-    expect(photoDisplayMode("pending")).toBe("image");
+    expect(photoDisplayMode("pending")).toBe("reviewing");
     expect(photoDisplayMode("clean")).toBe("image");
+    expect(photoDisplayMode("pilot_private")).toBe("reviewing");
     expect(photoDisplayMode("quarantine")).toBe("reviewing");
+    expect(photoDisplayMode("rejected")).toBe("removed");
     expect(photoDisplayMode("deleted")).toBe("removed");
     expect(photoDisplayMode("future-status")).toBe("reviewing");
   });

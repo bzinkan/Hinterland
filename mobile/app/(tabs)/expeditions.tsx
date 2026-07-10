@@ -32,6 +32,8 @@ import {
   splitProgress,
 } from "@/src/expeditions/logic";
 import { useCoarseGeohash } from "@/src/expeditions/useCoarseGeohash";
+import { useAuthSession } from "@/src/auth/session";
+import { ImperativeRequestSupersededError } from "@/src/auth/requestBoundary";
 
 const STARTER_ID = "backyard_starter";
 
@@ -60,17 +62,22 @@ const ENVIRONMENT_CHIPS: { label: string; value: string | null }[] = [
 
 export default function ExpeditionsScreen() {
   const queryClient = useQueryClient();
+  const ownerUserId = useAuthSession((state) =>
+    state.status === "authenticated" ? state.user.id : null,
+  );
   const [env, setEnv] = useState<string | null>(null);
   const geohash = useCoarseGeohash();
 
   const available = useQuery({
-    queryKey: ["expeditions", "available", geohash ?? "none"],
-    queryFn: () => listAvailableExpeditions(geohash),
+    queryKey: ["expeditions", ownerUserId ?? "anonymous", "available", geohash ?? "none"],
+    queryFn: ({ signal }) => listAvailableExpeditions(geohash, signal),
     placeholderData: (prev) => prev,
+    enabled: ownerUserId != null,
   });
   const mine = useQuery({
-    queryKey: ["expeditions", "me"],
-    queryFn: listMyExpeditions,
+    queryKey: ["expeditions", ownerUserId ?? "anonymous", "me"],
+    queryFn: ({ signal }) => listMyExpeditions(signal),
+    enabled: ownerUserId != null,
   });
 
   const start = useMutation({
@@ -80,6 +87,7 @@ export default function ExpeditionsScreen() {
       router.push(`/expedition/${data.expedition_id}`);
     },
     onError: (err) => {
+      if (err instanceof ImperativeRequestSupersededError) return;
       const message =
         err instanceof ApiError ? `${err.status}: ${err.message}` : String(err);
       Alert.alert("Couldn't start", message);
@@ -92,6 +100,7 @@ export default function ExpeditionsScreen() {
       void queryClient.invalidateQueries({ queryKey: ["expeditions"] });
     },
     onError: (err) => {
+      if (err instanceof ImperativeRequestSupersededError) return;
       const message =
         err instanceof ApiError ? `${err.status}: ${err.message}` : String(err);
       Alert.alert("Couldn't focus", message);

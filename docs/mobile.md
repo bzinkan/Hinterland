@@ -20,33 +20,58 @@ If we hit a feature in Phase 3–4 that requires a custom native module (e.g. a 
 
 Expo SDK version is pinned in `package.json` and updated deliberately, not continuously. An SDK bump is its own PR with its own test cycle — kids' apps don't tolerate a day of breakage well.
 
-## Offline observation capture
+## Durable Observation Queue
 
-A kid outside might have no signal. An observation taken without signal must succeed anyway — the whole emotional point of the app is that the moment of discovery is celebrated, not "celebrated eventually once your phone reconnects."
+SQLite plus a normalized document-directory JPEG is the authoritative local
+record until the server returns the first or replayed canonical observation.
+Each row stores:
 
-The offline flow:
+- one 26-character submission ULID and canonical owner user ID;
+- local file path, decoded dimensions, byte count, and SHA-256;
+- `observed_at`, optional `geohash4`, and location source;
+- catalog taxon, display-only manual text, or Unknown identification;
+- server photo/observation IDs when known; and
+- stage, attempts, next retry, last safe error code, and request ID.
 
-1. **Capture.** Kid takes photo, confirms location (last-known GPS fix is fine — we don't need a fresh one while they're standing still). Photo is written to the app's filesystem via `expo-file-system` at `FileSystem.documentDirectory + "pending/<obsId>.jpg"`.
-2. **Queue row.** A row is written to a local `expo-sqlite` database at `observations.db`, table `pending_observations`. Columns: `obs_id` (ULID generated client-side), `photo_path`, `lat`, `lng`, `taxon_id_guess` (nullable — if iNat CV was offline, kid can pick later), `created_at`, `attempts`, `last_error`.
-3. **Celebration preview.** We render a "local-only" celebration: "Got it! We'll save this to your Dex when you're back online." No rewards are fabricated — the dispatcher runs server-side, and the real celebration fires when the submission succeeds. The offline preview is explicit about being provisional.
-4. **Background sync.** When the app detects network (`@react-native-community/netinfo`), a background task iterates the queue:
-   - Request a presigned PUT URL from `/v1/photos/presign`.
-   - Upload the photo file to Cloud Storage via the signed URL.
-   - Call `POST /v1/photos/{photo_id}/identify` when the kid is available to
-     choose an iNat suggestion, choose a non-LLM fallback organism guess, type a
-     display-only name, or save as unknown on `no_matches=true` /
-     `cv_unavailable=true` / `fallback_unavailable=true`.
-   - Call `POST /v1/observations` with the queued payload and any selected
-     `taxon_id` / `species_name`. Fallback guesses are saved as display-only
-     `species_name` values unless they are later mapped to an iNaturalist taxon.
-   - On success: delete the queue row and the local photo file; show the real celebration if the app is foregrounded.
-   - On failure (5xx, network hiccup): increment `attempts`, schedule next retry with exponential backoff up to 1h.
-   - On terminal failure (4xx that isn't retriable, e.g. "photo_key not found because we never uploaded it"): surface to the kid's "needs your attention" list in the app, with a one-tap retry.
-5. **Bounded queue.** The queue is capped at 50 pending observations. Hitting the cap surfaces "Your phone is holding a lot of observations — let's get them synced" as a blocker screen. 50 is well above what a kid will realistically capture in one offline session and well below "the app's filesystem is full."
+### Queue State Machine
 
-The queue is the source of truth for in-flight observations. The app does not maintain a separate "maybe submitted?" state. If the queue row exists, the observation is not yet server-confirmed. If the row is gone, the observation landed.
+1. `ready`: normalized JPEG and metadata are durable.
+2. `presigned`: the API returned a photo ID, SAS, and upload headers.
+3. `uploaded`: Azure PUT succeeded.
+4. `complete`: first or replayed create returned the canonical observation.
+5. `needs_attention`: non-retryable validation/idempotency conflict needs an
+   adult or a new draft.
+6. `abandoned`: explicit discard is awaiting local/server cleanup.
 
-**What does not go in the queue.** Rewards, Dex entries, expedition progress — none of these are computed client-side. The client only holds the submission request until the server can run the dispatcher. This keeps the offline path simple and prevents the classic "our offline copy disagrees with the server's copy" divergence.
+The same ULID is sent as `Idempotency-Key` for presign and create. Sync resumes
+from the stored stage. Network errors, 408, 429, and 5xx retry with jittered
+backoff. An expired SAS is refreshed through idempotent presign. A timeout or
+process death after PUT resumes from `uploaded`; it never creates a second
+submission.
+
+The row and JPEG remain until canonical reconciliation. The queue is capped at
+50 entries. Sync runs sequentially in the foreground/on reconnect; no client
+reward, Dex, Expedition, or Sanctuary state is authoritative. A partial server
+dispatch says rewards are catching up and reconciles through
+`GET /v1/observations/{id}`.
+
+### Account Isolation
+
+Capture is authentication-gated and every queue/query/photo/image/draft key is
+scoped by canonical user ID. On sign-out, token replacement, deletion, or kid
+switch, in-flight requests are cancelled and server presentation caches are
+cleared.
+
+Unsynced rows remain owned by the original user. Sign-out warns the managing
+adult and offers preserve-or-explicit-discard; the next account never sees or
+processes another user's row or JPEG.
+
+### Immediate Identification
+
+W1 offers bundled/project-catalog search, manual display text, and Unknown.
+Catalog selection sends an integer taxon ID and can earn Dex/rewards. The
+server supplies the canonical name. Manual text and Unknown always save but are
+Dex-ineligible. Pre-save iNaturalist CV is disabled.
 
 ## Permissions
 
@@ -62,11 +87,18 @@ Every permission Hinterland asks for follows the same pattern: **pre-prompt in o
 
 ### Location
 
-- **When.** After photo capture, on the "where did you find this?" screen. Not before the kid has taken a photo.
-- **Pre-prompt copy.** "Your location helps other kids find rare species nearby. We only use it for this observation — we don't track where you are."
-- **Precision.** `Location.Accuracy.Balanced` (roughly city-block precision). We do not need GPS-grade accuracy — the backend rounds to 4 decimal places (~11m) for geocache keys and the rarity system is geohash-4 (~20km cells). High-accuracy GPS drains battery; balanced is enough and kinder to the device.
-- **Denial path.** Kid enters a location manually via a map picker — drop a pin on a map centered on the last-known-or-default-city. The observation is flagged `location_source=manual` so the rarity system can still process it (with a slight confidence penalty at analysis time — not Phase 1 work, but the flag costs nothing to write now).
-- **iOS Info.plist.** `NSLocationWhenInUseUsageDescription = "Hinterland uses your location to remember where you spotted each species."` We do not ask for background location; we have no use for it.
+- **When.** After photo confirmation, as an optional coarse-area choice.
+- **Pre-prompt copy.** "Want to add an approximate area? It can help with local discoveries. You can also skip this."
+- **Precision.** Request approximate/coarse foreground location only, compute a
+  four-character geohash locally, then discard raw coordinates before SQLite,
+  requests, logs, or analytics.
+- **Denial path.** Save normally with `geohash4=null` and
+  `location_source=none`. Disabled services cannot block an Observation. A
+  manual area, if offered, is coarse rather than a precise pin.
+- **Imported photos.** Never silently attach current device location to a
+  library image. Ask separately and default to no location.
+- **iOS Info.plist.** Explain optional approximate area; do not request
+  background or precise location.
 
 ### Photo library
 
@@ -115,7 +147,9 @@ These are not aspirational; the app must meet them on a 3-year-old mid-range And
 
 - **Camera ready-to-shoot:** under 1 second from tapping "take photo" to live preview. `expo-camera` is preinitialized on the observation screen's mount, not on tap.
 - **Photo capture + local save:** under 2 seconds total from shutter to "next step" being tappable.
-- **Upload photo size:** max 1600px on the longest edge, JPEG quality 0.8. `expo-image-manipulator` resizes after capture. Original is discarded — we do not upload 12MP phone camera originals, and we do not keep them locally.
+- **Upload photo size:** max 1600px on the longest edge, JPEG quality 0.8.
+  `expo-image-manipulator` resizes after capture. The original is discarded;
+  the normalized queue copy remains until canonical reconciliation.
 - **Dex scrolling:** 60fps with 500 entries. The current Field Journal Species segment uses `FlatList` as placeholder UI; switch it to `FlashList` (Shopify's virtualized list) before real Dex volume, because an engaged kid can reach 500 entries and `FlatList` drops frames at that size.
 - **Celebration animation:** 2-second sequence max. Reanimated 3 + Lottie for the particle effects. No layout thrashing, no JS-thread animation, all transforms run on the UI thread.
 - **App startup to role picker:** under 2 seconds cold start on our target device. Splash screen is `expo-splash-screen`, dismissed immediately after the initial navigation render — not on a timer.
@@ -208,7 +242,10 @@ Profiles as described above. `preview` and `production` both have `autoIncrement
 
 ### Testing
 
-- **Unit:** Jest, runs in CI. Component tests for anything with non-trivial logic (the celebration sequence, the offline queue orchestrator, the permission pre-prompt flow).
+- **Unit:** Jest runs in CI and includes component `.test.tsx` files. Cover
+  every queue stage, expired SAS, kill/relaunch, cancellation, owner switching,
+  queue cap, no-location behavior, full-image `contain` preview, and sequential
+  persisted rewards.
 - **E2E:** Maestro, one smoke flow per release — role picker → sign in → take photo → submit → see celebration. Runs against a staging build on EAS. Not blocking PR merge, blocking release.
 - **Device farm:** BrowserStack or AWS Device Farm for physical-device smoke testing before production release. Two devices — one low-end Android, one mid-range iPhone — cover the variance we care about.
 

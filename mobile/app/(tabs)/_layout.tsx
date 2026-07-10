@@ -44,6 +44,7 @@ export default function TabLayout() {
         name="observe"
         options={{
           title: "Observe",
+          tabBarButtonTestID: "tab-observe",
           tabBarIcon: ({ color }) => <TabBarIcon name="camera" color={color} />,
           href: IS_WEB ? null : "/observe",
         }}

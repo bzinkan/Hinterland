@@ -39,3 +39,22 @@ az group show --name hinterland-dev-rg --subscription $SUB
 
 See ADR 0010 for the original phased plan and ADR 0014 for the active
 Firebase/GCP decommission decision.
+
+## Observation W1 Contract
+
+ADR 0015 makes the PostgreSQL outbox the only moderation producer. Direct
+Event Grid/BlobCreated moderation must be absent. Public iNaturalist submit and
+pre-clean CV remain disabled at route, producer, consumer, replay, and manual
+boundaries.
+
+Before the first repaired deploy, build an immutable image digest and run
+[`phase-9-observation-w1.sh`](phase-9-observation-w1.sh). It provisions the
+preflight/migration/legacy-reconcile/outbox/replay/rebuild/retention/health/taxonomy jobs,
+contains old egress, applies safe lifecycle rules, and refuses
+`gordi-pilot-rg`. Then the existing
+[`deploy-azure-api-dev.yml`](../.github/workflows/deploy-azure-api-dev.yml)
+runs migrations first and pins the API plus every job to one digest while
+preserving Expedition content sync.
+
+See [`phase-9-observation-README.md`](phase-9-observation-README.md),
+`docs/moderation.md`, and `docs/runbook.md` for W1 and closed-beta gates.

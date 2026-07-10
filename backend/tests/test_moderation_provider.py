@@ -18,11 +18,11 @@ from app.moderation.provider import (
 # ---------------------------------------------------------------------------
 
 
-async def test_noop_always_clean() -> None:
+async def test_noop_never_masquerades_as_clean() -> None:
     moderator = NoOpModerator()
     result = await moderator.moderate(b"any-bytes")
-    assert result.decision == "clean"
-    assert result.labels == {}
+    assert result.decision == "pilot_private"
+    assert result.labels == {"provider": "noop"}
 
 
 # ---------------------------------------------------------------------------
@@ -134,6 +134,9 @@ async def test_acs_threshold_boundary_is_inclusive(monkeypatch: pytest.MonkeyPat
             json={
                 "categoriesAnalysis": [
                     {"category": "Hate", "severity": 4},
+                    {"category": "SelfHarm", "severity": 0},
+                    {"category": "Sexual", "severity": 0},
+                    {"category": "Violence", "severity": 0},
                 ]
             },
         )
@@ -142,3 +145,58 @@ async def test_acs_threshold_boundary_is_inclusive(monkeypatch: pytest.MonkeyPat
     moderator = _build_moderator(severity_threshold=4)
     result = await moderator.moderate(b"fake-image")
     assert result.decision == "flagged"
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {},
+        {"categoriesAnalysis": []},
+        {"categoriesAnalysis": [{"category": "Hate", "severity": 0}]},
+        {
+            "categoriesAnalysis": [
+                {"category": "Hate", "severity": 0},
+                {"category": "Hate", "severity": 0},
+                {"category": "Sexual", "severity": 0},
+                {"category": "Violence", "severity": 0},
+            ]
+        },
+        {
+            "categoriesAnalysis": [
+                {"category": "Hate", "severity": 0},
+                {"category": "SelfHarm", "severity": 0},
+                {"category": "Sexual", "severity": 1},
+                {"category": "Violence", "severity": 0},
+            ]
+        },
+        {
+            "categoriesAnalysis": [
+                {"category": "Hate", "severity": 0},
+                {"category": "SelfHarm", "severity": False},
+                {"category": "Sexual", "severity": 0},
+                {"category": "Violence", "severity": 0},
+            ]
+        },
+    ],
+)
+async def test_acs_malformed_or_partial_200_fails_closed(
+    monkeypatch: pytest.MonkeyPatch,
+    payload: object,
+) -> None:
+    def handler(_: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json=payload)
+
+    _patch_async_client(monkeypatch, _mock_transport(handler))
+
+    with pytest.raises(ModerationUnavailable):
+        await _build_moderator().moderate(b"fake-image")
+
+
+async def test_acs_invalid_json_200_fails_closed(monkeypatch: pytest.MonkeyPatch) -> None:
+    def handler(_: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, content=b"not-json")
+
+    _patch_async_client(monkeypatch, _mock_transport(handler))
+
+    with pytest.raises(ModerationUnavailable):
+        await _build_moderator().moderate(b"fake-image")

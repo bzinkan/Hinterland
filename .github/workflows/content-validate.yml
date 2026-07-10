@@ -12,6 +12,8 @@ on:
       - "backend/app/models/expedition.py"
       - "backend/app/models/sanctuary.py"
       - "scripts/validate_content.py"
+      - "scripts/validate_taxonomy.py"
+      - "backend/admin/taxa_catalog_ingest.py"
       - "scripts/regenerate_schema.py"
   push:
     paths:
@@ -20,6 +22,8 @@ on:
       - "backend/app/models/expedition.py"
       - "backend/app/models/sanctuary.py"
       - "scripts/validate_content.py"
+      - "scripts/validate_taxonomy.py"
+      - "backend/admin/taxa_catalog_ingest.py"
       - "scripts/regenerate_schema.py"
 
 jobs:
@@ -39,6 +43,10 @@ jobs:
       - name: Validate expedition + sanctuary JSON
         working-directory: backend
         run: uv run python ../scripts/validate_content.py
+
+      - name: Validate taxonomy packs and manifests
+        working-directory: backend
+        run: uv run python ../scripts/validate_taxonomy.py
 
       - name: Confirm JSON schemas are up to date
         # regenerate_schema.py is idempotent; if a committed schema

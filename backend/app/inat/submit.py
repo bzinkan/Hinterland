@@ -43,12 +43,8 @@ class InatSubmitResult:
 # - round the submitted coordinates to 2 decimal places (~1.1 km): the
 #   true point never leaves our system at full precision.
 #
-# KNOWN GAP (close before flipping inat_submit_enabled): the photo BYTES
-# are posted verbatim, and nothing server-side strips EXIF GPS tags. The
-# guarantee currently rests on the mobile capture path re-encoding every
-# shot through expo-image-manipulator (which drops EXIF). Any future
-# upload surface (gallery picker, web) needs a server-side re-encode
-# (Pillow) here or at moderation ingest first.
+# Observation finalization supplies a canonical server-reencoded JPEG, so
+# metadata is stripped before this separately gated egress path can run.
 _GEOPRIVACY = "obscured"
 _COORD_DECIMAL_PLACES = 2
 
@@ -58,24 +54,36 @@ async def submit_observation_to_inat(
     *,
     dragonfly_observation_id: str,
     photo_bytes: bytes,
-    latitude: float,
-    longitude: float,
+    latitude: float | None,
+    longitude: float | None,
     observed_on: datetime,
     taxon_id: int | None = None,
     species_guess: str | None = None,
+    egress_enabled: bool = False,
 ) -> InatSubmitResult:
     """Push the observation + photo to iNaturalist."""
+    if not egress_enabled:
+        log.warning(
+            "inat.submit.blocked_by_kill_switch",
+            dragonfly_observation_id=dragonfly_observation_id,
+        )
+        raise InatUnavailable("iNat observation/photo egress is disabled")
+    if (latitude is None) != (longitude is None):
+        raise InatUnavailable("observation has an incomplete location pair")
+
     # Step 1: create the observation. Use Hinterland's id as the iNat
     # uuid -- gives idempotency for free under Cloud Tasks redelivery.
-    obs_payload: dict[str, object] = {
-        "observation": {
-            "uuid": dragonfly_observation_id,
-            "latitude": round(latitude, _COORD_DECIMAL_PLACES),
-            "longitude": round(longitude, _COORD_DECIMAL_PLACES),
-            "geoprivacy": _GEOPRIVACY,
-            "observed_on_string": observed_on.isoformat(),
-        }
+    observation_payload: dict[str, object] = {
+        "uuid": dragonfly_observation_id,
+        "observed_on_string": observed_on.isoformat(),
     }
+    if latitude is not None and longitude is not None:
+        observation_payload.update(
+            latitude=round(latitude, _COORD_DECIMAL_PLACES),
+            longitude=round(longitude, _COORD_DECIMAL_PLACES),
+            geoprivacy=_GEOPRIVACY,
+        )
+    obs_payload: dict[str, object] = {"observation": observation_payload}
     if taxon_id is not None:
         cast(dict[str, object], obs_payload["observation"])["taxon_id"] = taxon_id
     if species_guess is not None:

@@ -40,7 +40,7 @@ dependencies = [
 
     # IDs and time
     "python-ulid>=2.7.0",
-    "python-geohash>=0.8.5",
+    "Pillow>=11.2.0",                   # Verify/re-encode uploads and strip EXIF before attach
 ]
 
 [dependency-groups]
@@ -118,6 +118,7 @@ addopts = [
 ]
 markers = [
     "integration: tests that require moto or DynamoDB Local",
+    "postgres: tests that require an explicitly configured disposable PostgreSQL database",
     "slow: tests that take >1s",
 ]
 

@@ -201,7 +201,7 @@ async def test_first_observation_creates_contribution_zone_state_and_unlock(
     assert result.state[WorldHandler.STATE_REPLAY] is False
     assert result.state[WorldHandler.STATE_ZONE_ID] == "meadow"
     assert 1 in result.state[WorldHandler.STATE_CROSSED_THRESHOLDS]
-    fake_session.commit.assert_awaited()
+    fake_session.commit.assert_not_awaited()
 
 
 # ---------------------------------------------------------------------------
@@ -423,15 +423,14 @@ async def test_handler_does_not_touch_memberships(fake_session: AsyncMock) -> No
 
 
 # ---------------------------------------------------------------------------
-# 8. Internal exception returns empty HandlerResult; does not raise.
+# 8. Internal exception propagates to the dispatcher's savepoint boundary.
 # ---------------------------------------------------------------------------
 
 
-async def test_handler_failure_returns_empty_result_not_raise(
+async def test_handler_failure_propagates_to_dispatcher(
     fake_session: AsyncMock, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """A failure inside the handler must NOT escape to the dispatcher --
-    submission must not depend on Sanctuary success (AGENTS.md)."""
+    """The outer dispatcher records failure and rolls back this handler."""
 
     def _boom(*_args: object, **_kwargs: object) -> None:
         raise RuntimeError("simulated planner failure")
@@ -448,10 +447,8 @@ async def test_handler_failure_returns_empty_result_not_raise(
     handler = WorldHandler()
     ctx = _ctx(fake_session, taxon_id=12345, species_name="A plant", is_first_find=True)
 
-    result = await handler.handle(ctx)
-
-    assert result.rewards == []
-    assert result.state.get(WorldHandler.STATE_ERROR) is True
+    with pytest.raises(RuntimeError, match="simulated planner failure"):
+        await handler.handle(ctx)
 
 
 # ---------------------------------------------------------------------------

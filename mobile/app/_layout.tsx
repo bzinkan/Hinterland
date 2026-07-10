@@ -11,6 +11,10 @@ import { useColorScheme } from '@/components/useColorScheme';
 import { queryClient } from '@/src/api/queryClient';
 import { ensureDevSession } from '@/src/auth/devSession';
 import { ensureTokenSync as ensureMsalTokenSync } from '@/src/auth/msal';
+import {
+  AuthSessionCoordinator,
+  ObservationQueueCoordinator,
+} from '@/src/auth/AuthSessionCoordinator';
 import { env } from '@/src/config/env';
 
 export {
@@ -71,6 +75,8 @@ function RootLayoutNav() {
 
   return (
     <QueryClientProvider client={queryClient}>
+      <AuthSessionCoordinator />
+      <ObservationQueueCoordinator />
       <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
         <Stack>
           <Stack.Screen name="(tabs)" options={{ headerShown: false }} />

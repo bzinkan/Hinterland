@@ -2,6 +2,7 @@ name: CI
 
 # Runs on every PR and every push (any branch).
 # - backend: ruff + mypy + pytest with coverage
+# - observation-postgres: Alembic + real PostgreSQL concurrency/replay tests
 # - mobile: TypeScript + play-internal Expo config sanity
 #
 # Note: the legacy AWS CDK diff job and GCP deploy path are inactive after
@@ -54,6 +55,50 @@ jobs:
           name: coverage-xml
           path: backend/coverage.xml
           retention-days: 14
+
+  observation-postgres:
+    name: Observation PostgreSQL 16 contract
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: hinterland
+          POSTGRES_PASSWORD: hinterland
+          POSTGRES_DB: hinterland_observation_verify
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U hinterland -d hinterland_observation_verify"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      HINTERLAND_DATABASE_HOST: 127.0.0.1
+      HINTERLAND_DATABASE_PORT: "5432"
+      HINTERLAND_DATABASE_NAME: hinterland_observation_verify
+      HINTERLAND_DATABASE_USER: hinterland
+      HINTERLAND_DATABASE_PASSWORD: hinterland
+      OBSERVATION_TEST_DATABASE_URL: postgresql+asyncpg://hinterland:hinterland@127.0.0.1:5432/hinterland_observation_verify
+      OBSERVATION_DISPATCHER_PROBE_RUNS: "50"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+
+      - name: Install locked backend dependencies
+        working-directory: backend
+        run: uv sync --locked
+
+      - name: Migrate disposable verification database
+        working-directory: backend
+        run: uv run alembic upgrade head
+
+      - name: Run real-PostgreSQL Observation contract
+        working-directory: backend
+        run: uv run pytest tests/integration/test_observation_postgres.py -q -s
 
   mobile:
     name: Mobile typecheck and config

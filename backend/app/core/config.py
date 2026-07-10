@@ -12,6 +12,7 @@ from pydantic import Field
 from pydantic.fields import FieldInfo
 from pydantic_settings import (
     BaseSettings,
+    DotEnvSettingsSource,
     EnvSettingsSource,
     PydanticBaseSettingsSource,
     SettingsConfigDict,
@@ -89,9 +90,14 @@ class Settings(BaseSettings):
     ) -> tuple[PydanticBaseSettingsSource, ...]:
         return (
             init_settings,
-            env_settings,
             HinterlandRenamedEnvSource(settings_cls),
             EnvSettingsSource(settings_cls, env_prefix="HINTERLAND_"),
+            env_settings,
+            DotEnvSettingsSource(
+                settings_cls,
+                env_file=cls.model_config.get("env_file", ".env"),
+                env_prefix="HINTERLAND_",
+            ),
             dotenv_settings,
             file_secret_settings,
         )
@@ -103,6 +109,9 @@ class Settings(BaseSettings):
     cors_origins: list[str] = Field(default_factory=_default_cors_origins)
 
     photos_bucket: str = "photos"
+    # Compatibility defaults off for one legacy mobile release. W1 pilot
+    # environments require the same ULID on presign and finalization.
+    observation_idempotency_required: bool = False
 
     # Expedition content root read by admin.sync_expeditions. The deployed
     # image ships the JSON at /app/content/expeditions (backend/Dockerfile
@@ -184,12 +193,16 @@ class Settings(BaseSettings):
     dev_login_enabled: bool = False
     dev_login_key: str | None = None
 
-    # iNaturalist API integration. Token is empty in dev / CI; the iNat client
-    # treats absence of a token as "no third-party calls allowed" and CV
-    # endpoints return a `cv_unavailable` flag instead of raising.
+    # iNaturalist photo egress is independently default-deny. A token alone is
+    # never permission to disclose a child's photo.
     inat_base_url: str = "https://api.inaturalist.org/v1"
     inat_oauth_token: str = ""
     inat_request_timeout_seconds: float = 8.0
+    inat_cv_enabled: bool = False
+    inat_cv_disclosure_approved: bool = False
+    inat_cv_benchmark_approved: bool = False
+    inat_cv_model_version: str = "inat-cv-v1"
+    taxonomy_packs_bucket: str = "taxonomy-packs"
 
     # Optional non-LLM fallback when iNaturalist returns no usable species
     # suggestions. This deliberately returns display-only organism labels
@@ -214,9 +227,7 @@ class Settings(BaseSettings):
     # infrastructure (queues, jobs, alerts) stays provisioned so
     # flipping this flag back on is a zero-deploy operator action.
     #
-    # iNat CV (the read-only species identify endpoint) is unaffected
-    # -- it never posts; the `inat_oauth_token` setting still wires
-    # rate limits for it.
+    # CV has the separate disclosure and benchmark gates above.
     inat_submit_enabled: bool = False
 
     # Reverse-geocoding provider. "noop" returns None for every lookup --
@@ -230,7 +241,8 @@ class Settings(BaseSettings):
     geocoding_request_timeout_seconds: float = 5.0
 
     # Photo moderation. Production gate is Azure AI Content Safety.
-    # Dev / CI default to "noop" -- every photo is treated as clean.
+    # Dev / CI default to "noop", which records `pilot_private`; it is
+    # explicitly not a safety clearance.
     moderation_provider: Literal["noop", "azure_content_safety"] = "noop"
 
     # Azure AI Content Safety wiring (Phase 6c). Severity 0-6: 4 / Medium
@@ -282,6 +294,15 @@ class Settings(BaseSettings):
         for the replay job to retry once infra catches up.
         """
         return bool(self.service_bus_namespace)
+
+    @property
+    def inat_cv_egress_allowed(self) -> bool:
+        """True only after product, disclosure, and benchmark approval."""
+        return (
+            self.inat_cv_enabled
+            and self.inat_cv_disclosure_approved
+            and self.inat_cv_benchmark_approved
+        )
 
     @property
     def require_internal_oidc(self) -> bool:

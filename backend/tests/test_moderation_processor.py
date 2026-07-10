@@ -6,28 +6,51 @@ move + DB updates + review_queue insertion logic.
 
 from __future__ import annotations
 
+import hashlib
+import io
+from datetime import UTC, datetime
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from PIL import Image
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import models
-from app.moderation.processor import PhotoNotFound, process_pending_photo
+from app.moderation.processor import (
+    ModerationWorkInvalid,
+    PhotoNotFound,
+    process_pending_photo,
+)
 from app.moderation.provider import ModerationResult, ModerationUnavailable
 
 _PHOTO_ID = "01J0PHOTOID00000000000ULID"
 _OBS_ID = "01J0OBSID00000000000000ULID"
 _GROUP_ID = "01J0GROUPID00000000000ULID"
 _BUCKET = "dragonfly-photos-test"
-_OBJECT_NAME = f"pending/{_PHOTO_ID}.jpg"
+_OBJECT_NAME = f"pending/finalized/{_PHOTO_ID}.jpg"
+
+
+def _jpeg_bytes() -> bytes:
+    output = io.BytesIO()
+    Image.new("RGB", (100, 80), (64, 128, 32)).save(output, format="JPEG", quality=80)
+    return output.getvalue()
+
+
+_CANONICAL_JPEG = _jpeg_bytes()
 
 
 class _StubStorage:
     """Tracks copy_object + delete_object calls; serves canned bytes."""
 
-    def __init__(self, bytes_to_return: bytes = b"jpeg") -> None:
+    def __init__(
+        self,
+        bytes_to_return: bytes = _CANONICAL_JPEG,
+        *,
+        copy_error: Exception | None = None,
+    ) -> None:
         self.bytes_to_return = bytes_to_return
+        self.copy_error = copy_error
         self.copy_calls: list[tuple[str, str, str, str]] = []
         self.delete_calls: list[tuple[str, str]] = []
 
@@ -44,7 +67,11 @@ class _StubStorage:
         src_object: str,
         dst_bucket: str,
         dst_object: str,
+        expected_size: int | None = None,
+        expected_sha256: str | None = None,
     ) -> None:
+        if self.copy_error is not None:
+            raise self.copy_error
         self.copy_calls.append((src_bucket, src_object, dst_bucket, dst_object))
 
     def delete_object(self, *, bucket: str, object_name: str) -> None:
@@ -64,14 +91,24 @@ class _StubModerator:
         return self._result
 
 
-def _photo_row(status: str = "pending") -> models.Photo:
+def _photo_row(
+    status: str = "pending",
+    *,
+    image_bytes: bytes = _CANONICAL_JPEG,
+) -> models.Photo:
     return models.Photo(
         id=_PHOTO_ID,
         user_id="user-id",
         bucket=_BUCKET,
         object_name=_OBJECT_NAME,
+        canonical_object_name=_OBJECT_NAME,
         status=status,
         content_type="image/jpeg",
+        byte_count=len(image_bytes),
+        width_px=100,
+        height_px=80,
+        sha256=hashlib.sha256(image_bytes).hexdigest(),
+        verified_at=datetime.now(UTC),
     )
 
 
@@ -96,20 +133,33 @@ def _wire_session(
     *,
     photo: models.Photo | None,
     observation: models.Observation | None = None,
-) -> None:
+) -> models.ModerationOutbox | None:
     photo_result = MagicMock()
     photo_result.scalar_one_or_none = MagicMock(return_value=photo)
 
     obs_result = MagicMock()
     obs_result.scalar_one_or_none = MagicMock(return_value=observation)
 
+    outbox = (
+        models.ModerationOutbox(
+            observation_id=observation.id,
+            photo_id=_PHOTO_ID,
+            status="enqueued",
+        )
+        if observation is not None
+        else None
+    )
+    outbox_result = MagicMock()
+    outbox_result.scalar_one_or_none = MagicMock(return_value=outbox)
+
     side_effects: list[Any] = [photo_result]
-    # The processor only looks up the observation on the flagged path.
     side_effects.append(obs_result)
+    side_effects.append(outbox_result)
 
     fake_session.execute = AsyncMock(side_effect=side_effects)
     fake_session.add = MagicMock()
     fake_session.commit = AsyncMock()
+    return outbox
 
 
 # ---------------------------------------------------------------------------
@@ -147,10 +197,20 @@ async def test_raises_when_photo_row_missing(fake_session: AsyncMock) -> None:
 
 
 async def test_skipped_when_photo_already_moderated(fake_session: AsyncMock) -> None:
-    _wire_session(fake_session, photo=_photo_row(status="clean"))
+    photo = _photo_row(status="clean")
+    photo.object_name = f"observations/{_PHOTO_ID}.jpg"
+    photo.canonical_object_name = photo.object_name
+    observation = _obs_row()
+    observation.moderation_status = "clean"
+    outbox = _wire_session(fake_session, photo=photo, observation=observation)
+    assert outbox is not None
+    outbox.status = "processing"
+    outbox.last_error = "consumer crashed before terminal update"
     storage = _StubStorage()
-    moderator = _StubModerator(ModerationResult(decision="flagged"))
+    moderator = AsyncMock()
 
+    # The duplicate still names the old source. The committed terminal state
+    # must complete idempotently without fetching or re-egressing those bytes.
     result = await process_pending_photo(
         fake_session,
         storage,
@@ -159,14 +219,20 @@ async def test_skipped_when_photo_already_moderated(fake_session: AsyncMock) -> 
         object_name=_OBJECT_NAME,
     )
     assert result.decision == "skipped"
+    assert result.new_object_name == photo.object_name
+    assert outbox.status == "succeeded"
+    assert outbox.lease_until is None
+    assert outbox.last_error is None
+    moderator.moderate.assert_not_awaited()
     assert storage.copy_calls == []
+    fake_session.commit.assert_awaited_once()
 
 
 async def test_clean_path_moves_to_observations_and_updates_photo(
     fake_session: AsyncMock,
 ) -> None:
     photo = _photo_row()
-    _wire_session(fake_session, photo=photo)
+    outbox = _wire_session(fake_session, photo=photo, observation=_obs_row())
     storage = _StubStorage()
     moderator = _StubModerator(ModerationResult(decision="clean"))
 
@@ -186,6 +252,7 @@ async def test_clean_path_moves_to_observations_and_updates_photo(
     assert photo.status == "clean"
     assert photo.object_name == f"observations/{_PHOTO_ID}.jpg"
     assert photo.moderated_at is not None
+    assert outbox is not None and outbox.status == "succeeded"
     fake_session.commit.assert_awaited_once()
 
 
@@ -194,7 +261,7 @@ async def test_flagged_path_moves_to_quarantine_and_inserts_review_row(
 ) -> None:
     photo = _photo_row()
     obs = _obs_row()
-    _wire_session(fake_session, photo=photo, observation=obs)
+    outbox = _wire_session(fake_session, photo=photo, observation=obs)
     storage = _StubStorage()
     moderator = _StubModerator(
         ModerationResult(
@@ -228,17 +295,85 @@ async def test_flagged_path_moves_to_quarantine_and_inserts_review_row(
     assert review.status == "pending"
     assert review.reason is not None
     assert "adult" in review.reason
+    assert outbox is not None and outbox.status == "succeeded"
 
 
-async def test_flagged_with_no_observation_skips_review_row(
+async def test_unattached_photo_is_never_moderated(
     fake_session: AsyncMock,
 ) -> None:
-    """Presign-then-no-create -> photo exists but observation doesn't.
-    Quarantine the photo, leave it for the lifecycle rule, no review row."""
+    """A mere blob arrival is not authorization to run moderation."""
     _wire_session(fake_session, photo=_photo_row(), observation=None)
     storage = _StubStorage()
     moderator = _StubModerator(
         ModerationResult(decision="flagged", labels={"adult": "VERY_LIKELY"})
+    )
+
+    with pytest.raises(ModerationWorkInvalid):
+        await process_pending_photo(
+            fake_session,
+            storage,
+            moderator,
+            bucket=_BUCKET,
+            object_name=_OBJECT_NAME,
+        )
+    fake_session.add.assert_not_called()
+    assert storage.copy_calls == []
+
+
+async def test_attached_photo_without_committed_outbox_is_never_moderated(
+    fake_session: AsyncMock,
+) -> None:
+    photo_result = MagicMock()
+    photo_result.scalar_one_or_none.return_value = _photo_row()
+    observation_result = MagicMock()
+    observation_result.scalar_one_or_none.return_value = _obs_row()
+    outbox_result = MagicMock()
+    outbox_result.scalar_one_or_none.return_value = None
+    fake_session.execute = AsyncMock(side_effect=[photo_result, observation_result, outbox_result])
+    moderator = AsyncMock()
+
+    with pytest.raises(ModerationWorkInvalid, match="committed outbox authority"):
+        await process_pending_photo(
+            fake_session,
+            _StubStorage(),
+            moderator,
+            bucket=_BUCKET,
+            object_name=_OBJECT_NAME,
+        )
+
+    moderator.moderate.assert_not_awaited()
+
+
+async def test_invalid_canonical_jpeg_fails_before_provider_egress(
+    fake_session: AsyncMock,
+) -> None:
+    invalid = b"not-a-jpeg"
+    photo = _photo_row(image_bytes=invalid)
+    _wire_session(fake_session, photo=photo, observation=_obs_row())
+    storage = _StubStorage(bytes_to_return=invalid)
+    moderator = AsyncMock()
+
+    with pytest.raises(ModerationWorkInvalid, match="canonical JPEG validation failed"):
+        await process_pending_photo(
+            fake_session,
+            storage,
+            moderator,
+            bucket=_BUCKET,
+            object_name=_OBJECT_NAME,
+        )
+
+    moderator.moderate.assert_not_awaited()
+
+
+async def test_noop_moves_to_lifecycle_prefix_without_clearing(
+    fake_session: AsyncMock,
+) -> None:
+    photo = _photo_row()
+    obs = _obs_row()
+    outbox = _wire_session(fake_session, photo=photo, observation=obs)
+    storage = _StubStorage()
+    moderator = _StubModerator(
+        ModerationResult(decision="pilot_private", labels={"provider": "noop"})
     )
 
     result = await process_pending_photo(
@@ -248,9 +383,39 @@ async def test_flagged_with_no_observation_skips_review_row(
         bucket=_BUCKET,
         object_name=_OBJECT_NAME,
     )
-    assert result.decision == "flagged"
-    assert result.review_queue_id is None
-    fake_session.add.assert_not_called()
+
+    assert result.decision == "pilot_private"
+    assert obs.moderation_status == "pilot_private"
+    assert obs.moderation_source == "noop"
+    assert photo.status == "pending"
+    assert photo.object_name == f"pilot-private/{_PHOTO_ID}.jpg"
+    assert storage.copy_calls == [
+        (_BUCKET, _OBJECT_NAME, _BUCKET, f"pilot-private/{_PHOTO_ID}.jpg")
+    ]
+    assert storage.delete_calls == [(_BUCKET, _OBJECT_NAME)]
+    assert outbox is not None and outbox.status == "succeeded"
+
+
+async def test_copy_verification_failure_keeps_source_and_db_pending(
+    fake_session: AsyncMock,
+) -> None:
+    photo = _photo_row()
+    obs = _obs_row()
+    _wire_session(fake_session, photo=photo, observation=obs)
+    storage = _StubStorage(copy_error=RuntimeError("copy verification failed"))
+
+    with pytest.raises(RuntimeError, match="copy verification"):
+        await process_pending_photo(
+            fake_session,
+            storage,
+            _StubModerator(ModerationResult(decision="clean")),
+            bucket=_BUCKET,
+            object_name=_OBJECT_NAME,
+        )
+
+    assert storage.delete_calls == []
+    assert photo.status == "pending"
+    fake_session.commit.assert_not_awaited()
 
 
 # ---------------------------------------------------------------------------
@@ -264,8 +429,8 @@ def _wire_session_with_outbox_update(
     photo: models.Photo | None,
     observation: models.Observation | None,
 ) -> None:
-    """Like ``_wire_session`` but adds a 3rd side_effect for the outbox
-    UPDATE that fires after the post-commit enqueue attempt."""
+    """Like ``_wire_session`` but adds the iNat-outbox UPDATE result that
+    fires after the post-commit enqueue attempt."""
     photo_result = MagicMock()
     photo_result.scalar_one_or_none = MagicMock(return_value=photo)
 
@@ -274,7 +439,18 @@ def _wire_session_with_outbox_update(
 
     update_result = MagicMock()  # session.execute(update(...)) returns
 
-    fake_session.execute = AsyncMock(side_effect=[photo_result, obs_result, update_result])
+    outbox_result = MagicMock()
+    outbox_result.scalar_one_or_none = MagicMock(
+        return_value=models.ModerationOutbox(
+            observation_id=observation.id if observation is not None else _OBS_ID,
+            photo_id=_PHOTO_ID,
+            status="enqueued",
+        )
+    )
+
+    fake_session.execute = AsyncMock(
+        side_effect=[photo_result, obs_result, outbox_result, update_result]
+    )
     fake_session.add = MagicMock()
     fake_session.commit = AsyncMock()
 
@@ -448,7 +624,7 @@ async def test_flagged_path_sets_moderation_status_quarantine(
 
 
 async def test_unavailable_bubbles_up_unchanged(fake_session: AsyncMock) -> None:
-    _wire_session(fake_session, photo=_photo_row())
+    _wire_session(fake_session, photo=_photo_row(), observation=_obs_row())
     storage = _StubStorage()
     moderator = _StubModerator(ModerationUnavailable("vision down"))
 

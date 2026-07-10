@@ -1,15 +1,17 @@
 import { apiRequest } from "@/src/api/client";
 
 export type ReverseGeocodeResponse = {
-  lat: number;
-  lng: number;
+  geohash4: string;
   place_name: string | null;
 };
 
-export function reverseGeocode(lat: number, lng: number): Promise<ReverseGeocodeResponse> {
-  const params = new URLSearchParams({
-    lat: String(lat),
-    lng: String(lng),
+export function reverseGeocode(
+  geohash4: string,
+  signal?: AbortSignal,
+): Promise<ReverseGeocodeResponse> {
+  return apiRequest<ReverseGeocodeResponse>("/v1/geocode/reverse", {
+    method: "POST",
+    body: { geohash4 },
+    signal,
   });
-  return apiRequest<ReverseGeocodeResponse>(`/v1/geocode/reverse?${params}`);
 }

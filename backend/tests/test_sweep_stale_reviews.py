@@ -59,13 +59,37 @@ def _wire(
     rows: list[tuple[models.ReviewQueueItem, models.Photo, models.Observation | None]],
 ) -> None:
     list_result = MagicMock()
-    list_result.all = MagicMock(return_value=rows)
-    update_result = MagicMock()
+    scalars_result = MagicMock()
+    scalars_result.all = MagicMock(return_value=[review for review, _photo, _obs in rows])
+    list_result.scalars = MagicMock(return_value=scalars_result)
     side_effects: list[Any] = [list_result]
-    # one UPDATE per row that has an observation (counter decrement)
-    side_effects.extend(update_result for r in rows if r[2] is not None)
+    for review_row, photo, observation in rows:
+        subject_observation_result = MagicMock()
+        subject_observation_result.scalar_one_or_none = MagicMock(
+            return_value=observation.user_id if observation is not None else None
+        )
+        subject_photo_result = MagicMock()
+        subject_photo_result.scalar_one_or_none = MagicMock(return_value=photo.user_id)
+        locked_review_result = MagicMock()
+        locked_review_result.scalar_one_or_none = MagicMock(return_value=review_row)
+        photo_result = MagicMock()
+        photo_result.scalar_one_or_none = MagicMock(return_value=photo)
+        observation_result = MagicMock()
+        observation_result.scalar_one_or_none = MagicMock(return_value=observation)
+        side_effects.append(subject_observation_result)
+        if observation is None:
+            side_effects.append(subject_photo_result)
+        side_effects.extend([locked_review_result, photo_result, observation_result])
+        if observation is not None:
+            rebuild_lock_result = MagicMock()
+            rebuild_result = MagicMock()
+            rebuild_result.scalar_one_or_none = MagicMock(return_value=None)
+            side_effects.extend([rebuild_lock_result, rebuild_result])
     fake_session.execute = AsyncMock(side_effect=side_effects)
+    fake_session.scalar = AsyncMock(return_value=True)
     fake_session.commit = AsyncMock()
+    fake_session.flush = AsyncMock()
+    fake_session.add = MagicMock()
 
 
 @pytest.fixture
@@ -97,7 +121,7 @@ async def test_sweep_auto_rejects_each_stale_row(fake_session: AsyncMock) -> Non
     fake_session.commit.assert_awaited_once()
 
 
-async def test_sweep_skips_counter_when_observation_already_gone(
+async def test_sweep_still_rejects_when_observation_already_gone(
     fake_session: AsyncMock,
 ) -> None:
     review = _review()
@@ -108,8 +132,10 @@ async def test_sweep_skips_counter_when_observation_already_gone(
     assert count == 1
     assert review.status == "rejected"
     assert photo.status == "deleted"
-    # No UPDATE membership call -- only the SELECT was issued.
-    assert fake_session.execute.await_count == 1
+    # Candidate scan; subject observation/photo lookup; locked review/photo/
+    # observation. The non-blocking advisory attempt uses session.scalar.
+    assert fake_session.execute.await_count == 6
+    fake_session.scalar.assert_awaited_once()
     fake_session.commit.assert_awaited_once()
 
 
@@ -122,5 +148,5 @@ async def test_sweep_processes_multiple_in_one_pass(fake_session: AsyncMock) -> 
     _wire(fake_session, rows=rows)
     count = await sweep(fake_session)
     assert count == 3
-    fake_session.commit.assert_awaited_once()
+    assert fake_session.commit.await_count == 3
     assert all(r[0].status == "rejected" for r in rows)

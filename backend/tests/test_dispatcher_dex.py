@@ -99,7 +99,8 @@ async def test_first_find_emits_first_find_reward_and_bumps_counter(
 
     # Two execute calls: dex insert + counter update.
     assert fake_session.execute.await_count == 2
-    fake_session.commit.assert_awaited_once()
+    # The dispatcher owns the surrounding savepoint and commit.
+    fake_session.commit.assert_not_awaited()
 
 
 async def test_repeat_find_emits_repeat_reward_and_no_counter_bump(
@@ -120,7 +121,7 @@ async def test_repeat_find_emits_repeat_reward_and_no_counter_bump(
 
     # Only the dex insert executes; no counter bump on repeat.
     assert fake_session.execute.await_count == 1
-    fake_session.commit.assert_awaited_once()
+    fake_session.commit.assert_not_awaited()
 
 
 async def test_observation_with_no_taxon_id_skips_handler(

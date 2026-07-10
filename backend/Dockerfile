@@ -32,6 +32,8 @@ COPY backend/admin/ ./admin/
 # materializes it into Postgres after each deploy (docs/runbook.md).
 COPY content/expeditions/ ./content/expeditions/
 COPY content/expedition_taxon_sets.json ./content/expedition_taxon_sets.json
+# Audited runtime taxonomy snapshot used by the catalog ingest job.
+COPY content/taxa/ ./content/taxa/
 
 ENV PATH="/app/.venv/bin:${PATH}"
 

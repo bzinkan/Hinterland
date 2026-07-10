@@ -1,11 +1,9 @@
 from collections.abc import AsyncIterator, Iterator
 from datetime import UTC, datetime, timedelta
-from typing import Literal, cast
+from typing import cast
 from unittest.mock import AsyncMock, MagicMock
 
-import httpx
 import pytest
-import respx
 from fastapi.testclient import TestClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -14,7 +12,6 @@ from app.core.storage import SignedUrlGenerator
 from app.db import models
 from app.db.session import get_db_session
 from app.main import create_app
-from app.organism_fallback import OrganismFallbackSuggestion
 from tests.helpers.auth import stub_token_verifier
 
 _FIREBASE_UID = "firebase-kid-001"
@@ -51,8 +48,6 @@ class _StubSignedUrlGenerator:
         )
 
     def put_required_headers(self, *, content_type: str) -> dict[str, str]:
-        # Mirrors the Azure Blob contract so the presign test pins the
-        # exact headers the mobile uploader must send.
         return {"Content-Type": content_type, "x-ms-blob-type": "BlockBlob"}
 
     def fetch_object_bytes(self, *, bucket: str, object_name: str) -> bytes:
@@ -99,8 +94,6 @@ def _build_client(
     *,
     signer: SignedUrlGenerator | None = None,
     inat_token: str = "test-token",
-    organism_fallback: object | None = None,
-    organism_fallback_provider: str = "noop",
 ) -> Iterator[TestClient]:
     app = create_app(
         Settings(
@@ -108,15 +101,10 @@ def _build_client(
             app_version="test",
             photos_bucket="dragonfly-photos-test",
             inat_oauth_token=inat_token,
-            organism_fallback_provider=cast(
-                Literal["noop", "azure_vision"], organism_fallback_provider
-            ),
         )
     )
     if signer is not None:
         app.state.signed_url_generator = signer
-    if organism_fallback is not None:
-        app.state.organism_fallback = organism_fallback
 
     async def override() -> AsyncIterator[AsyncSession]:
         yield fake_session
@@ -136,21 +124,6 @@ def stub_signer() -> _StubSignedUrlGenerator:
     return _StubSignedUrlGenerator()
 
 
-class _StubOrganismFallback:
-    def __init__(self, suggestions: list[OrganismFallbackSuggestion]) -> None:
-        self.suggestions = suggestions
-        self.calls: list[bytes] = []
-
-    async def suggest(
-        self,
-        *,
-        image_bytes: bytes,
-        top_k: int = 3,
-    ) -> list[OrganismFallbackSuggestion]:
-        self.calls.append(image_bytes)
-        return self.suggestions[:top_k]
-
-
 @pytest.fixture
 def photos_client(
     fake_session: AsyncMock,
@@ -159,19 +132,32 @@ def photos_client(
     yield from _build_client(fake_session, signer=stub_signer)
 
 
-def _user_row(role: str = "kid") -> models.User:
+def _user_row() -> models.User:
     return models.User(
         id=_USER_ID,
         firebase_uid=_FIREBASE_UID,
-        role=role,
-        display_name="Kid Name" if role == "kid" else "Adult Name",
+        role="kid",
+        display_name="Kid Name",
     )
 
 
 def _wire_user_lookup(fake_session: AsyncMock, user: models.User | None) -> None:
     user_result = MagicMock()
     user_result.scalar_one_or_none = MagicMock(return_value=user)
-    fake_session.execute = AsyncMock(return_value=user_result)
+    replay_result = MagicMock()
+    replay_result.scalar_one_or_none = MagicMock(return_value=None)
+    fake_session.execute = AsyncMock(
+        side_effect=[user_result, replay_result] if user is not None else [user_result]
+    )
+
+
+def _adult_row() -> models.User:
+    return models.User(
+        id=_USER_ID,
+        firebase_uid=_FIREBASE_UID,
+        role="parent",
+        display_name="Parent Name",
+    )
     fake_session.add = MagicMock()
     fake_session.commit = AsyncMock()
 
@@ -218,16 +204,17 @@ def test_presign_returns_signed_url_and_inserts_photo_row(
     assert response.status_code == 201
     body = response.json()
     assert body["bucket"] == "dragonfly-photos-test"
-    assert body["object_name"].startswith("pending/")
+    assert body["object_name"].startswith("pending/uploads/")
     assert body["object_name"].endswith(".jpg")
     assert body["content_type"] == "image/jpeg"
-    assert body["upload_url"].startswith("https://storage.googleapis.com/")
-    assert body["expires_at"]  # ISO timestamp present
-    # The upload contract is explicit: the client sends these verbatim.
-    assert body["required_headers"] == {
+    assert body["upload_headers"] == {
         "Content-Type": "image/jpeg",
         "x-ms-blob-type": "BlockBlob",
     }
+    assert body["required_headers"] == body["upload_headers"]
+    assert body["attachment_status"] == "reserved"
+    assert body["upload_url"].startswith("https://storage.googleapis.com/")
+    assert body["expires_at"]  # ISO timestamp present
 
     # Signer was called with a 15-minute TTL and matching object_name.
     assert len(stub_signer.calls) == 1
@@ -238,10 +225,12 @@ def test_presign_returns_signed_url_and_inserts_photo_row(
     assert cast(timedelta, call["expires_in"]) == timedelta(minutes=15)
 
     # A Photo row was added with status=pending and matching keys.
-    fake_session.add.assert_called_once()
-    photo: models.Photo = fake_session.add.call_args.args[0]
+    assert fake_session.add.call_count == 2
+    photo: models.Photo = fake_session.add.call_args_list[0].args[0]
     assert isinstance(photo, models.Photo)
     assert photo.status == "pending"
+    assert photo.attachment_status == "reserved"
+    assert photo.submission_key is not None
     assert photo.bucket == "dragonfly-photos-test"
     assert photo.object_name == body["object_name"]
     assert photo.user_id == _USER_ID
@@ -267,6 +256,73 @@ def test_presign_rejects_unsupported_content_type(
     fake_session.add.assert_not_called()
 
 
+def test_presign_replay_returns_same_reservation_and_fresh_sas(
+    monkeypatch: pytest.MonkeyPatch,
+    photos_client: TestClient,
+    fake_session: AsyncMock,
+    stub_signer: _StubSignedUrlGenerator,
+) -> None:
+    _stub_token_verifier(monkeypatch)
+    key = "01ARZ3NDEKTSV4RRFFQ69G5FAV"
+    photo = _photo_row(owner=_USER_ID, status="pending")
+    photo.attachment_status = "reserved"
+    record = models.ObservationIdempotency(
+        user_id=_USER_ID,
+        idempotency_key=key,
+        operation="photo_presign",
+        request_hash="fd824fcedd245e55871c74cb48ebbad02dab9bc4b9370433b609d6022ece7a73",
+        resource_id=photo.id,
+    )
+    results = []
+    for value in (_user_row(), record, photo):
+        result = MagicMock()
+        result.scalar_one_or_none = MagicMock(return_value=value)
+        results.append(result)
+    fake_session.execute = AsyncMock(side_effect=results)
+    fake_session.add = MagicMock()
+
+    response = photos_client.post(
+        "/v1/photos/presign",
+        json={"content_type": "image/jpeg"},
+        headers={"Authorization": "Bearer fake", "Idempotency-Key": key},
+    )
+
+    assert response.status_code == 201
+    assert response.json()["photo_id"] == photo.id
+    assert response.json()["upload_headers"]["x-ms-blob-type"] == "BlockBlob"
+    fake_session.add.assert_not_called()
+    assert len(stub_signer.calls) == 1
+
+
+def test_presign_rejects_idempotency_key_reuse_with_different_request(
+    monkeypatch: pytest.MonkeyPatch,
+    photos_client: TestClient,
+    fake_session: AsyncMock,
+) -> None:
+    _stub_token_verifier(monkeypatch)
+    key = "01ARZ3NDEKTSV4RRFFQ69G5FAV"
+    record = models.ObservationIdempotency(
+        user_id=_USER_ID,
+        idempotency_key=key,
+        operation="photo_presign",
+        request_hash="different",
+        resource_id="01J0PHOTOID00000000000ULID",
+    )
+    user_result = MagicMock()
+    user_result.scalar_one_or_none = MagicMock(return_value=_user_row())
+    record_result = MagicMock()
+    record_result.scalar_one_or_none = MagicMock(return_value=record)
+    fake_session.execute = AsyncMock(side_effect=[user_result, record_result])
+
+    response = photos_client.post(
+        "/v1/photos/presign",
+        json={"content_type": "image/jpeg"},
+        headers={"Authorization": "Bearer fake", "Idempotency-Key": key},
+    )
+    assert response.status_code == 409
+    assert response.json()["error"]["code"] == "idempotency_conflict"
+
+
 # ---------------------------------------------------------------------------
 # GET /v1/photos/{id}/url
 # ---------------------------------------------------------------------------
@@ -288,28 +344,45 @@ def _wire_photo_url(
     *,
     user: models.User | None,
     photo: models.Photo | None,
-    membership_rows: list[tuple[str, str, str]] | None = None,
+    membership_pairs: list[tuple[str, str]] | None = None,
+    moderation_status: str | None = None,
+    observation_group_id: str | None = None,
+    observation_owner_id: str | None = None,
 ) -> None:
-    """Wire user lookup -> photo lookup -> (optional) memberships join.
-
-    `membership_rows` are (user_id, group_id, role) triples -- the role
-    matters for non-clean photos, where the caller's side of the shared
-    group must be an adult membership. The memberships result is staged
-    whenever the caller isn't the owner; role-gate rejections that fire
-    before the query simply leave it unconsumed.
-    """
+    """Wire user, photo, observation authority, then adult membership."""
     user_result = MagicMock()
     user_result.scalar_one_or_none = MagicMock(return_value=user)
     photo_result = MagicMock()
     photo_result.scalar_one_or_none = MagicMock(return_value=photo)
+    pairs = membership_pairs or []
+    owner_id = observation_owner_id or (photo.user_id if photo is not None else "owner")
+    group_id = observation_group_id
+    if group_id is None:
+        group_id = next((gid for uid, gid in pairs if uid == owner_id), "observation-group")
+    observation_result = MagicMock()
+    observation_result.one_or_none = MagicMock(
+        return_value=(
+            moderation_status or photo.status,
+            group_id,
+            owner_id,
+        )
+        if photo is not None
+        else None
+    )
     memberships_result = MagicMock()
-    memberships_result.all = MagicMock(return_value=membership_rows or [])
+    memberships_result.scalar_one_or_none = MagicMock(
+        return_value=(
+            "adult-membership" if user is not None and (user.id, group_id) in pairs else None
+        )
+    )
 
     side_effects: list[object] = [user_result]
     if user is not None:
         side_effects.append(photo_result)
-        if photo is not None and photo.user_id != user.id:
-            # _shares_group runs only when caller != owner
+        if photo is not None:
+            side_effects.append(observation_result)
+        if photo is not None and photo.user_id != user.id and user.role in {"parent", "teacher"}:
+            # Adult authorization is scoped to the observation's group.
             side_effects.append(memberships_result)
 
     fake_session.execute = AsyncMock(side_effect=side_effects)
@@ -342,23 +415,6 @@ def test_photo_url_404_when_photo_missing(
     assert response.status_code == 404
 
 
-def test_photo_url_404_when_photo_deleted(
-    monkeypatch: pytest.MonkeyPatch,
-    photos_client: TestClient,
-    fake_session: AsyncMock,
-) -> None:
-    """Rejected photos never get working URLs, even for their owner --
-    the client-side 'Photo removed' state is backed server-side."""
-    _stub_token_verifier(monkeypatch)
-    _wire_photo_url(
-        fake_session,
-        user=_user_row(),
-        photo=_photo_row(owner=_USER_ID, status="deleted"),
-    )
-    response = photos_client.get("/v1/photos/x/url", headers={"Authorization": "Bearer fake"})
-    assert response.status_code == 404
-
-
 def test_photo_url_owner_caller_returns_signed_url(
     monkeypatch: pytest.MonkeyPatch,
     photos_client: TestClient,
@@ -373,6 +429,39 @@ def test_photo_url_owner_caller_returns_signed_url(
     assert body["expires_at"]
 
 
+@pytest.mark.parametrize("photo_status", ["pending", "quarantine", "deleted"])
+def test_photo_url_kid_owner_cannot_read_non_clean_photo(
+    monkeypatch: pytest.MonkeyPatch,
+    photos_client: TestClient,
+    fake_session: AsyncMock,
+    photo_status: str,
+) -> None:
+    _stub_token_verifier(monkeypatch)
+    _wire_photo_url(
+        fake_session,
+        user=_user_row(),
+        photo=_photo_row(owner=_USER_ID, status=photo_status),
+    )
+    response = photos_client.get("/v1/photos/x/url", headers={"Authorization": "Bearer fake"})
+    assert response.status_code == 404
+
+
+def test_photo_url_pilot_private_observation_is_denied_even_if_photo_says_clean(
+    monkeypatch: pytest.MonkeyPatch,
+    photos_client: TestClient,
+    fake_session: AsyncMock,
+) -> None:
+    _stub_token_verifier(monkeypatch)
+    _wire_photo_url(
+        fake_session,
+        user=_user_row(),
+        photo=_photo_row(owner=_USER_ID, status="clean"),
+        moderation_status="pilot_private",
+    )
+    response = photos_client.get("/v1/photos/x/url", headers={"Authorization": "Bearer fake"})
+    assert response.status_code == 404
+
+
 def test_photo_url_404_when_no_group_overlap(
     monkeypatch: pytest.MonkeyPatch,
     photos_client: TestClient,
@@ -382,432 +471,118 @@ def test_photo_url_404_when_no_group_overlap(
     _stub_token_verifier(monkeypatch)
     _wire_photo_url(
         fake_session,
+        user=_adult_row(),
+        photo=_photo_row(owner="someone-else"),
+        membership_pairs=[(_USER_ID, "g1"), ("someone-else", "g2")],
+    )
+    response = photos_client.get("/v1/photos/x/url", headers={"Authorization": "Bearer fake"})
+    assert response.status_code == 404
+
+
+def test_photo_url_adult_in_same_group_returns_url(
+    monkeypatch: pytest.MonkeyPatch,
+    photos_client: TestClient,
+    fake_session: AsyncMock,
+) -> None:
+    """Different owner BUT shared group -> signed URL returned."""
+    _stub_token_verifier(monkeypatch)
+    _wire_photo_url(
+        fake_session,
+        user=_adult_row(),
+        photo=_photo_row(owner="someone-else"),
+        membership_pairs=[(_USER_ID, "shared"), ("someone-else", "shared")],
+    )
+    response = photos_client.get("/v1/photos/x/url", headers={"Authorization": "Bearer fake"})
+    assert response.status_code == 200
+
+
+def test_photo_url_adult_shared_elsewhere_but_not_observation_group_is_denied(
+    monkeypatch: pytest.MonkeyPatch,
+    photos_client: TestClient,
+    fake_session: AsyncMock,
+) -> None:
+    """An unrelated shared group cannot unlock this observation's photo."""
+    _stub_token_verifier(monkeypatch)
+    _wire_photo_url(
+        fake_session,
+        user=_adult_row(),
+        photo=_photo_row(owner="someone-else"),
+        observation_group_id="target-group",
+        membership_pairs=[(_USER_ID, "shared-elsewhere"), ("someone-else", "shared-elsewhere")],
+    )
+    response = photos_client.get("/v1/photos/x/url", headers={"Authorization": "Bearer fake"})
+    assert response.status_code == 404
+
+
+def test_photo_url_adult_reviewer_can_read_quarantined_photo(
+    monkeypatch: pytest.MonkeyPatch,
+    photos_client: TestClient,
+    fake_session: AsyncMock,
+) -> None:
+    _stub_token_verifier(monkeypatch)
+    _wire_photo_url(
+        fake_session,
+        user=_adult_row(),
+        photo=_photo_row(owner="someone-else", status="quarantine"),
+        moderation_status="quarantine",
+        membership_pairs=[(_USER_ID, "shared"), ("someone-else", "shared")],
+    )
+    response = photos_client.get("/v1/photos/x/url", headers={"Authorization": "Bearer fake"})
+    assert response.status_code == 200
+
+
+def test_photo_url_peer_kid_in_same_group_is_denied(
+    monkeypatch: pytest.MonkeyPatch,
+    photos_client: TestClient,
+    fake_session: AsyncMock,
+) -> None:
+    _stub_token_verifier(monkeypatch)
+    _wire_photo_url(
+        fake_session,
         user=_user_row(),
         photo=_photo_row(owner="someone-else"),
-        membership_rows=[(_USER_ID, "g1", "kid"), ("someone-else", "g2", "kid")],
+        membership_pairs=[(_USER_ID, "shared"), ("someone-else", "shared")],
     )
     response = photos_client.get("/v1/photos/x/url", headers={"Authorization": "Bearer fake"})
     assert response.status_code == 404
 
 
-def test_photo_url_group_mate_sees_clean_photo(
+def test_delete_reserved_photo_tombstones_and_returns_204(
     monkeypatch: pytest.MonkeyPatch,
     photos_client: TestClient,
     fake_session: AsyncMock,
 ) -> None:
-    """Different owner BUT shared group -> signed URL returned for
-    moderation-passed photos (any membership role)."""
     _stub_token_verifier(monkeypatch)
-    _wire_photo_url(
-        fake_session,
-        user=_user_row(),
-        photo=_photo_row(owner="someone-else", status="clean"),
-        membership_rows=[(_USER_ID, "shared", "kid"), ("someone-else", "shared", "kid")],
+    photo = _photo_row(owner=_USER_ID, status="pending")
+    photo.attachment_status = "reserved"
+    _wire_photo_url(fake_session, user=_user_row(), photo=photo)
+    fake_session.commit = AsyncMock()
+
+    response = photos_client.delete(
+        f"/v1/photos/{photo.id}", headers={"Authorization": "Bearer fake"}
     )
-    response = photos_client.get("/v1/photos/x/url", headers={"Authorization": "Bearer fake"})
-    assert response.status_code == 200
+
+    assert response.status_code == 204
+    assert photo.attachment_status == "deleted"
+    assert photo.status == "deleted"
+    fake_session.commit.assert_awaited_once()
 
 
-@pytest.mark.parametrize("photo_status", ["pending", "quarantine"])
-def test_photo_url_kid_group_mate_blocked_from_unmoderated(
-    monkeypatch: pytest.MonkeyPatch,
-    photos_client: TestClient,
-    fake_session: AsyncMock,
-    photo_status: str,
-) -> None:
-    """Non-clean photos of OTHERS are adult-review material: a kid
-    group-mate must never mint a URL for another kid's unmoderated or
-    quarantined photo."""
-    _stub_token_verifier(monkeypatch)
-    _wire_photo_url(
-        fake_session,
-        user=_user_row(role="kid"),
-        photo=_photo_row(owner="someone-else", status=photo_status),
-        membership_rows=[(_USER_ID, "shared", "kid"), ("someone-else", "shared", "kid")],
-    )
-    response = photos_client.get("/v1/photos/x/url", headers={"Authorization": "Bearer fake"})
-    assert response.status_code == 404
-
-
-def test_photo_url_adult_reviewer_sees_quarantined(
+def test_delete_attached_photo_returns_conflict(
     monkeypatch: pytest.MonkeyPatch,
     photos_client: TestClient,
     fake_session: AsyncMock,
 ) -> None:
-    """The review-queue trust model: a parent/teacher with an ADULT-role
-    membership in the shared group can mint URLs for quarantined photos."""
     _stub_token_verifier(monkeypatch)
-    _wire_photo_url(
-        fake_session,
-        user=_user_row(role="parent"),
-        photo=_photo_row(owner="someone-else", status="quarantine"),
-        membership_rows=[
-            (_USER_ID, "shared", "parent"),
-            ("someone-else", "shared", "kid"),
-        ],
-    )
-    response = photos_client.get("/v1/photos/x/url", headers={"Authorization": "Bearer fake"})
-    assert response.status_code == 200
-
-
-def test_photo_url_adult_with_kid_membership_blocked_from_quarantined(
-    monkeypatch: pytest.MonkeyPatch,
-    photos_client: TestClient,
-    fake_session: AsyncMock,
-) -> None:
-    """users.role alone is not enough: the caller's membership in the
-    SHARED group must itself be adult-role (an adult who joined some
-    group as a kid-role member is not that group's reviewer)."""
-    _stub_token_verifier(monkeypatch)
-    _wire_photo_url(
-        fake_session,
-        user=_user_row(role="parent"),
-        photo=_photo_row(owner="someone-else", status="quarantine"),
-        membership_rows=[
-            (_USER_ID, "shared", "kid"),
-            ("someone-else", "shared", "kid"),
-        ],
-    )
-    response = photos_client.get("/v1/photos/x/url", headers={"Authorization": "Bearer fake"})
-    assert response.status_code == 404
-
-
-def test_photo_url_owner_sees_own_quarantined_photo(
-    monkeypatch: pytest.MonkeyPatch,
-    photos_client: TestClient,
-    fake_session: AsyncMock,
-) -> None:
-    """Kids always see their OWN photos in any non-deleted status --
-    the gallery's 'being checked' state depends on it."""
-    _stub_token_verifier(monkeypatch)
-    _wire_photo_url(
-        fake_session,
-        user=_user_row(role="kid"),
-        photo=_photo_row(owner=_USER_ID, status="quarantine"),
-    )
-    response = photos_client.get("/v1/photos/x/url", headers={"Authorization": "Bearer fake"})
-    assert response.status_code == 200
-
-
-@pytest.mark.parametrize("photo_status", ["pending", "quarantine"])
-def test_photo_url_adult_membership_elsewhere_does_not_unlock_shared_group(
-    monkeypatch: pytest.MonkeyPatch,
-    photos_client: TestClient,
-    fake_session: AsyncMock,
-    photo_status: str,
-) -> None:
-    """Mutation-proofing the per-group binding: an adult-role membership
-    in an UNRELATED group must not unlock non-clean photos in a group
-    the caller only joined as a kid-role member. A regressed 'any adult
-    membership anywhere + any shared group' check passes every other
-    test in this file; this one pins the binding."""
-    _stub_token_verifier(monkeypatch)
-    _wire_photo_url(
-        fake_session,
-        user=_user_row(role="parent"),
-        photo=_photo_row(owner="someone-else", status=photo_status),
-        membership_rows=[
-            (_USER_ID, "other-group", "parent"),
-            (_USER_ID, "shared", "kid"),
-            ("someone-else", "shared", "kid"),
-        ],
-    )
-    response = photos_client.get("/v1/photos/x/url", headers={"Authorization": "Bearer fake"})
-    assert response.status_code == 404
-
-
-def test_photo_url_adult_shared_membership_with_kid_membership_elsewhere(
-    monkeypatch: pytest.MonkeyPatch,
-    photos_client: TestClient,
-    fake_session: AsyncMock,
-) -> None:
-    """Inverse of the binding test: the adult-role membership IS in the
-    shared group, so review access works even though the caller is a
-    kid-role member somewhere else."""
-    _stub_token_verifier(monkeypatch)
-    _wire_photo_url(
-        fake_session,
-        user=_user_row(role="teacher"),
-        photo=_photo_row(owner="someone-else", status="quarantine"),
-        membership_rows=[
-            (_USER_ID, "shared", "teacher"),
-            (_USER_ID, "other-group", "kid"),
-            ("someone-else", "shared", "kid"),
-        ],
-    )
-    response = photos_client.get("/v1/photos/x/url", headers={"Authorization": "Bearer fake"})
-    assert response.status_code == 200
-
-
-# ---------------------------------------------------------------------------
-# POST /v1/photos/{id}/identify
-# ---------------------------------------------------------------------------
-
-
-def _pending_photo_row(*, owner: str = _USER_ID, status: str = "pending") -> models.Photo:
-    return models.Photo(
-        id="01J0PHOTOID00000000000ULID",
-        user_id=owner,
-        bucket="dragonfly-photos-test",
-        object_name="pending/01J0PHOTOID00000000000ULID.jpg",
-        status=status,
-        content_type="image/jpeg",
-    )
-
-
-def _wire_photo_identify(
-    fake_session: AsyncMock,
-    *,
-    user: models.User | None,
-    photo: models.Photo | None,
-) -> None:
+    photo = _photo_row(owner=_USER_ID, status="pending")
+    photo.attachment_status = "attached"
     user_result = MagicMock()
-    user_result.scalar_one_or_none = MagicMock(return_value=user)
+    user_result.scalar_one_or_none = MagicMock(return_value=_user_row())
     photo_result = MagicMock()
     photo_result.scalar_one_or_none = MagicMock(return_value=photo)
+    fake_session.execute = AsyncMock(side_effect=[user_result, photo_result])
 
-    side_effects: list[object] = [user_result]
-    if user is not None:
-        side_effects.append(photo_result)
-
-    fake_session.execute = AsyncMock(side_effect=side_effects)
-
-
-def test_photo_identify_requires_bearer(
-    fake_session: AsyncMock,
-    stub_signer: _StubSignedUrlGenerator,
-) -> None:
-    for client in _build_client(fake_session, signer=stub_signer):
-        response = client.post("/v1/photos/01J0PHOTOID00000000000ULID/identify")
-        assert response.status_code == 401
-
-
-def test_photo_identify_403_when_no_postgres_user(
-    monkeypatch: pytest.MonkeyPatch,
-    fake_session: AsyncMock,
-    stub_signer: _StubSignedUrlGenerator,
-) -> None:
-    _stub_token_verifier(monkeypatch)
-    _wire_photo_identify(fake_session, user=None, photo=None)
-    for client in _build_client(fake_session, signer=stub_signer):
-        response = client.post(
-            "/v1/photos/01J0PHOTOID00000000000ULID/identify",
-            headers={"Authorization": "Bearer fake"},
-        )
-        assert response.status_code == 403
-
-
-def test_photo_identify_404_when_photo_missing_or_wrong_owner(
-    monkeypatch: pytest.MonkeyPatch,
-    fake_session: AsyncMock,
-    stub_signer: _StubSignedUrlGenerator,
-) -> None:
-    _stub_token_verifier(monkeypatch)
-    _wire_photo_identify(fake_session, user=_user_row(), photo=None)
-    for client in _build_client(fake_session, signer=stub_signer):
-        response = client.post(
-            "/v1/photos/01J0PHOTOID00000000000ULID/identify",
-            headers={"Authorization": "Bearer fake"},
-        )
-        assert response.status_code == 404
-
-
-def test_photo_identify_409_when_photo_not_pending(
-    monkeypatch: pytest.MonkeyPatch,
-    fake_session: AsyncMock,
-    stub_signer: _StubSignedUrlGenerator,
-) -> None:
-    _stub_token_verifier(monkeypatch)
-    _wire_photo_identify(
-        fake_session,
-        user=_user_row(),
-        photo=_pending_photo_row(status="clean"),
+    response = photos_client.delete(
+        f"/v1/photos/{photo.id}", headers={"Authorization": "Bearer fake"}
     )
-    for client in _build_client(fake_session, signer=stub_signer):
-        response = client.post(
-            "/v1/photos/01J0PHOTOID00000000000ULID/identify",
-            headers={"Authorization": "Bearer fake"},
-        )
-        assert response.status_code == 409
-
-
-def test_photo_identify_returns_cv_unavailable_when_no_token(
-    monkeypatch: pytest.MonkeyPatch,
-    fake_session: AsyncMock,
-    stub_signer: _StubSignedUrlGenerator,
-) -> None:
-    _stub_token_verifier(monkeypatch)
-    _wire_photo_identify(fake_session, user=_user_row(), photo=_pending_photo_row())
-    for client in _build_client(fake_session, signer=stub_signer, inat_token=""):
-        response = client.post(
-            "/v1/photos/01J0PHOTOID00000000000ULID/identify",
-            headers={"Authorization": "Bearer fake"},
-        )
-        assert response.status_code == 200
-        body = response.json()
-        assert body["photo_id"] == "01J0PHOTOID00000000000ULID"
-        assert body["cv_unavailable"] is True
-        assert body["no_matches"] is False
-        assert body["suggestions"] == []
-        assert stub_signer.fetch_calls == []
-
-
-@respx.mock
-def test_photo_identify_happy_path_returns_top_suggestions(
-    monkeypatch: pytest.MonkeyPatch,
-    fake_session: AsyncMock,
-    stub_signer: _StubSignedUrlGenerator,
-) -> None:
-    _stub_token_verifier(monkeypatch)
-    _wire_photo_identify(fake_session, user=_user_row(), photo=_pending_photo_row())
-    respx.post("https://api.inaturalist.org/v1/computervision/score_image").mock(
-        return_value=httpx.Response(
-            200,
-            json={
-                "results": [
-                    {
-                        "combined_score": 91.0,
-                        "taxon": {
-                            "id": 12345,
-                            "name": "Cardinalis cardinalis",
-                            "preferred_common_name": "Northern Cardinal",
-                        },
-                    },
-                    {
-                        "combined_score": 62.0,
-                        "taxon": {
-                            "id": 67890,
-                            "name": "Cardinalis sinuatus",
-                            "preferred_common_name": "Pyrrhuloxia",
-                        },
-                    },
-                ]
-            },
-        )
-    )
-    for client in _build_client(fake_session, signer=stub_signer):
-        response = client.post(
-            "/v1/photos/01J0PHOTOID00000000000ULID/identify",
-            headers={"Authorization": "Bearer fake"},
-        )
-        assert response.status_code == 200
-        body = response.json()
-        assert body["cv_unavailable"] is False
-        assert body["no_matches"] is False
-        assert [s["taxon_id"] for s in body["suggestions"]] == [12345, 67890]
-        assert body["suggestions"][0]["common_name"] == "Northern Cardinal"
-        assert stub_signer.fetch_calls == [
-            ("dragonfly-photos-test", "pending/01J0PHOTOID00000000000ULID.jpg")
-        ]
-
-
-@respx.mock
-def test_photo_identify_returns_no_matches_for_empty_inat_response(
-    monkeypatch: pytest.MonkeyPatch,
-    fake_session: AsyncMock,
-    stub_signer: _StubSignedUrlGenerator,
-) -> None:
-    _stub_token_verifier(monkeypatch)
-    _wire_photo_identify(fake_session, user=_user_row(), photo=_pending_photo_row())
-    respx.post("https://api.inaturalist.org/v1/computervision/score_image").mock(
-        return_value=httpx.Response(200, json={"results": []})
-    )
-    for client in _build_client(fake_session, signer=stub_signer):
-        response = client.post(
-            "/v1/photos/01J0PHOTOID00000000000ULID/identify",
-            headers={"Authorization": "Bearer fake"},
-        )
-        assert response.status_code == 200
-        body = response.json()
-        assert body["cv_unavailable"] is False
-        assert body["no_matches"] is True
-        assert body["suggestions"] == []
-
-
-@respx.mock
-def test_photo_identify_uses_fallback_when_inat_has_no_matches(
-    monkeypatch: pytest.MonkeyPatch,
-    fake_session: AsyncMock,
-    stub_signer: _StubSignedUrlGenerator,
-) -> None:
-    _stub_token_verifier(monkeypatch)
-    _wire_photo_identify(fake_session, user=_user_row(), photo=_pending_photo_row())
-    respx.post("https://api.inaturalist.org/v1/computervision/score_image").mock(
-        return_value=httpx.Response(200, json={"results": []})
-    )
-    fallback = _StubOrganismFallback(
-        [
-            OrganismFallbackSuggestion(
-                common_name="Dog",
-                scientific_name="Canis familiaris",
-                score=94.0,
-            ),
-            OrganismFallbackSuggestion(
-                common_name="Mammal",
-                scientific_name=None,
-                score=86.5,
-            ),
-        ]
-    )
-    for client in _build_client(
-        fake_session,
-        signer=stub_signer,
-        organism_fallback=fallback,
-        organism_fallback_provider="azure_vision",
-    ):
-        response = client.post(
-            "/v1/photos/01J0PHOTOID00000000000ULID/identify",
-            headers={"Authorization": "Bearer fake"},
-        )
-        assert response.status_code == 200
-        body = response.json()
-        assert body["cv_unavailable"] is False
-        assert body["fallback_unavailable"] is False
-        assert body["no_matches"] is False
-        assert body["suggestions"] == [
-            {
-                "taxon_id": None,
-                "common_name": "Dog",
-                "scientific_name": "Canis familiaris",
-                "score": 94.0,
-                "source": "fallback",
-            },
-            {
-                "taxon_id": None,
-                "common_name": "Mammal",
-                "scientific_name": None,
-                "score": 86.5,
-                "source": "fallback",
-            },
-        ]
-        assert fallback.calls == [b"fake-jpeg-bytes"]
-
-
-@respx.mock
-def test_photo_identify_returns_no_matches_when_fallback_has_no_organism(
-    monkeypatch: pytest.MonkeyPatch,
-    fake_session: AsyncMock,
-    stub_signer: _StubSignedUrlGenerator,
-) -> None:
-    _stub_token_verifier(monkeypatch)
-    _wire_photo_identify(fake_session, user=_user_row(), photo=_pending_photo_row())
-    respx.post("https://api.inaturalist.org/v1/computervision/score_image").mock(
-        return_value=httpx.Response(200, json={"results": []})
-    )
-    fallback = _StubOrganismFallback([])
-    for client in _build_client(
-        fake_session,
-        signer=stub_signer,
-        organism_fallback=fallback,
-        organism_fallback_provider="azure_vision",
-    ):
-        response = client.post(
-            "/v1/photos/01J0PHOTOID00000000000ULID/identify",
-            headers={"Authorization": "Bearer fake"},
-        )
-        assert response.status_code == 200
-        body = response.json()
-        assert body["cv_unavailable"] is False
-        assert body["fallback_unavailable"] is False
-        assert body["no_matches"] is True
-        assert body["suggestions"] == []
+    assert response.status_code == 409

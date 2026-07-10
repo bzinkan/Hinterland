@@ -6,13 +6,13 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Literal
 
-import geohash
 import httpx
 import structlog
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.geospatial import decode_geohash_exactly
 from app.db import models
 from app.inat.client import InatUnavailable
 from app.inat.observations import get_species_counts
@@ -44,7 +44,7 @@ def tier_for_share(share: float) -> Tier:
 
 def geohash_bbox(gh: str) -> tuple[float, float, float, float]:
     """Return (sw_lat, sw_lng, ne_lat, ne_lng) for a geohash cell."""
-    lat, lng, lat_err, lng_err = geohash.decode_exactly(gh)
+    lat, lng, lat_err, lng_err = decode_geohash_exactly(gh)
     return (lat - lat_err, lng - lng_err, lat + lat_err, lng + lng_err)
 
 

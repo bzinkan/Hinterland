@@ -1,40 +1,43 @@
-# Risk 0003: Dispatcher real-DB snapshots and p95 still need proof
+# Risk 0003: Dispatcher production p95 still needs pilot proof
 
 - **Status:** Open
 - **Date filed:** 2026-05-10
-- **Updated:** 2026-06-04
+- **Updated:** 2026-07-09 for ADR 0015
 - **Owner:** Brian
 
 ## Current State
 
-The original risk is partly stale:
+Correctness is closed in code and against disposable PostgreSQL 16. Coverage
+includes durable versioned handler rows, one outer transaction with savepoints,
+failed/blocked dependencies, persisted rewards, incomplete-only replay under a
+user lock, deterministic rebuild, Expedition contribution gates, geohash-3
+rarity fallback, and duration logging.
 
-- ExpeditionHandler is implemented.
-- World/Sanctuary handler is implemented.
-- Dispatcher replay job exists.
-- RarityHandler now falls back from geohash-4 to parent geohash-3 when the
-  child cell has no baseline.
-- `dispatcher.complete` logs `duration_ms`.
+Twelve real-PostgreSQL integration cases cover concurrent finalization,
+savepoint failure/replay, dependency blocking, Expedition contribution,
+handler-version mismatch, review races, dispatcher/rebuild serialization, and
+replacement first-find rebuilds.
 
-Mock/unit coverage exists for dispatcher core, Dex, Rarity, Expedition, World,
-and replay. The remaining gap is proof against a real Postgres database and a
-real traffic latency distribution.
+The 2026-07-09 development probe ran 50 durable dispatches at 61.41 ms p95
+(16.04 ms minimum, 135.81 ms maximum), below the 300 ms code-level budget. This
+does not replace evidence from the exact Azure/release-AAB environment.
 
 ## Remaining Closure Checklist
 
-- [x] Implement geohash-3 rarity fallback for low-data child cells.
-- [x] Add `dispatcher.duration_ms`/`duration_ms` logging.
-- [ ] Add or update snapshot coverage so scenarios 4, 6, 7, and 8 are visible
-      from the dispatcher snapshot suite, not only per-handler tests.
-- [ ] Add real-Postgres dispatcher harness for scenarios 10 and 11:
-      idempotent resubmit and replay after crash.
-- [ ] Run dogfood/pilot traffic until at least 50 observations exist.
-- [ ] Query Azure Log Analytics for dispatcher p95 and confirm it is below
-      300ms.
-- [ ] Add an Azure Monitor chart/alert for sustained dispatcher p95 > 300ms.
+- [x] Implement low-data rarity fallback and duration logging.
+- [x] Cover documented snapshots and real-PostgreSQL duplicate/replay cases.
+- [x] Prove SQL savepoint rollback, blocked dependencies, persisted restore,
+      Expedition replay gates, dispatcher/rebuild serialization, and
+      replacement first-find rebuilds.
+- [x] Run a 50-dispatch disposable PostgreSQL probe below 300 ms p95.
+- [ ] Run pilot traffic until at least 50 deployed observations exist.
+- [ ] Confirm deployed Log Analytics p95 below 300 ms.
+- [x] Add Azure Monitor configuration for sustained p95 above 300 ms.
+- [ ] Deploy and synthetically verify that alert in isolated Hinterland.
 
 ## Mitigation
 
-While this risk is open, dispatcher failure still does not fail observation
-submission. The replay job can recover missing rewards where `dispatched_at`
-stayed null.
+Dispatcher failure does not fail Observation submission. The saved response is
+`pending|partial`, mobile says rewards are catching up, and replay recovers
+durable incomplete work. W1 promotion still requires exact-release p95 and
+alert evidence.

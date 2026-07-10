@@ -67,8 +67,18 @@ def _build_client(
     inat_token: str = "test-token",
     storage: _StubStorage | None = None,
     inat_client: httpx.AsyncClient | None = None,
+    cv_enabled: bool = True,
 ) -> Iterator[TestClient]:
-    app = create_app(Settings(env="local", app_version="test", inat_oauth_token=inat_token))
+    app = create_app(
+        Settings(
+            env="local",
+            app_version="test",
+            inat_oauth_token=inat_token,
+            inat_cv_enabled=cv_enabled,
+            inat_cv_disclosure_approved=cv_enabled,
+            inat_cv_benchmark_approved=cv_enabled,
+        )
+    )
     # FastAPI resolves all dependencies before the handler runs, so even
     # tests that 401/403/404 before touching storage would otherwise pull
     # the real GcsSignedUrlGenerator (which needs ADC). Always inject a
@@ -99,14 +109,17 @@ def _user_row() -> models.User:
     )
 
 
-def _obs_with_photo() -> tuple[models.Observation, models.Photo]:
+def _obs_with_photo(
+    *, photo_status: str = "clean", moderation_status: str = "clean"
+) -> tuple[models.Observation, models.Photo]:
     photo = models.Photo(
         id=_PHOTO_ID,
         user_id=_USER_ID,
         bucket="dragonfly-photos-test",
-        object_name=f"pending/{_PHOTO_ID}.jpg",
-        status="pending",
+        object_name=f"observations/{_PHOTO_ID}.jpg",
+        status=photo_status,
         content_type="image/jpeg",
+        sha256="a" * 64,
     )
     obs = models.Observation(
         id=_OBS_ID,
@@ -115,6 +128,7 @@ def _obs_with_photo() -> tuple[models.Observation, models.Photo]:
         photo_id=_PHOTO_ID,
         latitude=39.1,
         longitude=-84.5,
+        moderation_status=moderation_status,
     )
     return obs, photo
 
@@ -124,16 +138,46 @@ def _wire_session(
     *,
     user: models.User | None,
     obs_photo: tuple[models.Observation, models.Photo] | None = None,
+    cache: models.CvSuggestionCache | None = None,
+    catalog_rows: list[models.SpeciesCache] | None = None,
 ) -> None:
     user_result = MagicMock()
     user_result.scalar_one_or_none = MagicMock(return_value=user)
 
     obs_result = MagicMock()
     obs_result.one_or_none = MagicMock(return_value=obs_photo)
+    cache_result = MagicMock()
+    cache_result.scalar_one_or_none = MagicMock(return_value=cache)
+    catalog_result = MagicMock()
+    catalog_result.scalars.return_value.all.return_value = (
+        catalog_rows
+        if catalog_rows is not None
+        else [
+            models.SpeciesCache(
+                taxon_id=12345,
+                scientific_name="Cardinalis cardinalis",
+                common_name="Northern Cardinal",
+                iconic_taxon="Aves",
+                active=True,
+                source_payload={},
+            ),
+            models.SpeciesCache(
+                taxon_id=67890,
+                scientific_name="Cardinalis sinuatus",
+                common_name="Pyrrhuloxia",
+                iconic_taxon="Aves",
+                active=True,
+                source_payload={},
+            ),
+        ]
+    )
 
     side_effects: list[Any] = [user_result]
     if user is not None:
         side_effects.append(obs_result)
+        if obs_photo is not None:
+            side_effects.append(cache_result)
+            side_effects.append(catalog_result)
 
     fake_session.execute = AsyncMock(side_effect=side_effects)
 
@@ -193,6 +237,74 @@ def test_identify_returns_cv_unavailable_when_no_token(
         assert storage.fetch_calls == []
 
 
+def test_identify_is_disabled_by_default_even_with_token(
+    monkeypatch: pytest.MonkeyPatch, fake_session: AsyncMock
+) -> None:
+    _stub_token_verifier(monkeypatch)
+    _wire_session(fake_session, user=_user_row(), obs_photo=_obs_with_photo())
+    storage = _StubStorage()
+    for client in _build_client(fake_session, storage=storage, cv_enabled=False):
+        response = client.post(
+            f"/v1/observations/{_OBS_ID}/identify",
+            headers={"Authorization": "Bearer fake"},
+        )
+        assert response.status_code == 200
+        assert response.json()["cv_unavailable"] is True
+        assert storage.fetch_calls == []
+
+
+def test_identify_rejects_photo_that_is_not_clean(
+    monkeypatch: pytest.MonkeyPatch, fake_session: AsyncMock
+) -> None:
+    _stub_token_verifier(monkeypatch)
+    _wire_session(
+        fake_session,
+        user=_user_row(),
+        obs_photo=_obs_with_photo(photo_status="pending", moderation_status="pending"),
+    )
+    storage = _StubStorage()
+    for client in _build_client(fake_session, storage=storage):
+        response = client.post(
+            f"/v1/observations/{_OBS_ID}/identify",
+            headers={"Authorization": "Bearer fake"},
+        )
+        assert response.status_code == 409
+        assert storage.fetch_calls == []
+
+
+def test_identify_reuses_canonical_hash_and_model_cache(
+    monkeypatch: pytest.MonkeyPatch, fake_session: AsyncMock
+) -> None:
+    _stub_token_verifier(monkeypatch)
+    cached = models.CvSuggestionCache(
+        photo_sha256="a" * 64,
+        model_version="inat-cv-v1",
+        suggestions=[
+            {
+                "taxon_id": 12345,
+                "common_name": "Northern Cardinal",
+                "scientific_name": "Cardinalis cardinalis",
+                "score": 91.0,
+            }
+        ],
+    )
+    _wire_session(
+        fake_session,
+        user=_user_row(),
+        obs_photo=_obs_with_photo(),
+        cache=cached,
+    )
+    storage = _StubStorage()
+    for client in _build_client(fake_session, storage=storage):
+        response = client.post(
+            f"/v1/observations/{_OBS_ID}/identify",
+            headers={"Authorization": "Bearer fake"},
+        )
+        assert response.status_code == 200
+        assert response.json()["suggestions"][0]["taxon_id"] == 12345
+        assert storage.fetch_calls == []
+
+
 @respx.mock
 def test_identify_happy_path_returns_top_3(
     monkeypatch: pytest.MonkeyPatch, fake_session: AsyncMock
@@ -239,7 +351,7 @@ def test_identify_happy_path_returns_top_3(
         assert body["suggestions"][0]["common_name"] == "Northern Cardinal"
         assert body["suggestions"][0]["score"] == 92.5
         # Storage WAS read with the observations photo key.
-        assert storage.fetch_calls == [("dragonfly-photos-test", f"pending/{_PHOTO_ID}.jpg")]
+        assert storage.fetch_calls == [("dragonfly-photos-test", f"observations/{_PHOTO_ID}.jpg")]
 
 
 @respx.mock

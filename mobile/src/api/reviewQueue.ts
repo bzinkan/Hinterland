@@ -15,8 +15,10 @@ export type ReviewQueueListResponse = {
   next_cursor: string | null;
 };
 
-export function listReviewQueue(): Promise<ReviewQueueListResponse> {
-  return apiRequest<ReviewQueueListResponse>("/v1/review-queue?status=pending");
+export function listReviewQueue(signal?: AbortSignal): Promise<ReviewQueueListResponse> {
+  return apiRequest<ReviewQueueListResponse>("/v1/review-queue?status=pending", {
+    signal,
+  });
 }
 
 export type ResolveResponse = {
@@ -25,15 +27,23 @@ export type ResolveResponse = {
   photo_status: string | null;
 };
 
-export function approveReview(id: string): Promise<ResolveResponse> {
+export function approveReview(
+  id: string,
+  signal?: AbortSignal,
+): Promise<ResolveResponse> {
   return apiRequest<ResolveResponse>(`/v1/review-queue/${id}/approve`, {
     method: "POST",
+    signal,
   });
 }
 
-export function rejectReview(id: string): Promise<ResolveResponse> {
+export function rejectReview(
+  id: string,
+  signal?: AbortSignal,
+): Promise<ResolveResponse> {
   return apiRequest<ResolveResponse>(`/v1/review-queue/${id}/reject`, {
     method: "POST",
+    signal,
   });
 }
 

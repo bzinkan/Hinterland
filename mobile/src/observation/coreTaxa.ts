@@ -1,0 +1,630 @@
+import type { TaxonCatalogItem } from "@/src/api/taxa";
+
+export const CORE_TAXA_VERSION = "2026.07.09.3";
+export const CORE_TAXA_CHECKSUM_SHA256 = "dec29f8887f7f7d3d960db4f90f55be4fa90eb4fdf2b5a8ed53a89df658605df";
+export const CORE_TAXA_COUNT = 45;
+
+type CoreTaxon = TaxonCatalogItem & { aliases: readonly string[] };
+
+/** Bundled reviewed core, generated from content/taxa/core.json. */
+export const CORE_TAXA: readonly CoreTaxon[] = [
+  {
+    "taxon_id": 1,
+    "scientific_name": "Animalia",
+    "common_name": "Animals",
+    "rank": "kingdom",
+    "iconic_taxon": "Animalia",
+    "ancestor_ids": [],
+    "aliases": [
+      "animal",
+      "animals"
+    ]
+  },
+  {
+    "taxon_id": 47126,
+    "scientific_name": "Plantae",
+    "common_name": "Plants",
+    "rank": "kingdom",
+    "iconic_taxon": "Plantae",
+    "ancestor_ids": [],
+    "aliases": [
+      "plant",
+      "plants"
+    ]
+  },
+  {
+    "taxon_id": 47158,
+    "scientific_name": "Insecta",
+    "common_name": "Insects",
+    "rank": "class",
+    "iconic_taxon": "Insecta",
+    "ancestor_ids": [],
+    "aliases": [
+      "insect",
+      "insects",
+      "bug",
+      "bugs"
+    ]
+  },
+  {
+    "taxon_id": 3,
+    "scientific_name": "Aves",
+    "common_name": "Birds",
+    "rank": "class",
+    "iconic_taxon": "Aves",
+    "ancestor_ids": [],
+    "aliases": [
+      "bird",
+      "birds"
+    ]
+  },
+  {
+    "taxon_id": 47170,
+    "scientific_name": "Fungi",
+    "common_name": "Fungi Including Lichens",
+    "rank": "kingdom",
+    "iconic_taxon": "Fungi",
+    "ancestor_ids": [],
+    "aliases": [
+      "fungus",
+      "fungi",
+      "mushroom",
+      "lichen"
+    ]
+  },
+  {
+    "taxon_id": 47119,
+    "scientific_name": "Arachnida",
+    "common_name": "Arachnids",
+    "rank": "class",
+    "iconic_taxon": "Arachnida",
+    "ancestor_ids": [],
+    "aliases": [
+      "arachnid",
+      "arachnids",
+      "spider",
+      "spiders"
+    ]
+  },
+  {
+    "taxon_id": 20978,
+    "scientific_name": "Amphibia",
+    "common_name": "Amphibians",
+    "rank": "class",
+    "iconic_taxon": "Amphibia",
+    "ancestor_ids": [],
+    "aliases": [
+      "amphibian",
+      "amphibians",
+      "frog",
+      "salamander"
+    ]
+  },
+  {
+    "taxon_id": 26036,
+    "scientific_name": "Reptilia",
+    "common_name": "Reptiles",
+    "rank": "class",
+    "iconic_taxon": "Reptilia",
+    "ancestor_ids": [],
+    "aliases": [
+      "reptile",
+      "reptiles",
+      "snake",
+      "lizard",
+      "turtle"
+    ]
+  },
+  {
+    "taxon_id": 40151,
+    "scientific_name": "Mammalia",
+    "common_name": "Mammals",
+    "rank": "class",
+    "iconic_taxon": "Mammalia",
+    "ancestor_ids": [],
+    "aliases": [
+      "mammal",
+      "mammals"
+    ]
+  },
+  {
+    "taxon_id": 47115,
+    "scientific_name": "Mollusca",
+    "common_name": "Molluscs",
+    "rank": "phylum",
+    "iconic_taxon": "Mollusca",
+    "ancestor_ids": [],
+    "aliases": [
+      "mollusc",
+      "molluscs",
+      "mollusk",
+      "mollusks",
+      "snail",
+      "slug"
+    ]
+  },
+  {
+    "taxon_id": 47178,
+    "scientific_name": "Actinopterygii",
+    "common_name": "Ray-finned Fishes",
+    "rank": "class",
+    "iconic_taxon": "Actinopterygii",
+    "ancestor_ids": [],
+    "aliases": [
+      "fish",
+      "fishes"
+    ]
+  },
+  {
+    "taxon_id": 20979,
+    "scientific_name": "Anura",
+    "common_name": "Frogs and Toads",
+    "rank": "order",
+    "iconic_taxon": "Amphibia",
+    "ancestor_ids": [],
+    "aliases": [
+      "frog",
+      "toad"
+    ]
+  },
+  {
+    "taxon_id": 26718,
+    "scientific_name": "Caudata",
+    "common_name": "Salamanders",
+    "rank": "order",
+    "iconic_taxon": "Amphibia",
+    "ancestor_ids": [],
+    "aliases": [
+      "salamander",
+      "newt"
+    ]
+  },
+  {
+    "taxon_id": 39532,
+    "scientific_name": "Testudines",
+    "common_name": "Turtles and Tortoises",
+    "rank": "order",
+    "iconic_taxon": "Reptilia",
+    "ancestor_ids": [],
+    "aliases": [
+      "turtle",
+      "tortoise"
+    ]
+  },
+  {
+    "taxon_id": 47118,
+    "scientific_name": "Araneae",
+    "common_name": "Spiders",
+    "rank": "order",
+    "iconic_taxon": "Arachnida",
+    "ancestor_ids": [],
+    "aliases": [
+      "spider",
+      "spiders"
+    ]
+  },
+  {
+    "taxon_id": 47157,
+    "scientific_name": "Lepidoptera",
+    "common_name": "Butterflies and Moths",
+    "rank": "order",
+    "iconic_taxon": "Insecta",
+    "ancestor_ids": [],
+    "aliases": [
+      "butterfly",
+      "moth"
+    ]
+  },
+  {
+    "taxon_id": 47201,
+    "scientific_name": "Hymenoptera",
+    "common_name": "Ants, Bees, Wasps, and Sawflies",
+    "rank": "order",
+    "iconic_taxon": "Insecta",
+    "ancestor_ids": [],
+    "aliases": [
+      "ant",
+      "bee",
+      "wasp",
+      "sawfly"
+    ]
+  },
+  {
+    "taxon_id": 47208,
+    "scientific_name": "Coleoptera",
+    "common_name": "Beetles",
+    "rank": "order",
+    "iconic_taxon": "Insecta",
+    "ancestor_ids": [],
+    "aliases": [
+      "beetle",
+      "beetles"
+    ]
+  },
+  {
+    "taxon_id": 47792,
+    "scientific_name": "Odonata",
+    "common_name": "Dragonflies and Damselflies",
+    "rank": "order",
+    "iconic_taxon": "Insecta",
+    "ancestor_ids": [],
+    "aliases": [
+      "dragonfly",
+      "damselfly"
+    ]
+  },
+  {
+    "taxon_id": 47822,
+    "scientific_name": "Diptera",
+    "common_name": "Flies",
+    "rank": "order",
+    "iconic_taxon": "Insecta",
+    "ancestor_ids": [],
+    "aliases": [
+      "fly",
+      "flies"
+    ]
+  },
+  {
+    "taxon_id": 47735,
+    "scientific_name": "Diplopoda",
+    "common_name": "Millipedes",
+    "rank": "class",
+    "iconic_taxon": "Animalia",
+    "ancestor_ids": [],
+    "aliases": [
+      "millipede",
+      "millipedes"
+    ]
+  },
+  {
+    "taxon_id": 48147,
+    "scientific_name": "Isopoda",
+    "common_name": "Isopods",
+    "rank": "order",
+    "iconic_taxon": "Animalia",
+    "ancestor_ids": [],
+    "aliases": [
+      "isopod",
+      "woodlouse",
+      "pillbug"
+    ]
+  },
+  {
+    "taxon_id": 69758,
+    "scientific_name": "Lumbricidae",
+    "common_name": "Lumbricid Earthworms",
+    "rank": "family",
+    "iconic_taxon": "Animalia",
+    "ancestor_ids": [],
+    "aliases": [
+      "earthworm",
+      "worm"
+    ]
+  },
+  {
+    "taxon_id": 47566,
+    "scientific_name": "Populus",
+    "common_name": "Poplars, Cottonwoods, and Aspens",
+    "rank": "genus",
+    "iconic_taxon": "Plantae",
+    "ancestor_ids": [],
+    "aliases": [
+      "poplar",
+      "cottonwood",
+      "aspen"
+    ]
+  },
+  {
+    "taxon_id": 47727,
+    "scientific_name": "Acer",
+    "common_name": "Maples",
+    "rank": "genus",
+    "iconic_taxon": "Plantae",
+    "ancestor_ids": [],
+    "aliases": [
+      "maple",
+      "maples"
+    ]
+  },
+  {
+    "taxon_id": 47851,
+    "scientific_name": "Quercus",
+    "common_name": "Oaks",
+    "rank": "genus",
+    "iconic_taxon": "Plantae",
+    "ancestor_ids": [],
+    "aliases": [
+      "oak",
+      "oaks"
+    ]
+  },
+  {
+    "taxon_id": 49156,
+    "scientific_name": "Betula",
+    "common_name": "Birches",
+    "rank": "genus",
+    "iconic_taxon": "Plantae",
+    "ancestor_ids": [],
+    "aliases": [
+      "birch",
+      "birches"
+    ]
+  },
+  {
+    "taxon_id": 49203,
+    "scientific_name": "Fagus",
+    "common_name": "Beeches",
+    "rank": "genus",
+    "iconic_taxon": "Plantae",
+    "ancestor_ids": [],
+    "aliases": [
+      "beech",
+      "beeches"
+    ]
+  },
+  {
+    "taxon_id": 49661,
+    "scientific_name": "Liquidambar",
+    "common_name": "Sweetgums",
+    "rank": "genus",
+    "iconic_taxon": "Plantae",
+    "ancestor_ids": [],
+    "aliases": [
+      "sweetgum",
+      "sweetgums"
+    ]
+  },
+  {
+    "taxon_id": 49664,
+    "scientific_name": "Platanus",
+    "common_name": "Planes",
+    "rank": "genus",
+    "iconic_taxon": "Plantae",
+    "ancestor_ids": [],
+    "aliases": [
+      "plane tree",
+      "sycamore"
+    ]
+  },
+  {
+    "taxon_id": 53549,
+    "scientific_name": "Ulmus",
+    "common_name": "Elms",
+    "rank": "genus",
+    "iconic_taxon": "Plantae",
+    "ancestor_ids": [],
+    "aliases": [
+      "elm",
+      "elms"
+    ]
+  },
+  {
+    "taxon_id": 54788,
+    "scientific_name": "Carya",
+    "common_name": "Hickories",
+    "rank": "genus",
+    "iconic_taxon": "Plantae",
+    "ancestor_ids": [],
+    "aliases": [
+      "hickory",
+      "hickories"
+    ]
+  },
+  {
+    "taxon_id": 56061,
+    "scientific_name": "Alliaria petiolata",
+    "common_name": "Garlic Mustard",
+    "rank": "species",
+    "iconic_taxon": "Plantae",
+    "ancestor_ids": [],
+    "aliases": [
+      "garlic mustard"
+    ]
+  },
+  {
+    "taxon_id": 57278,
+    "scientific_name": "Ailanthus altissima",
+    "common_name": "Tree-of-heaven",
+    "rank": "species",
+    "iconic_taxon": "Plantae",
+    "ancestor_ids": [],
+    "aliases": [
+      "tree of heaven"
+    ]
+  },
+  {
+    "taxon_id": 61321,
+    "scientific_name": "Lythrum salicaria",
+    "common_name": "Purple Loosestrife",
+    "rank": "species",
+    "iconic_taxon": "Plantae",
+    "ancestor_ids": [],
+    "aliases": [
+      "purple loosestrife"
+    ]
+  },
+  {
+    "taxon_id": 62671,
+    "scientific_name": "Pueraria montana",
+    "common_name": "Kudzu",
+    "rank": "species",
+    "iconic_taxon": "Plantae",
+    "ancestor_ids": [],
+    "aliases": [
+      "kudzu"
+    ]
+  },
+  {
+    "taxon_id": 64697,
+    "scientific_name": "Elaeagnus umbellata",
+    "common_name": "Autumn Olive",
+    "rank": "species",
+    "iconic_taxon": "Plantae",
+    "ancestor_ids": [],
+    "aliases": [
+      "autumn olive"
+    ]
+  },
+  {
+    "taxon_id": 78882,
+    "scientific_name": "Rosa multiflora",
+    "common_name": "Multiflora Rose",
+    "rank": "species",
+    "iconic_taxon": "Plantae",
+    "ancestor_ids": [],
+    "aliases": [
+      "multiflora rose"
+    ]
+  },
+  {
+    "taxon_id": 82342,
+    "scientific_name": "Lonicera maackii",
+    "common_name": "Amur Honeysuckle",
+    "rank": "species",
+    "iconic_taxon": "Plantae",
+    "ancestor_ids": [],
+    "aliases": [
+      "amur honeysuckle"
+    ]
+  },
+  {
+    "taxon_id": 9083,
+    "scientific_name": "Cardinalis cardinalis",
+    "common_name": "Northern Cardinal",
+    "rank": "species",
+    "iconic_taxon": "Aves",
+    "ancestor_ids": [
+      48460,
+      1,
+      2,
+      355675,
+      3,
+      7251,
+      71305,
+      9080
+    ],
+    "aliases": [
+      "cardinal",
+      "redbird"
+    ]
+  },
+  {
+    "taxon_id": 12727,
+    "scientific_name": "Turdus migratorius",
+    "common_name": "American Robin",
+    "rank": "species",
+    "iconic_taxon": "Aves",
+    "ancestor_ids": [
+      48460,
+      1,
+      2,
+      355675,
+      3,
+      7251,
+      15977,
+      12705
+    ],
+    "aliases": [
+      "robin"
+    ]
+  },
+  {
+    "taxon_id": 46017,
+    "scientific_name": "Sciurus carolinensis",
+    "common_name": "Eastern Gray Squirrel",
+    "rank": "species",
+    "iconic_taxon": "Mammalia",
+    "ancestor_ids": [
+      48460,
+      1,
+      2,
+      355675,
+      40151,
+      43698,
+      45933,
+      45994
+    ],
+    "aliases": [
+      "gray squirrel",
+      "grey squirrel",
+      "squirrel"
+    ]
+  },
+  {
+    "taxon_id": 47219,
+    "scientific_name": "Apis mellifera",
+    "common_name": "Western Honey Bee",
+    "rank": "species",
+    "iconic_taxon": "Insecta",
+    "ancestor_ids": [
+      48460,
+      1,
+      47120,
+      47158,
+      184884,
+      47201
+    ],
+    "aliases": [
+      "honey bee",
+      "honeybee",
+      "bee"
+    ]
+  },
+  {
+    "taxon_id": 47602,
+    "scientific_name": "Taraxacum officinale",
+    "common_name": "Common Dandelion",
+    "rank": "species",
+    "iconic_taxon": "Plantae",
+    "ancestor_ids": [
+      48460,
+      47126,
+      211194,
+      47125,
+      47124
+    ],
+    "aliases": [
+      "dandelion"
+    ]
+  },
+  {
+    "taxon_id": 48662,
+    "scientific_name": "Danaus plexippus",
+    "common_name": "Monarch",
+    "rank": "species",
+    "iconic_taxon": "Insecta",
+    "ancestor_ids": [
+      48460,
+      1,
+      47120,
+      47158,
+      184884,
+      47157
+    ],
+    "aliases": [
+      "monarch butterfly",
+      "butterfly"
+    ]
+  }
+];
+
+export function searchCoreTaxa(query: string): TaxonCatalogItem[] {
+  const normalized = query.trim().toLocaleLowerCase();
+  if (!normalized) return [];
+  return CORE_TAXA.filter((taxon) =>
+    [taxon.common_name, taxon.scientific_name, ...taxon.aliases].some((value) =>
+      value?.toLocaleLowerCase().includes(normalized),
+    ),
+  );
+}
+
+export function mergeTaxonResults(
+  local: readonly TaxonCatalogItem[],
+  remote: readonly TaxonCatalogItem[],
+): TaxonCatalogItem[] {
+  const merged = new Map<number, TaxonCatalogItem>();
+  for (const taxon of local) merged.set(taxon.taxon_id, taxon);
+  for (const taxon of remote) merged.set(taxon.taxon_id, taxon);
+  return [...merged.values()].slice(0, 20);
+}

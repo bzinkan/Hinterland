@@ -121,12 +121,19 @@
       "resourceId": "/subscriptions/3ac5dfb0-91b7-47d3-8187-9dc8d6305e96/resourceGroups/hinterland-dev-rg/providers/Microsoft.App/containerapps/hinterland-api"
     },
     "jobs": [
+      "hinterland-obs-preflight",
+      "hinterland-migrate",
+      "hinterland-legacy-reconcile",
       "hinterland-moderation-job",
-      "hinterland-inat-job",
+      "hinterland-mod-outbox-relay",
       "hinterland-rarity-refresh",
       "hinterland-sweep-stale-reviews",
-      "hinterland-inat-outbox-replay",
-      "hinterland-dispatcher-replay"
+      "hinterland-dispatcher-replay",
+      "hinterland-state-rebuild",
+      "hinterland-obs-retention",
+      "hinterland-obs-health",
+      "hinterland-taxa-catalog-ingest",
+      "hinterland-sync-expeditions"
     ]
   },
   "kidJwt": {

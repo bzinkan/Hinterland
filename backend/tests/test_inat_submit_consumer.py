@@ -188,6 +188,7 @@ async def test_process_one_dead_letters_when_observation_missing(
         _StubStorage(),  # type: ignore[arg-type]
         AsyncMock(),
         body=_body(),
+        egress_enabled=True,
     )
     assert result == "dead_letter"
 
@@ -201,6 +202,7 @@ async def test_process_one_dead_letters_when_observation_not_clean(
         _StubStorage(),  # type: ignore[arg-type]
         AsyncMock(),
         body=_body(),
+        egress_enabled=True,
     )
     assert result == "dead_letter"
 
@@ -312,6 +314,24 @@ async def test_consume_no_op_when_service_bus_disabled() -> None:
     from admin.inat_submit_consumer import consume
 
     settings = Settings(env="local", service_bus_namespace="")
+    processed = await consume(
+        settings,
+        MagicMock(),  # type: ignore[arg-type]
+        _StubStorage(),  # type: ignore[arg-type]
+        AsyncMock(),
+        max_messages=10,
+    )
+    assert processed == 0
+
+
+async def test_consume_no_op_when_submit_kill_switch_disabled() -> None:
+    from admin.inat_submit_consumer import consume
+
+    settings = Settings(
+        env="local",
+        service_bus_namespace="dragonfly-sb-test.servicebus.windows.net",
+        inat_submit_enabled=False,
+    )
     processed = await consume(
         settings,
         MagicMock(),  # type: ignore[arg-type]

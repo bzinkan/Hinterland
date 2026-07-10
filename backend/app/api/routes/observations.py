@@ -1,13 +1,18 @@
 """Observation routes.
 
 `POST /v1/observations` finalizes an observation after the photo has landed
-in `pending/`. It is the second leg of the kid's submission flow:
+in `pending/uploads/`. It is the second leg of the kid's submission flow:
 
-1. Mobile calls `POST /v1/photos/presign` -> gets `photo_id` + signed URL
-2. Mobile PUTs the photo bytes to the signed URL (lands in `pending/`)
-3. Mobile calls `POST /v1/observations` with `photo_id` + lat/lng + taxon
-4. The async moderation worker runs out of band on `pending/` photos and
-   moves them to `observations/` or `quarantine/`
+1. Mobile calls `POST /v1/photos/presign` with a submission ULID and receives
+   `photo_id`, a signed URL, and provider-required upload headers.
+2. Mobile PUTs the photo bytes to `pending/uploads/` using those headers.
+3. Mobile calls `POST /v1/observations` with the same ULID, optional geohash-4,
+   observed time, and catalog/manual/Unknown identification.
+4. The API verifies and canonicalizes the JPEG under `pending/finalized/`,
+   atomically attaches it, saves the observation/counter/work ledgers, then
+   runs durable reward dispatch outside the base-save transaction.
+5. The outbox-driven moderation worker later records `pilot_private`, moves a
+   clean photo to `observations/`, or moves a flagged photo to `quarantine/`.
 
 The kid sees the celebration on the create 201, BEFORE moderation. That's
 the documented trade-off in `docs/moderation.md` -- we never block the
@@ -15,66 +20,102 @@ hot path on the moderation provider.
 
 `GET /v1/observations/me` returns the current user's observations, newest
 first, paginated by ULID cursor (`before=<id>`). Photo bytes themselves
-are fetched via a separate signed-GET endpoint (later slice); this list
-returns only metadata + the underlying `photo` bucket key so the client
-knows what to request.
+are fetched through the separate lifecycle- and role-gated signed-GET endpoint;
+this list returns metadata only.
 """
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
-from typing import Annotated, Any
+import asyncio
+import json
+from datetime import UTC, datetime, timedelta
+from hashlib import sha256
+from typing import Annotated, Literal
 
-import geohash
 import structlog
-from fastapi import APIRouter, Depends, HTTPException, Query, status
-from pydantic import BaseModel, Field, field_validator
-from sqlalchemy import desc, func, select, update
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Response, status
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from sqlalchemy import desc, func, select, text, update
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.ext.asyncio import AsyncSession
 from ulid import ULID
 
 from app.core.auth import CurrentUserDep, resolve_current_user_row
 from app.core.config import Settings, get_request_settings
+from app.core.errors import api_error_detail
+from app.core.geospatial import encode_geohash, normalize_geohash4
 from app.core.storage import SignedUrlGeneratorDep
 from app.db import models
 from app.db.session import DbSessionDep
+from app.derived_state.rebuild import acquire_user_lock, enqueue_rebuild
 from app.dispatcher.core import dispatch
 from app.dispatcher.registry import HANDLERS
 from app.dispatcher.types import Context, Reward
 from app.inat.client import InatClientDep, InatUnavailable
 from app.inat.cv import score_image
 from app.models.ecology_tags import normalize_ecology_tags
-from app.organism_fallback import SuggestionSource
-from app.services import species_cache
+from app.observation.photo_finalize import (
+    PhotoUploadMissing,
+    PhotoValidationError,
+    finalize_uploaded_photo,
+)
 
 router = APIRouter(prefix="/v1/observations", tags=["observations"])
 
 log = structlog.get_logger()
 
-# WorldHandler's published error state key (bare string to avoid a
-# route -> handler import; same convention world.py uses for the dex
-# state key).
-_WORLD_STATE_ERROR = "error"
+
+def _idempotency_conflict(message: str) -> HTTPException:
+    return HTTPException(
+        status_code=status.HTTP_409_CONFLICT,
+        detail=api_error_detail("idempotency_conflict", message),
+    )
 
 
 class ObservationCreateRequest(BaseModel):
     photo_id: str = Field(..., min_length=1, max_length=26)
-    latitude: float = Field(..., ge=-90.0, le=90.0)
-    longitude: float = Field(..., ge=-180.0, le=180.0)
+    latitude: float | None = Field(default=None, ge=-90.0, le=90.0)
+    longitude: float | None = Field(default=None, ge=-180.0, le=180.0)
+    geohash4: str | None = Field(default=None, min_length=4, max_length=4)
+    observed_at: datetime | None = None
+    location_source: Literal["device_coarse", "manual_coarse", "none"] | None = None
     taxon_id: int | None = Field(default=None, ge=1)
     species_name: str | None = Field(default=None, max_length=200)
+    identification_source: Literal["catalog", "manual_text", "unknown"] | None = None
     place_name: str | None = Field(default=None, max_length=200)
     ecology_tags: dict[str, str] = Field(default_factory=dict)
 
     @field_validator("ecology_tags", mode="before")
     @classmethod
-    def ecology_tags_are_closed_choice(cls, value: object) -> Any:
+    def ecology_tags_are_closed_choice(cls, value: object) -> object:
         if value is None:
             return {}
         if not isinstance(value, dict):
             return value
         return normalize_ecology_tags(value)
+
+    @model_validator(mode="after")
+    def validate_location(self) -> ObservationCreateRequest:
+        if (self.latitude is None) != (self.longitude is None):
+            raise ValueError("latitude and longitude must be provided together")
+        if self.geohash4 is not None:
+            self.geohash4 = normalize_geohash4(self.geohash4)
+        if self.geohash4 is not None and self.latitude is not None:
+            raise ValueError("send geohash4 or legacy coordinates, not both")
+        if self.location_source == "none" and (
+            self.geohash4 is not None or self.latitude is not None
+        ):
+            raise ValueError("location_source=none cannot include a location")
+        if self.location_source in {"device_coarse", "manual_coarse"} and (
+            self.geohash4 is None and self.latitude is None
+        ):
+            raise ValueError("a coarse location source requires geohash4")
+        manual_name = (self.species_name or "").strip()
+        expected_source = (
+            "catalog" if self.taxon_id is not None else "manual_text" if manual_name else "unknown"
+        )
+        if self.identification_source is not None and self.identification_source != expected_source:
+            raise ValueError("identification_source does not match the selected identification")
+        return self
 
 
 class RewardDTO(BaseModel):
@@ -102,27 +143,25 @@ class RewardDTO(BaseModel):
             payload=dict(reward.payload),
         )
 
-    @classmethod
-    def from_payload(cls, payload: dict[str, object]) -> RewardDTO | None:
-        try:
-            return cls.model_validate(payload)
-        except Exception:
-            log.warning("observations.reward_payload_invalid")
-            return None
-
 
 class ObservationResponse(BaseModel):
     id: str
     user_id: str
     group_id: str
     photo_id: str
-    latitude: float
-    longitude: float
+    latitude: float | None
+    longitude: float | None
     geohash4: str | None
+    observed_at: datetime | None
+    location_source: str
     taxon_id: int | None
     species_name: str | None
+    identification_source: str
+    identification_revision: int
     place_name: str | None
     ecology_tags: dict[str, str] = Field(default_factory=dict)
+    moderation_status: str
+    dispatch_status: str
     rewards: list[RewardDTO] = Field(default_factory=list)
 
     @classmethod
@@ -139,38 +178,143 @@ class ObservationResponse(BaseModel):
             latitude=obs.latitude,
             longitude=obs.longitude,
             geohash4=obs.geohash4,
+            observed_at=getattr(obs, "observed_at", None),
+            location_source=getattr(obs, "location_source", None) or "legacy_coarsened",
             taxon_id=obs.taxon_id,
             species_name=obs.species_name,
+            identification_source=getattr(obs, "identification_source", None) or "legacy",
+            identification_revision=getattr(obs, "identification_revision", None) or 1,
             place_name=obs.place_name,
             ecology_tags=dict(obs.ecology_tags or {}),
-            rewards=[RewardDTO.from_reward(r) for r in (rewards or [])],
+            moderation_status=getattr(obs, "moderation_status", None) or "pending",
+            dispatch_status=getattr(obs, "dispatch_status", None) or "unverified",
+            rewards=(
+                [RewardDTO.from_reward(r) for r in rewards]
+                if rewards is not None
+                else [RewardDTO.model_validate(r) for r in (getattr(obs, "rewards", None) or [])]
+            ),
         )
 
 
-async def _observation_for_photo(session: AsyncSession, photo_id: str) -> models.Observation | None:
-    """The observation already attached to `photo_id`, if any.
-
-    Used for idempotent create replay. Caller has already proven photo
-    ownership, and an observation can only be created by its photo's
-    owner, so no extra user filter is needed here.
-    """
-    return (
-        await session.execute(
-            select(models.Observation).where(models.Observation.photo_id == photo_id)
-        )
-    ).scalar_one_or_none()
-
-
-async def _cached_species_display_name(session: AsyncSession, taxon_id: int) -> str | None:
-    """Best-effort local display name for a taxon without calling iNat."""
+async def _catalog_species(session: DbSessionDep, taxon_id: int) -> models.SpeciesCache:
+    """Resolve a canonical local taxon without a kid-request iNat fallback."""
     row = (
         await session.execute(
-            select(models.SpeciesCache).where(models.SpeciesCache.taxon_id == taxon_id)
+            select(models.SpeciesCache).where(
+                models.SpeciesCache.taxon_id == taxon_id,
+                models.SpeciesCache.active.is_(True),
+            )
         )
     ).scalar_one_or_none()
     if row is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Select a taxon from the current Hinterland catalog",
+        )
+    return row
+
+
+IdempotencyKeyHeader = Annotated[
+    str | None,
+    Header(
+        alias="Idempotency-Key",
+        min_length=26,
+        max_length=26,
+        pattern=r"^[0-9A-HJKMNP-TV-Z]{26}$",
+    ),
+]
+
+
+def _normalized_location(payload: ObservationCreateRequest) -> tuple[str | None, str]:
+    if payload.geohash4 is not None:
+        return payload.geohash4, payload.location_source or "device_coarse"
+    if payload.latitude is not None and payload.longitude is not None:
+        return encode_geohash(payload.latitude, payload.longitude, precision=4), "legacy_coarsened"
+    return None, "none"
+
+
+def _normalized_observed_at(value: datetime | None) -> datetime:
+    now = datetime.now(UTC)
+    if value is None:
+        return now
+    if value.tzinfo is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="observed_at must include a timezone",
+        )
+    value = value.astimezone(UTC)
+    if value > now + timedelta(minutes=5) or value < now - timedelta(days=30):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="observed_at must be within the last 30 days and at most 5 minutes ahead",
+        )
+    return value
+
+
+def _create_request_hash(
+    payload: ObservationCreateRequest,
+    *,
+    geohash4: str | None,
+    location_source: str,
+    observed_at: datetime | None = None,
+) -> str:
+    normalized = {
+        "photo_id": payload.photo_id,
+        "observed_at": observed_at.isoformat() if payload.observed_at and observed_at else None,
+        "geohash4": geohash4,
+        "location_source": location_source,
+        "taxon_id": payload.taxon_id,
+        "identification_source": (
+            "catalog"
+            if payload.taxon_id is not None
+            else "manual_text"
+            if (payload.species_name or "").strip()
+            else "unknown"
+        ),
+        "species_name": (
+            None if payload.taxon_id is not None else (payload.species_name or "").strip() or None
+        ),
+        "place_name": (payload.place_name or "").strip() or None,
+        "ecology_tags": payload.ecology_tags,
+    }
+    return sha256(
+        json.dumps(normalized, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
+
+
+async def _create_replay(
+    session: DbSessionDep,
+    *,
+    user_id: str,
+    key: str,
+    request_hash: str,
+) -> models.Observation | None:
+    record = (
+        await session.execute(
+            select(models.ObservationIdempotency).where(
+                models.ObservationIdempotency.user_id == user_id,
+                models.ObservationIdempotency.idempotency_key == key,
+                models.ObservationIdempotency.operation == "observation_create",
+            )
+        )
+    ).scalar_one_or_none()
+    if record is None:
         return None
-    return row.common_name or row.scientific_name
+    if record.request_hash != request_hash:
+        raise _idempotency_conflict(
+            "Idempotency-Key was already used with a different observation request"
+        )
+    observation = (
+        await session.execute(
+            select(models.Observation).where(
+                models.Observation.id == record.resource_id,
+                models.Observation.user_id == user_id,
+            )
+        )
+    ).scalar_one_or_none()
+    if observation is None:
+        raise _idempotency_conflict("Idempotency record references a missing observation")
+    return observation
 
 
 @router.post(
@@ -182,10 +326,18 @@ async def create_observation(
     payload: ObservationCreateRequest,
     current_user: CurrentUserDep,
     session: DbSessionDep,
-    inat_client: InatClientDep,
     settings: Annotated[Settings, Depends(get_request_settings)],
+    response: Response,
+    storage: SignedUrlGeneratorDep,
+    idempotency_key: IdempotencyKeyHeader = None,
 ) -> ObservationResponse:
     user_row = await resolve_current_user_row(session, current_user)
+
+    if idempotency_key is None and settings.observation_idempotency_required:
+        raise HTTPException(
+            status_code=status.HTTP_428_PRECONDITION_REQUIRED,
+            detail="Idempotency-Key is required for observation finalization",
+        )
 
     if not current_user.group_id:
         raise HTTPException(
@@ -194,9 +346,26 @@ async def create_observation(
         )
     group_id = current_user.group_id
 
-    # Photo must exist, belong to this user, and still be pending. The
-    # ownership check is in the WHERE clause so a wrong-owner photo_id
-    # returns 404 like a missing one (no information leak about IDs).
+    geohash4, location_source = _normalized_location(payload)
+    observed_at = _normalized_observed_at(payload.observed_at)
+    request_hash = _create_request_hash(
+        payload,
+        geohash4=geohash4,
+        location_source=location_source,
+        observed_at=observed_at,
+    )
+    if idempotency_key is not None:
+        replay = await _create_replay(
+            session,
+            user_id=user_row.id,
+            key=idempotency_key,
+            request_hash=request_hash,
+        )
+        if replay is not None:
+            response.status_code = status.HTTP_200_OK
+            response.headers["Idempotency-Replayed"] = "true"
+            return ObservationResponse.from_model(replay)
+
     photo = (
         await session.execute(
             select(models.Photo).where(
@@ -207,43 +376,101 @@ async def create_observation(
     ).scalar_one_or_none()
     if photo is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Photo not found")
-    if photo.status != "pending":
-        # The photo may be non-pending because moderation already processed
-        # the observation this client created but never heard back about
-        # (lost 201). Replay idempotently instead of stranding the retry.
-        existing = await _observation_for_photo(session, payload.photo_id)
-        if existing is not None:
-            log.info(
-                "observations.create.idempotent_replay",
-                observation_id=existing.id,
-                photo_id=payload.photo_id,
-                photo_status=photo.status,
-            )
-            return ObservationResponse.from_model(existing)
+    if photo.attachment_status != "reserved" or photo.status != "pending":
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail=f"Photo is in status {photo.status}, not pending",
+            detail="Photo is not an available reservation",
         )
 
-    species_name = payload.species_name
-    if payload.taxon_id is not None and species_name is None:
-        cached_species = None
-        try:
-            cached_species = await species_cache.get_or_fill(session, inat_client, payload.taxon_id)
-        except InatUnavailable as exc:
-            log.warning(
-                "observations.create.species_cache_unavailable",
-                taxon_id=payload.taxon_id,
-                reason=str(exc),
-            )
-        if cached_species is not None:
-            species_name = cached_species.common_name or cached_species.scientific_name
-        else:
-            species_name = await _cached_species_display_name(session, payload.taxon_id)
+    key = idempotency_key or photo.submission_key or str(ULID())
+    if photo.submission_key is not None and photo.submission_key != key:
+        raise _idempotency_conflict(
+            "Observation Idempotency-Key does not match the photo reservation"
+        )
+    if idempotency_key is None:
+        replay = await _create_replay(
+            session,
+            user_id=user_row.id,
+            key=key,
+            request_hash=request_hash,
+        )
+        if replay is not None:
+            response.status_code = status.HTTP_200_OK
+            response.headers["Idempotency-Replayed"] = "true"
+            return ObservationResponse.from_model(replay)
 
-    # Atomic counter bump on the membership row. If the user isn't in this
-    # group, RETURNING comes back empty and we 403 before inserting the
-    # observation row.
+    species_name = (payload.species_name or "").strip() or None
+    identification_source = "manual_text" if species_name else "unknown"
+    if payload.taxon_id is not None:
+        catalog_row = await _catalog_species(session, payload.taxon_id)
+        species_name = catalog_row.common_name or catalog_row.scientific_name
+        identification_source = "catalog"
+
+    # Storage verification deliberately happens before the database transaction:
+    # decoding is bounded but still too slow to hold a per-user advisory lock.
+    # The immutable canonical object is retry-safe; a failed transaction leaves
+    # only an orphan that the 24-hour lifecycle/sweeper may remove.
+    raw_object_name = photo.object_name
+    try:
+        canonical_photo = await finalize_uploaded_photo(
+            storage,
+            bucket=photo.bucket,
+            raw_object_name=raw_object_name,
+            photo_id=photo.id,
+        )
+    except PhotoUploadMissing as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="The photo upload has not finished",
+        ) from exc
+    except PhotoValidationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(exc),
+        ) from exc
+
+    await session.execute(
+        text("SELECT pg_advisory_xact_lock(hashtextextended(:user_id, 0))"),
+        {"user_id": user_row.id},
+    )
+
+    # A concurrent finalize with the same key may have completed while this
+    # request verified the Blob. Reconcile under the advisory lock before any
+    # counters or derived state are changed.
+    replay = await _create_replay(
+        session,
+        user_id=user_row.id,
+        key=key,
+        request_hash=request_hash,
+    )
+    if replay is not None:
+        response.status_code = status.HTTP_200_OK
+        response.headers["Idempotency-Replayed"] = "true"
+        return ObservationResponse.from_model(replay)
+
+    locked_photo = (
+        await session.execute(
+            select(models.Photo)
+            .where(
+                models.Photo.id == payload.photo_id,
+                models.Photo.user_id == user_row.id,
+            )
+            .with_for_update()
+        )
+    ).scalar_one_or_none()
+    if locked_photo is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Photo not found")
+    if locked_photo.attachment_status != "reserved" or locked_photo.status != "pending":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Photo is not an available reservation",
+        )
+    if locked_photo.submission_key is not None and locked_photo.submission_key != key:
+        raise _idempotency_conflict(
+            "Observation Idempotency-Key does not match the photo reservation"
+        )
+    photo = locked_photo
+
     membership_update = await session.execute(
         update(models.Membership)
         .where(
@@ -252,7 +479,10 @@ async def create_observation(
         )
         .values(
             observation_count=models.Membership.observation_count + 1,
-            last_observed_at=func.now(),
+            last_observed_at=func.greatest(
+                models.Membership.last_observed_at,
+                observed_at,
+            ),
         )
         .returning(models.Membership.id)
     )
@@ -263,52 +493,103 @@ async def create_observation(
         )
 
     obs_id = str(ULID())
-    geohash4 = geohash.encode(payload.latitude, payload.longitude, precision=4)
     observation = models.Observation(
         id=obs_id,
         user_id=user_row.id,
         group_id=group_id,
         photo_id=payload.photo_id,
-        latitude=payload.latitude,
-        longitude=payload.longitude,
+        submission_key=key,
+        latitude=None,
+        longitude=None,
         geohash4=geohash4,
+        observed_at=observed_at,
+        location_source=location_source,
         taxon_id=payload.taxon_id,
         species_name=species_name,
-        place_name=payload.place_name,
+        identification_source=identification_source,
+        identification_revision=1,
+        taxon_first_assigned_at=observed_at if payload.taxon_id is not None else None,
+        place_name=(payload.place_name or "").strip() or None,
         ecology_tags=payload.ecology_tags,
-        # Created-with-taxon counts as the first assignment: the
-        # create-time dispatch runs with this taxon, so a later
-        # clear-and-repick must not dispatch again.
-        taxon_first_assigned_at=(datetime.now(UTC) if payload.taxon_id is not None else None),
+        dispatch_status="pending",
     )
+    photo.attachment_status = "attached"
+    photo.submission_key = key
+    photo.object_name = canonical_photo.object_name
+    photo.canonical_object_name = canonical_photo.object_name
+    photo.content_type = "image/jpeg"
+    photo.checksum = canonical_photo.sha256
+    photo.byte_count = canonical_photo.byte_count
+    photo.width_px = canonical_photo.width_px
+    photo.height_px = canonical_photo.height_px
+    photo.sha256 = canonical_photo.sha256
+    photo.verified_at = canonical_photo.verified_at
     session.add(observation)
+    session.add(
+        models.ObservationIdempotency(
+            user_id=user_row.id,
+            idempotency_key=key,
+            operation="observation_create",
+            request_hash=request_hash,
+            resource_id=obs_id,
+        )
+    )
+    session.add(
+        models.ModerationOutbox(
+            observation_id=obs_id,
+            photo_id=photo.id,
+            status="pending",
+        )
+    )
+    for handler in HANDLERS:
+        session.add(
+            models.ObservationHandlerRun(
+                observation_id=obs_id,
+                handler_name=handler.name,
+                handler_version=str(getattr(handler, "version", "1")),
+                status="pending",
+                state={},
+                rewards=[],
+                attempt_count=0,
+            )
+        )
     try:
         await session.commit()
     except IntegrityError:
-        # uq_observations_photo_id: this photo already has an observation.
-        # Rollback also undoes the membership counter bump above (the
-        # original create already counted it). The common cause is a retry
-        # after a lost create response, so replay the existing row rather
-        # than 409ing the client into a dead end.
         await session.rollback()
-        existing = await _observation_for_photo(session, payload.photo_id)
-        if existing is not None:
-            log.info(
-                "observations.create.idempotent_replay",
-                observation_id=existing.id,
-                photo_id=payload.photo_id,
-                # NOT photo.status: the rollback expired the `photo`
-                # instance and attribute access would raise MissingGreenlet
-                # on AsyncSession. This branch only runs when the photo was
-                # still pending at the check above.
-                photo_status="pending",
+        replay = await _create_replay(
+            session,
+            user_id=user_row.id,
+            key=key,
+            request_hash=request_hash,
+        )
+        if replay is None:
+            raise
+        response.status_code = status.HTTP_200_OK
+        response.headers["Idempotency-Replayed"] = "true"
+        return ObservationResponse.from_model(replay)
+
+    # Everything represented by this DTO is durable after the base commit.
+    # Keep an immutable fallback before any dispatcher I/O so a broken
+    # connection during dispatch *or recovery* can never turn a successfully
+    # saved observation into a 500 or expose dirty, uncommitted ORM state.
+    saved_response = ObservationResponse.from_model(observation)
+
+    # The canonical object is now the sole database reference. Raw cleanup is
+    # best-effort so a transient Blob failure can never roll back the save.
+    if raw_object_name != canonical_photo.object_name:
+        try:
+            await asyncio.to_thread(
+                storage.delete_object,
+                bucket=photo.bucket,
+                object_name=raw_object_name,
             )
-            return ObservationResponse.from_model(existing)
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Photo is already attached to an observation",
-        ) from None
-    await session.refresh(observation)
+        except Exception:
+            log.warning(
+                "observations.raw_upload_cleanup_failed",
+                observation_id=obs_id,
+                photo_id=photo.id,
+            )
 
     log.info(
         "observations.created",
@@ -318,17 +599,8 @@ async def create_observation(
         photo_id=payload.photo_id,
         taxon_id=payload.taxon_id,
         geohash4=geohash4,
-        ecology_tag_keys=sorted(payload.ecology_tags),
     )
 
-    # Dispatcher runs after the observation is persisted. Failure here
-    # never surfaces to the client -- worst case is a missing celebration
-    # which `admin/dispatcher_replay.py` recovers nightly. The kid still
-    # sees their observation, just without the rewards.
-    #
-    # On success we stamp `observations.dispatched_at` so the replay
-    # task knows to skip this row. A failure here leaves it NULL --
-    # the replay picks it up on its next run.
     rewards: list[Reward] = []
     try:
         group = (
@@ -342,13 +614,26 @@ async def create_observation(
             photo=photo,
         )
         rewards = await dispatch(ctx, HANDLERS)
-        observation.dispatched_at = datetime.now(UTC)
-        await session.commit()
     except Exception:
         log.exception(
             "observations.dispatch_failed",
             observation_id=obs_id,
         )
+        # An infrastructure-level dispatcher failure may leave ORM objects
+        # carrying savepoint/ledger mutations that were never committed. Try
+        # to recover the persisted state, but a severed connection can make
+        # rollback/refresh fail too. In that case return the pre-dispatch DTO
+        # immediately, without another database call.
+        try:
+            await session.rollback()
+            await session.refresh(observation)
+        except Exception:
+            log.exception(
+                "observations.dispatch_recovery_failed",
+                observation_id=obs_id,
+            )
+            return saved_response
+        return ObservationResponse.from_model(observation)
 
     return ObservationResponse.from_model(observation, rewards=rewards)
 
@@ -358,8 +643,8 @@ async def create_observation(
 # ---------------------------------------------------------------------------
 
 # Page size bounds. 50 is the largest single batch we'll ever serve to the
-# kid app -- the Field Journal pages by 20 by default. Higher caps invite
-# accidental N+1 thumbnail fetches.
+# kid app -- the Dex tab uses FlashList virtualization (per docs/mobile.md)
+# and pages by 20 by default. Higher caps invite accidental N+1 fetches.
 _DEFAULT_LIMIT = 20
 _MAX_LIMIT = 50
 
@@ -379,13 +664,18 @@ class ObservationListItem(BaseModel):
     photo_id: str
     photo_object_name: str
     photo_status: str
-    latitude: float
-    longitude: float
+    latitude: float | None
+    longitude: float | None
     geohash4: str | None
+    observed_at: datetime | None
+    location_source: str
     taxon_id: int | None
     species_name: str | None
+    identification_source: str
     place_name: str | None
     ecology_tags: dict[str, str] = Field(default_factory=dict)
+    moderation_status: str
+    dispatch_status: str
     created_at: datetime
 
 
@@ -397,10 +687,6 @@ class ObservationListResponse(BaseModel):
             "Pass back as `before` to fetch the next page. Null when this is the last page."
         ),
     )
-
-
-class ObservationDetailResponse(ObservationListItem):
-    rewards: list[RewardDTO] = Field(default_factory=list)
 
 
 @router.get("/me", response_model=ObservationListResponse)
@@ -418,7 +704,10 @@ async def list_my_observations(
     stmt = (
         select(models.Observation, models.Photo)
         .join(models.Photo, models.Observation.photo_id == models.Photo.id)
-        .where(models.Observation.user_id == user_row.id)
+        .where(
+            models.Observation.user_id == user_row.id,
+            models.Observation.moderation_status != "rejected",
+        )
     )
     if before is not None:
         stmt = stmt.where(models.Observation.id < before)
@@ -440,10 +729,15 @@ async def list_my_observations(
             latitude=obs.latitude,
             longitude=obs.longitude,
             geohash4=obs.geohash4,
+            observed_at=getattr(obs, "observed_at", None),
+            location_source=getattr(obs, "location_source", None) or "legacy_coarsened",
             taxon_id=obs.taxon_id,
             species_name=obs.species_name,
+            identification_source=getattr(obs, "identification_source", None) or "legacy",
             place_name=obs.place_name,
             ecology_tags=dict(obs.ecology_tags or {}),
+            moderation_status=getattr(obs, "moderation_status", None) or "pending",
+            dispatch_status=getattr(obs, "dispatch_status", None) or "unverified",
             created_at=obs.created_at,
         )
         for obs, photo in page
@@ -455,52 +749,26 @@ async def list_my_observations(
     )
 
 
-@router.get("/{observation_id}", response_model=ObservationDetailResponse)
+@router.get("/{observation_id}", response_model=ObservationResponse)
 async def get_observation(
     observation_id: str,
     current_user: CurrentUserDep,
     session: DbSessionDep,
-) -> ObservationDetailResponse:
+) -> ObservationResponse:
+    """Return the canonical persisted result used for queue reconciliation."""
     user_row = await resolve_current_user_row(session, current_user)
-
-    obs_photo = (
+    observation = (
         await session.execute(
-            select(models.Observation, models.Photo)
-            .join(models.Photo, models.Observation.photo_id == models.Photo.id)
-            .where(
+            select(models.Observation).where(
                 models.Observation.id == observation_id,
                 models.Observation.user_id == user_row.id,
+                models.Observation.moderation_status != "rejected",
             )
         )
-    ).one_or_none()
-    if obs_photo is None:
+    ).scalar_one_or_none()
+    if observation is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Observation not found")
-
-    obs, photo = obs_photo
-    rewards = [
-        dto
-        for payload in (obs.rewards or [])
-        if isinstance(payload, dict)
-        for dto in [RewardDTO.from_payload(payload)]
-        if dto is not None
-    ]
-    return ObservationDetailResponse(
-        id=obs.id,
-        user_id=obs.user_id,
-        group_id=obs.group_id,
-        photo_id=obs.photo_id,
-        photo_object_name=photo.object_name,
-        photo_status=photo.status,
-        latitude=obs.latitude,
-        longitude=obs.longitude,
-        geohash4=obs.geohash4,
-        taxon_id=obs.taxon_id,
-        species_name=obs.species_name,
-        place_name=obs.place_name,
-        ecology_tags=dict(obs.ecology_tags or {}),
-        created_at=obs.created_at,
-        rewards=rewards,
-    )
+    return ObservationResponse.from_model(observation)
 
 
 # ---------------------------------------------------------------------------
@@ -509,11 +777,10 @@ async def get_observation(
 
 
 class CvSuggestionDTO(BaseModel):
-    taxon_id: int | None = None
+    taxon_id: int
     common_name: str | None
     scientific_name: str | None
     score: float
-    source: SuggestionSource = "inat"
 
 
 class IdentifyResponse(BaseModel):
@@ -556,7 +823,21 @@ async def identify_observation(
     ).one_or_none()
     if obs_photo is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Observation not found")
-    _obs, photo = obs_photo
+    obs, photo = obs_photo
+
+    if obs.moderation_status != "clean" or photo.status != "clean":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Identification is available only after adult-approved moderation",
+        )
+
+    if not settings.inat_cv_egress_allowed:
+        log.info("observations.identify.disabled", observation_id=observation_id)
+        return IdentifyResponse(
+            observation_id=observation_id,
+            suggestions=[],
+            cv_unavailable=True,
+        )
 
     # No iNat token configured (dev / CI) -> immediate cv_unavailable.
     # Avoids a guaranteed 401 round-trip + lets the mobile UI flip to
@@ -572,10 +853,36 @@ async def identify_observation(
             cv_unavailable=True,
         )
 
+    if photo.sha256 is None or len(photo.sha256) != 64:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Identification requires a verified canonical photo",
+        )
+
+    cached = (
+        await session.execute(
+            select(models.CvSuggestionCache).where(
+                models.CvSuggestionCache.photo_sha256 == photo.sha256,
+                models.CvSuggestionCache.model_version == settings.inat_cv_model_version,
+            )
+        )
+    ).scalar_one_or_none()
+    if cached is not None:
+        return IdentifyResponse(
+            observation_id=observation_id,
+            suggestions=[CvSuggestionDTO.model_validate(item) for item in cached.suggestions],
+            no_matches=len(cached.suggestions) == 0,
+        )
+
     image_bytes = storage.fetch_object_bytes(bucket=photo.bucket, object_name=photo.object_name)
 
     try:
-        suggestions = await score_image(inat_client, image_bytes=image_bytes, top_k=3)
+        suggestions = await score_image(
+            inat_client,
+            image_bytes=image_bytes,
+            top_k=3,
+            egress_enabled=settings.inat_cv_egress_allowed,
+        )
     except InatUnavailable as exc:
         log.warning(
             "observations.identify.cv_unavailable",
@@ -588,24 +895,55 @@ async def identify_observation(
             cv_unavailable=True,
         )
 
+    catalog_by_id: dict[int, models.SpeciesCache] = {}
+    if suggestions:
+        catalog_rows = (
+            (
+                await session.execute(
+                    select(models.SpeciesCache).where(
+                        models.SpeciesCache.taxon_id.in_([item.taxon_id for item in suggestions]),
+                        models.SpeciesCache.active.is_(True),
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        catalog_by_id = {row.taxon_id: row for row in catalog_rows}
+    suggestion_rows = [
+        CvSuggestionDTO(
+            taxon_id=s.taxon_id,
+            common_name=catalog_by_id[s.taxon_id].common_name,
+            scientific_name=catalog_by_id[s.taxon_id].scientific_name,
+            score=s.score,
+        )
+        for s in suggestions
+        if s.taxon_id in catalog_by_id
+    ]
+    session.add(
+        models.CvSuggestionCache(
+            photo_sha256=photo.sha256,
+            model_version=settings.inat_cv_model_version,
+            suggestions=[row.model_dump(mode="json") for row in suggestion_rows],
+        )
+    )
+    try:
+        await session.commit()
+    except IntegrityError:
+        # Another request filled the same immutable hash/model cache. The
+        # suggestions computed here are equivalent and safe to return.
+        await session.rollback()
+
     log.info(
         "observations.identify.scored",
         observation_id=observation_id,
-        suggestion_count=len(suggestions),
-        no_matches=len(suggestions) == 0,
+        suggestion_count=len(suggestion_rows),
+        no_matches=len(suggestion_rows) == 0,
     )
     return IdentifyResponse(
         observation_id=observation_id,
-        suggestions=[
-            CvSuggestionDTO(
-                taxon_id=s.taxon_id,
-                common_name=s.common_name,
-                scientific_name=s.scientific_name,
-                score=s.score,
-            )
-            for s in suggestions
-        ],
-        no_matches=len(suggestions) == 0,
+        suggestions=suggestion_rows,
+        no_matches=len(suggestion_rows) == 0,
     )
 
 
@@ -615,14 +953,13 @@ async def identify_observation(
 
 
 class ObservationPatch(BaseModel):
-    """Partial update. Fields not present are left untouched.
+    """Non-derived display metadata only.
 
-    `taxon_id=null` explicitly clears the taxon (kid changed their mind
-    after picking one). To clear the species_name, send an empty string.
+    Identification changes use the revisioned identification endpoint in the
+    closed-beta slice so Dex/expedition/Sanctuary state can be rebuilt.
     """
 
-    taxon_id: int | None = Field(default=None, ge=1)
-    species_name: str | None = Field(default=None, max_length=200)
+    model_config = ConfigDict(extra="forbid")
     place_name: str | None = Field(default=None, max_length=200)
 
 
@@ -632,8 +969,6 @@ async def patch_observation(
     payload: ObservationPatch,
     current_user: CurrentUserDep,
     session: DbSessionDep,
-    inat_client: InatClientDep,
-    settings: Annotated[Settings, Depends(get_request_settings)],
 ) -> ObservationResponse:
     fields = payload.model_dump(exclude_unset=True)
     if not fields:
@@ -655,92 +990,8 @@ async def patch_observation(
     if obs is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Observation not found")
 
-    # Detect the kid's FIRST-EVER species pick BEFORE applying fields --
-    # this is what triggers the re-dispatch below. Only the None -> taxon
-    # transition counts: corrections (A -> B) deliberately do NOT
-    # re-dispatch, because DexHandler's first-find gate is per
-    # (user, taxon), not per observation -- re-dispatching on every
-    # transition would let one photo mint first_find / dex_count credit
-    # for arbitrarily many species. Clearing the taxon (explicit null)
-    # is not a transition either, and the write-once
-    # taxon_first_assigned_at marker means a clear-and-repick (null,
-    # then a new taxon -- raw-API only, the shipped UI has no such
-    # affordance) can never dispatch a second time.
-    taxon_assigned = (
-        "taxon_id" in fields
-        and fields["taxon_id"] is not None
-        and obs.taxon_id is None
-        and obs.taxon_first_assigned_at is None
-    )
-
-    # Belt-and-braces dex probe, run BEFORE any state is written: if this
-    # observation already minted a DexEntry (pre-migration
-    # assigned-then-cleared residual, or a concurrent first-assign racing
-    # this request), the dispatch must not run -- and critically,
-    # dispatched_at must NOT be cleared below, or the nightly replay
-    # (which has no probe) would run the very dispatch the probe blocked.
-    # One observation never mints two first finds.
-    should_dispatch = False
-    if taxon_assigned:
-        already_minted = (
-            await session.execute(
-                select(models.DexEntry.id)
-                .where(models.DexEntry.first_observation_id == obs.id)
-                .limit(1)
-            )
-        ).scalar_one_or_none()
-        if already_minted is None:
-            should_dispatch = True
-        else:
-            log.info(
-                "observations.patch.redispatch_skipped_already_minted",
-                observation_id=observation_id,
-            )
-
-    # Warm the species cache whenever it's needed: for the species_name
-    # autofill, and -- on a first taxon assignment -- for the re-dispatch
-    # below, whose iconic/descendant matchers read the cached iNat
-    # payload (ancestor_ids). Without the taxon_assigned arm, a PATCH
-    # carrying BOTH taxon_id and species_name could re-dispatch against
-    # a cold cache: those matchers would silently miss and the
-    # dispatched_at stamp would prevent any later retry. Cache miss
-    # falls through to iNat; an iNat outage just leaves species_name
-    # as-is (and the matchers cold for this one dispatch).
-    wants_autofill = (
-        "taxon_id" in fields and fields["taxon_id"] is not None and "species_name" not in fields
-    )
-    if wants_autofill or taxon_assigned:
-        try:
-            cached = await species_cache.get_or_fill(session, inat_client, fields["taxon_id"])
-        except InatUnavailable as exc:
-            log.info(
-                "observations.patch.species_lookup_unavailable",
-                observation_id=observation_id,
-                taxon_id=fields["taxon_id"],
-                reason=str(exc),
-            )
-            cached = None
-        # An explicit species_name from the caller is honored verbatim
-        # -- the cache result only fills the gap.
-        if cached is not None and wants_autofill:
-            fields["species_name"] = cached.common_name or cached.scientific_name
-
     for key, value in fields.items():
         setattr(obs, key, value)
-
-    if taxon_assigned:
-        # Stamp the write-once marker in the SAME commit as the taxon
-        # itself. Probe-blocked assignments stamp the marker too (the
-        # observation had its dispatch; future repicks stay gated) but
-        # keep their dispatched_at intact.
-        obs.taxon_first_assigned_at = datetime.now(UTC)
-    if should_dispatch:
-        # Clear dispatched_at (still stamped by the create-time dispatch)
-        # in the same commit: if the process dies before the re-dispatch
-        # below runs, the nightly replay (dispatched_at IS NULL) recovers
-        # the kid's credit instead of it being lost forever behind the
-        # marker. A successful dispatch re-stamps it immediately.
-        obs.dispatched_at = None
 
     await session.commit()
     await session.refresh(obs)
@@ -750,86 +1001,121 @@ async def patch_observation(
         observation_id=observation_id,
         fields=list(fields.keys()),
     )
+    return ObservationResponse.from_model(obs)
 
-    # Re-dispatch when the kid's species pick first lands. The live mobile
-    # flow sets the taxon AFTER create (CV identify -> PATCH), so the
-    # create-time dispatch ran with taxon_id=None and taxon-based
-    # expedition steps could never advance -- this second dispatch is what
-    # makes them reachable. The warm-up above runs on every first taxon
-    # assignment (explicit species_name included), so species_cache holds
-    # the raw iNat payload with ancestor_ids by the time we get here;
-    # only an iNat outage can leave the cache cold, in which case
-    # iconic/descendant matches simply don't fire for this dispatch.
-    #
-    # Re-running the full handler list is safe: RarityHandler only does a
-    # conditional monotonic counter bump, WorldHandler gates on its
-    # per-observation contribution row, and ExpeditionHandler gates on the
-    # observation_id recorded in completed_steps. DexHandler's first-find
-    # insert is only ON CONFLICT-gated per (user, taxon), so on top of the
-    # None -> taxon trigger above we skip the dispatch entirely when this
-    # observation already minted a dex entry (kid cleared the taxon and
-    # picked again) -- one observation never mints two first finds.
-    #
-    # The response is snapshotted before dispatching: a failure path below
-    # rolls the session back, which expires `obs`.
-    response = ObservationResponse.from_model(obs)
-    if should_dispatch:
-        try:
-            photo = (
-                await session.execute(select(models.Photo).where(models.Photo.id == obs.photo_id))
-            ).scalar_one()
-            group = (
-                await session.execute(select(models.Group).where(models.Group.id == obs.group_id))
-            ).scalar_one_or_none()
-            ctx = Context(
-                db=session,
-                user=user_row,
-                group=group,
-                observation=obs,
-                photo=photo,
-            )
-            rewards = await dispatch(ctx, HANDLERS)
-            # This taxon-time dispatch is the ONLY chance the Sanctuary
-            # contribution gets (WorldHandler skips taxonless creates),
-            # and WorldHandler swallows its own errors rather than
-            # raising. If it reported failure, leave dispatched_at NULL
-            # so the replay job retries the full (idempotent) dispatch
-            # instead of the contribution being silently lost forever.
-            world_result = ctx.results.get("world")
-            world_failed = world_result is None or bool(world_result.state.get(_WORLD_STATE_ERROR))
-            if world_failed:
-                log.warning(
-                    "observations.patch.world_failed_replay_pending",
-                    observation_id=observation_id,
-                )
-            else:
-                obs.dispatched_at = datetime.now(UTC)
-            await session.commit()
-            response.rewards = [RewardDTO.from_reward(r) for r in rewards]
-        except Exception:
-            log.exception(
-                "observations.patch.dispatch_failed",
-                observation_id=observation_id,
-            )
-            # The create-time dispatch already stamped dispatched_at, so
-            # without a reset the nightly replay (dispatched_at IS NULL)
-            # would never revisit this observation and the kid's species
-            # pick would never earn its expedition / dex credit. Handlers
-            # are per-observation idempotent, so clearing the stamp and
-            # letting the replay re-run the full dispatch is safe. Direct
-            # UPDATE rather than ORM mutation: the rollback expired `obs`.
-            try:
-                await session.rollback()
-                await session.execute(
-                    update(models.Observation)
-                    .where(models.Observation.id == observation_id)
-                    .values(dispatched_at=None)
-                )
-                await session.commit()
-            except Exception:
-                log.exception(
-                    "observations.patch.dispatch_reset_failed",
-                    observation_id=observation_id,
-                )
 
-    return response
+# ---------------------------------------------------------------------------
+# POST /v1/observations/{id}/identification
+# ---------------------------------------------------------------------------
+
+
+class IdentificationUpdate(BaseModel):
+    """Optimistic correction that queues deterministic derived-state repair."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    taxon_id: int | None = Field(default=None, ge=1)
+    manual_text: str | None = Field(default=None, max_length=200)
+    source: Literal["catalog", "cv", "manual_text", "unknown"]
+    expected_revision: int = Field(..., ge=1)
+
+    @model_validator(mode="after")
+    def validate_identification(self) -> IdentificationUpdate:
+        text_value = (self.manual_text or "").strip()
+        if self.source in {"catalog", "cv"}:
+            if self.taxon_id is None or text_value:
+                raise ValueError("catalog and CV identification require only taxon_id")
+        elif self.source == "manual_text":
+            if self.taxon_id is not None or not text_value:
+                raise ValueError("manual identification requires text and no taxon_id")
+            self.manual_text = text_value
+        elif self.taxon_id is not None or text_value:
+            raise ValueError("Unknown identification cannot include a taxon or text")
+        return self
+
+
+class IdentificationUpdateResponse(BaseModel):
+    observation: ObservationResponse
+    rebuild_id: str
+    rebuild_status: str
+
+
+@router.post(
+    "/{observation_id}/identification",
+    response_model=IdentificationUpdateResponse,
+)
+async def update_identification(
+    observation_id: str,
+    payload: IdentificationUpdate,
+    current_user: CurrentUserDep,
+    session: DbSessionDep,
+) -> IdentificationUpdateResponse:
+    user_row = await resolve_current_user_row(session, current_user)
+    # Rebuild and every derived-state writer take the user advisory lock
+    # before row locks. Keep the same global order to prevent a correction
+    # racing a rebuild from deadlocking observation-row -> user-lock.
+    await acquire_user_lock(session, user_row.id)
+    observation = (
+        await session.execute(
+            select(models.Observation)
+            .where(
+                models.Observation.id == observation_id,
+                models.Observation.user_id == user_row.id,
+            )
+            .with_for_update()
+        )
+    ).scalar_one_or_none()
+    if observation is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Observation not found")
+    if observation.rejected_at is not None or observation.moderation_status == "rejected":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="A rejected observation cannot be identified",
+        )
+    if observation.inat_observation_id is not None or observation.submitted_to_inat_at is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="A publicly submitted observation cannot be changed",
+        )
+    if observation.identification_revision != payload.expected_revision:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Identification has changed; refresh before trying again",
+        )
+
+    species_name: str | None = None
+    if payload.source in {"catalog", "cv"}:
+        assert payload.taxon_id is not None  # guaranteed by the request validator
+        catalog_row = await _catalog_species(session, payload.taxon_id)
+        species_name = catalog_row.common_name or catalog_row.scientific_name
+    elif payload.source == "manual_text":
+        species_name = payload.manual_text
+
+    observation.taxon_id = payload.taxon_id
+    observation.species_name = species_name
+    if payload.taxon_id is not None and observation.taxon_first_assigned_at is None:
+        observation.taxon_first_assigned_at = datetime.now(UTC)
+    observation.identification_source = payload.source
+    observation.identification_revision += 1
+    observation.dispatch_status = "unverified"
+
+    rebuild = await enqueue_rebuild(
+        session,
+        user_id=user_row.id,
+        trigger_observation_id=observation.id,
+    )
+    await session.commit()
+    await session.refresh(observation)
+
+    log.info(
+        "observations.identification_changed",
+        observation_id=observation.id,
+        identification_revision=observation.identification_revision,
+        source=payload.source,
+        rebuild_id=rebuild.id,
+    )
+    return IdentificationUpdateResponse(
+        observation=ObservationResponse.from_model(observation),
+        rebuild_id=rebuild.id,
+        rebuild_status=rebuild.status,
+    )

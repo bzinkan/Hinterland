@@ -263,7 +263,7 @@ async def test_step_advances_when_match_succeeds(fake_session: AsyncMock) -> Non
         "observation_id": _OBS_ID,
     }
     assert progress.completed_at is None  # not the final step
-    fake_session.commit.assert_awaited_once()
+    fake_session.commit.assert_not_awaited()
 
 
 async def test_final_step_emits_complete_reward(fake_session: AsyncMock) -> None:
@@ -286,7 +286,7 @@ async def test_final_step_emits_complete_reward(fake_session: AsyncMock) -> None
     types = [r.type for r in result.rewards]
     assert types == ["expedition_step", "expedition_complete"]
     assert progress.completed_at is not None
-    fake_session.commit.assert_awaited_once()
+    fake_session.commit.assert_not_awaited()
 
 
 async def test_no_match_no_advance_no_commit(fake_session: AsyncMock) -> None:
@@ -336,7 +336,7 @@ async def test_two_expeditions_can_advance_simultaneously(
     assert types.count("expedition_complete") == 1
     assert progress_a.completed_at is not None
     assert progress_b.completed_at is None
-    fake_session.commit.assert_awaited_once()
+    fake_session.commit.assert_not_awaited()
 
 
 async def test_already_complete_expedition_skipped(fake_session: AsyncMock) -> None:
@@ -453,7 +453,7 @@ async def test_legacy_string_rows_still_advance(fake_session: AsyncMock) -> None
         "completed_at": "2026-05-10T12:00:00+00:00",
         "observation_id": _OBS_ID,
     }
-    fake_session.commit.assert_awaited_once()
+    fake_session.commit.assert_not_awaited()
 
 
 async def test_no_radius_step_skips_prior_observation_query(fake_session: AsyncMock) -> None:
@@ -575,4 +575,4 @@ async def test_ancestor_ids_flow_into_descendant_taxon_match(
     types = [r.type for r in result.rewards]
     assert types == ["expedition_step", "expedition_complete"]
     assert progress.completed_steps["bird"]["observation_id"] == _OBS_ID
-    fake_session.commit.assert_awaited_once()
+    fake_session.commit.assert_not_awaited()

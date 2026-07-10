@@ -1,53 +1,66 @@
 /**
- * PUT a local file to a presigned Azure Blob SAS URL.
+ * Binary upload to an API-issued object-storage URL.
  *
- * The presign response carries `required_headers` -- the exact headers the
- * storage backend demands on the PUT (Azure rejects Put Blob without
- * `x-ms-blob-type: BlockBlob`). Send them verbatim; never reconstruct them
- * client-side.
- *
- * Uses `FileSystem.uploadAsync` instead of `fetch(file://...).blob()`:
- * Hermes Blob handling is unreliable for binary bodies (the same reason
- * ADR 0011 bans Blob/fetch for GLB loading) and RN networking can rewrite
- * the Content-Type on Blob bodies.
+ * FileSystem's native upload task avoids the unreliable Hermes
+ * fetch(file://).blob() path and can be cancelled when the active account
+ * changes. Required headers are supplied by the API and sent verbatim.
  */
 import * as FileSystem from "expo-file-system/legacy";
 
-export class UploadHttpError extends Error {
+export class PhotoUploadError extends Error {
   constructor(
     public readonly status: number,
     body: string,
   ) {
-    super(`Photo upload failed (HTTP ${status}): ${body.slice(0, 200) || "no body"}`);
-    this.name = "UploadHttpError";
+    super(
+      `Photo upload failed (HTTP ${status}): ${body.slice(0, 200) || "no body"}`,
+    );
+    this.name = "PhotoUploadError";
   }
 }
+
+/** Backward-compatible name used by existing upload callers/tests. */
+export { PhotoUploadError as UploadHttpError };
 
 export async function putPhotoToSignedUrl(
   signedUrl: string,
   localUri: string,
-  headers: Record<string, string>,
+  headers: Readonly<Record<string, string>>,
+  signal?: AbortSignal,
 ): Promise<void> {
-  const res = await FileSystem.uploadAsync(signedUrl, localUri, {
+  if (signal?.aborted) throw abortError();
+
+  const task = FileSystem.createUploadTask(signedUrl, localUri, {
     httpMethod: "PUT",
     uploadType: FileSystem.FileSystemUploadType.BINARY_CONTENT,
-    headers,
+    headers: { ...headers },
   });
+  const cancel = () => {
+    void task.cancelAsync();
+  };
+  signal?.addEventListener("abort", cancel, { once: true });
 
-  // uploadAsync resolves on any HTTP status; non-2xx is our failure.
-  if (res.status < 200 || res.status >= 300) {
-    throw new UploadHttpError(res.status, res.body);
+  try {
+    const result = await task.uploadAsync();
+    if (signal?.aborted || !result) throw abortError();
+    if (result.status < 200 || result.status >= 300) {
+      throw new PhotoUploadError(result.status, result.body);
+    }
+  } finally {
+    signal?.removeEventListener("abort", cancel);
   }
 }
 
-/**
- * Fallback for API builds that predate `required_headers` in the presign
- * response (the deployed dev API may lag this client). Mirrors the Azure
- * contract the backend returns today.
- */
+/** One-release fallback for an API that predates returned upload headers. */
 export function legacyPutHeaders(contentType: string): Record<string, string> {
   return {
     "Content-Type": contentType,
     "x-ms-blob-type": "BlockBlob",
   };
+}
+
+function abortError(): Error {
+  const error = new Error("Photo upload cancelled");
+  error.name = "AbortError";
+  return error;
 }

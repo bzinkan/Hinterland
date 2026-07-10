@@ -83,14 +83,29 @@ async def test_dispatch_isolates_handler_exceptions() -> None:
     assert {r.title for r in rewards} == {"first", "third"}
 
 
-async def test_dispatch_records_empty_result_for_failed_handler() -> None:
+async def test_dispatch_does_not_fabricate_result_for_failed_handler() -> None:
     ctx = _ctx()
     handlers: list[Handler] = [_BoomHandler(), _GoodHandler("after", weight=1)]
     await dispatch(ctx, handlers)
-    # Failed handler still gets a results entry so downstream presence
-    # checks don't KeyError.
-    assert "boom" in ctx.results
-    assert ctx.results["boom"].rewards == []
+    assert "boom" not in ctx.results
+
+
+async def test_dispatch_blocks_handler_when_required_predecessor_failed() -> None:
+    class BoomDex:
+        name = "dex"
+
+        async def handle(self, ctx: Context) -> HandlerResult:
+            raise RuntimeError("dex failed")
+
+    ctx = _ctx()
+    rewards = await dispatch(
+        ctx,
+        [BoomDex(), _GoodHandler("world", weight=50)],  # type: ignore[list-item]
+    )
+
+    assert rewards == []
+    assert "dex" not in ctx.results
+    assert "world" not in ctx.results
 
 
 async def test_equal_weights_preserve_handler_registration_order() -> None:

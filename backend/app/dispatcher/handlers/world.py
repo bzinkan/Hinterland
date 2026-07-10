@@ -77,6 +77,7 @@ _RARITY_STATE_TIER = "tier"
 
 class WorldHandler:
     name = "world"
+    version = "1"
 
     # Public state keys -- downstream handlers reference these constants
     # instead of bare strings.
@@ -88,24 +89,16 @@ class WorldHandler:
     STATE_TIER_HINT = "tier_hint"
     STATE_REPLAY = "replay"
     STATE_SKIPPED_NO_TAXON = "skipped_no_taxon"
-    STATE_ERROR = "error"
 
     async def handle(self, ctx: Context) -> HandlerResult:
-        try:
-            return await self._handle_inner(ctx)
-        except Exception:
-            # Belt-and-suspenders on top of the dispatcher's catch-all:
-            # the kid-facing submission must not be derailed by a
-            # Sanctuary failure.
-            log.exception(
-                "dispatcher.world.failed",
-                observation_id=ctx.observation.id,
-                user_id=ctx.user.id,
-            )
-            return HandlerResult(rewards=[], state={self.STATE_ERROR: True})
+        # The dispatcher owns savepoint rollback and failure persistence.
+        # Swallowing here would falsely mark a failed Sanctuary write as a
+        # successful handler run.
+        return await self._handle_inner(ctx)
 
     async def _handle_inner(self, ctx: Context) -> HandlerResult:
         obs = ctx.observation
+        observed_at = obs.observed_at or obs.created_at
 
         # Sanctuary contributions start at identification (owner decision
         # 2026-07-03, mirrors DexHandler's taxonless skip). The live flow
@@ -144,7 +137,7 @@ class WorldHandler:
             species_name=obs.species_name,
             iconic_taxon=iconic_taxon,
             is_first_find=is_first_find,
-            current_date=obs.created_at.date(),
+            current_date=observed_at.date(),
         )
         plan = compute_sanctuary_plan(
             ServiceInputs(
@@ -175,7 +168,6 @@ class WorldHandler:
         contribution_id = (await ctx.db.execute(contribution_stmt)).scalar_one_or_none()
         if contribution_id is None:
             # Replay: dispatcher already processed this observation.
-            await ctx.db.commit()
             log.info(
                 "dispatcher.world.replay",
                 observation_id=obs.id,
@@ -217,7 +209,7 @@ class WorldHandler:
                     source_observation_id=obs.id,
                     taxon_id=element.taxon_id,
                     payload=element.payload,
-                    unlocked_at=obs.created_at,
+                    unlocked_at=observed_at,
                 )
                 .on_conflict_do_nothing(
                     constraint="uq_sanctuary_elements_user_zone_element",
@@ -276,8 +268,6 @@ class WorldHandler:
                     payload=payload,
                 )
             )
-
-        await ctx.db.commit()
 
         log.info(
             "dispatcher.world.complete",
@@ -384,7 +374,7 @@ class WorldHandler:
             depth_tier=after_tier,
             first_unlocked_observation_id=source_observation_id,
             last_evolved_observation_id=(source_observation_id if crossed_any_threshold else None),
-            last_observed_at=ctx.observation.created_at,
+            last_observed_at=ctx.observation.observed_at or ctx.observation.created_at,
         )
         set_clause: dict[str, Any] = {
             "observation_count": insert_stmt.excluded.observation_count,

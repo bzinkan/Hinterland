@@ -52,10 +52,8 @@
 # What the script does NOT do
 # ---------------------------
 # - Fetch the token from iNat. You have to do that part in a browser.
-# - Test the CV endpoint end-to-end. Take a photo in the mobile app
-#   afterwards and watch the picker; the structured log
-#   `observations.identify.cv_unavailable` tells you why if it didn't
-#   work.
+# - Enable CV. W1 and closed beta keep enable/disclosure/benchmark gates false.
+# - Authorize pre-save egress. Any future use is post-clean only.
 
 set -euo pipefail
 
@@ -243,11 +241,11 @@ az containerapp update \
   --output none
 
 echo
-echo "Done. Take a photo in the mobile app on dev -- the picker should now"
-echo "show CV suggestions instead of greying out the species list."
+echo "Done. The secret was rotated; this does NOT enable CV."
+echo "Keep enable/disclosure/benchmark gates false outside an approved"
+echo "post-clean staging benchmark. Public submission remains disabled."
 echo
 echo "If it doesn't, check the structured log:"
 echo "  az containerapp logs show --name $APP_NAME --resource-group $RG \\"
 echo "    --follow --tail 50 --type=console"
-echo "and look for 'observations.identify.cv_unavailable' or"
-echo "'observations.identify.scored' on the next submit."
+echo "and audit the bounded post-clean benchmark request IDs only."

@@ -1,0 +1,40 @@
+{
+  "rules": [
+    {
+      "enabled": true,
+      "name": "observation-pilot-private-7d",
+      "type": "Lifecycle",
+      "definition": {
+        "actions": {"baseBlob": {"delete": {"daysAfterModificationGreaterThan": 7}}},
+        "filters": {
+          "blobTypes": ["blockBlob"],
+          "prefixMatch": ["photos/pilot-private/"]
+        }
+      }
+    },
+    {
+      "enabled": true,
+      "name": "observation-unattached-upload-24h",
+      "type": "Lifecycle",
+      "definition": {
+        "actions": {"baseBlob": {"delete": {"daysAfterModificationGreaterThan": 1}}},
+        "filters": {
+          "blobTypes": ["blockBlob"],
+          "prefixMatch": ["photos/pending/uploads/"]
+        }
+      }
+    },
+    {
+      "enabled": true,
+      "name": "observation-quarantine-rejected-90d",
+      "type": "Lifecycle",
+      "definition": {
+        "actions": {"baseBlob": {"delete": {"daysAfterModificationGreaterThan": 90}}},
+        "filters": {
+          "blobTypes": ["blockBlob"],
+          "prefixMatch": ["photos/quarantine/", "photos/rejected/"]
+        }
+      }
+    }
+  ]
+}

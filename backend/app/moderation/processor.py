@@ -1,7 +1,7 @@
-"""Move a `pending/` photo to its post-moderation home and update DB.
+"""Moderate an attached private photo and update its durable lifecycle.
 
-Idempotent within reason -- if the Photo row's status has already
-moved past `pending`, we treat the call as a no-op and return early.
+Only a committed observation/photo pair is eligible. A raw BlobCreated event
+is insufficient authority to call a provider. Completed work is idempotent.
 
 Clean-path side-effects (Risk 0002 transactional outbox):
 
@@ -25,6 +25,8 @@ Clean-path side-effects (Risk 0002 transactional outbox):
 
 from __future__ import annotations
 
+import asyncio
+import hashlib
 import json
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -40,27 +42,28 @@ from app.core.storage import SignedUrlGenerator
 from app.db import models
 from app.inat.enqueue import enqueue_inat_submit
 from app.moderation.provider import Moderator
+from app.observation.photo_finalize import PhotoValidationError, validate_canonical_jpeg
 
 log = structlog.get_logger()
 
 _PENDING_PREFIX = "pending/"
+_PILOT_PRIVATE_PREFIX = "pilot-private/"
 _OBSERVATIONS_PREFIX = "observations/"
 _QUARANTINE_PREFIX = "quarantine/"
 
 
 class PhotoNotFound(Exception):
-    """The Photo row referenced by the GCS object doesn't exist in DB.
+    """The committed work references a photo row that is not readable yet."""
 
-    Likely race: the moderation event fired before the
-    `POST /v1/photos/presign` transaction was committed. Caller
-    should retry; Eventarc handles that on its own with backoff.
-    """
+
+class ModerationWorkInvalid(Exception):
+    """The work item is not backed by the committed observation/photo pair."""
 
 
 @dataclass(frozen=True)
 class ProcessResult:
     photo_id: str
-    decision: Literal["clean", "flagged", "skipped"]
+    decision: Literal["clean", "flagged", "pilot_private", "skipped"]
     new_object_name: str | None
     review_queue_id: str | None
     # The observation that was flipped to `clean` or `quarantine` (if a
@@ -83,12 +86,31 @@ def _photo_id_from_object_name(object_name: str) -> str | None:
     other suffixes; returns None if the shape doesn't match."""
     if not object_name.startswith(_PENDING_PREFIX):
         return None
-    rest = object_name[len(_PENDING_PREFIX) :]
+    rest = object_name[len(_PENDING_PREFIX) :].rsplit("/", 1)[-1]
     if "." in rest:
         rest = rest.rsplit(".", 1)[0]
     if not rest:
         return None
     return rest
+
+
+def _is_terminal_moderation_state(
+    photo: models.Photo,
+    observation: models.Observation,
+) -> bool:
+    """Return whether photo/observation state proves moderation completed."""
+    return (
+        (photo.status == "clean" and observation.moderation_status == "clean")
+        or (photo.status == "quarantine" and observation.moderation_status == "quarantine")
+        or (photo.status == "pending" and observation.moderation_status == "pilot_private")
+        or (photo.status == "deleted" and observation.moderation_status == "rejected")
+    )
+
+
+def _complete_moderation_outbox(outbox: models.ModerationOutbox) -> None:
+    outbox.status = "succeeded"
+    outbox.lease_until = None
+    outbox.last_error = None
 
 
 async def process_pending_photo(
@@ -99,8 +121,10 @@ async def process_pending_photo(
     bucket: str,
     object_name: str,
     settings: Settings | None = None,
+    expected_photo_id: str | None = None,
+    expected_observation_id: str | None = None,
 ) -> ProcessResult:
-    """Run one moderation cycle on the GCS object at `bucket/object_name`.
+    """Run one moderation cycle on a committed Blob object.
 
     When `settings` is provided AND the moderation decision is `clean`,
     the processor also writes an `inat_submit_outbox` row in the same
@@ -110,7 +134,7 @@ async def process_pending_photo(
     up. Tests that don't care about the outbox path can pass
     `settings=None`.
     """
-    photo_id = _photo_id_from_object_name(object_name)
+    photo_id = expected_photo_id or _photo_id_from_object_name(object_name)
     if photo_id is None:
         log.info("moderation.processor.skipped_non_pending", object_name=object_name)
         return ProcessResult(
@@ -129,24 +153,139 @@ async def process_pending_photo(
         log.warning("moderation.processor.photo_row_missing", photo_id=photo_id)
         raise PhotoNotFound(photo_id)
 
-    if photo.status != "pending":
+    if expected_photo_id is not None and photo.id != expected_photo_id:
+        raise ModerationWorkInvalid("photo id did not match committed work")
+
+    observation_query = select(models.Observation).where(models.Observation.photo_id == photo_id)
+    if expected_observation_id is not None:
+        observation_query = observation_query.where(
+            models.Observation.id == expected_observation_id
+        )
+    observation = (await session.execute(observation_query)).scalar_one_or_none()
+    if observation is None:
+        raise ModerationWorkInvalid("photo is not attached to the committed observation")
+
+    outbox = (
+        await session.execute(
+            select(models.ModerationOutbox).where(
+                models.ModerationOutbox.observation_id == observation.id,
+                models.ModerationOutbox.photo_id == photo.id,
+            )
+        )
+    ).scalar_one_or_none()
+    if outbox is None:
+        raise ModerationWorkInvalid("moderation requires committed outbox authority")
+
+    # A prior attempt may have committed the verified destination and terminal
+    # observation state just before its process crashed. Complete the matching
+    # outbox idempotently *before* validating the message's old source path.
+    # This also repairs rows created by the pre-atomic consumer implementation.
+    if _is_terminal_moderation_state(photo, observation):
+        _complete_moderation_outbox(outbox)
+        await session.commit()
         log.info(
             "moderation.processor.already_moderated",
             photo_id=photo_id,
             status=photo.status,
+            moderation_status=observation.moderation_status,
         )
         return ProcessResult(
             photo_id=photo_id,
             decision="skipped",
             new_object_name=photo.object_name,
             review_queue_id=None,
+            observation_id=observation.id,
+            outbox_status=None,
         )
+    if outbox.status == "succeeded":
+        raise ModerationWorkInvalid("succeeded moderation outbox has nonterminal state")
 
-    image_bytes = storage.fetch_object_bytes(bucket=bucket, object_name=object_name)
+    attachment_status = getattr(photo, "attachment_status", None)
+    if attachment_status not in (None, "attached"):
+        raise ModerationWorkInvalid(f"photo attachment status is {attachment_status}")
 
-    # ModerationUnavailable bubbles up; the route surface returns non-2xx
-    # so Eventarc retries the trigger.
+    if photo.status != "pending" or observation.moderation_status in {
+        "clean",
+        "quarantine",
+        "pilot_private",
+        "rejected",
+    }:
+        raise ModerationWorkInvalid("photo and observation moderation state is inconsistent")
+
+    canonical_object_name = photo.canonical_object_name or photo.object_name
+    if canonical_object_name != object_name or photo.bucket != bucket:
+        raise ModerationWorkInvalid("blob location did not match the committed photo")
+    if photo.canonical_object_name is None or not object_name.startswith("pending/finalized/"):
+        raise ModerationWorkInvalid("moderation requires a finalized canonical photo")
+
+    image_bytes = await asyncio.to_thread(
+        storage.fetch_object_bytes,
+        bucket=bucket,
+        object_name=object_name,
+    )
+
+    image_sha256 = hashlib.sha256(image_bytes).hexdigest()
+    try:
+        width_px, height_px = await asyncio.to_thread(validate_canonical_jpeg, image_bytes)
+    except PhotoValidationError as exc:
+        raise ModerationWorkInvalid(f"canonical JPEG validation failed: {exc}") from exc
+    if (
+        photo.verified_at is None
+        or photo.byte_count != len(image_bytes)
+        or photo.width_px != width_px
+        or photo.height_px != height_px
+        or photo.sha256 != image_sha256
+    ):
+        raise ModerationWorkInvalid("canonical photo metadata verification failed")
+
+    # ModerationUnavailable bubbles up so the Service Bus consumer abandons
+    # the message for retry; it never defaults the photo to clean.
     result = await moderator.moderate(image_bytes)
+
+    if result.decision == "pilot_private":
+        # Use a dedicated private prefix so Azure lifecycle can enforce the
+        # seven-day W1 ceiling without applying an unsafe blanket rule to all
+        # attached `pending/finalized/` observations.
+        new_object = f"{_PILOT_PRIVATE_PREFIX}{photo_id}.jpg"
+        await asyncio.to_thread(
+            storage.copy_object,
+            src_bucket=bucket,
+            src_object=object_name,
+            dst_bucket=bucket,
+            dst_object=new_object,
+            expected_size=len(image_bytes),
+            expected_sha256=image_sha256,
+        )
+        photo.object_name = new_object
+        photo.canonical_object_name = new_object
+        photo.moderated_at = datetime.now(UTC)
+        observation.moderation_status = "pilot_private"
+        observation.moderation_labels = dict(result.labels)
+        observation.moderation_source = "noop"
+        observation.moderation_policy_version = "noop-w1-v1"
+        _complete_moderation_outbox(outbox)
+        await session.commit()
+        try:
+            await asyncio.to_thread(
+                storage.delete_object,
+                bucket=bucket,
+                object_name=object_name,
+            )
+        except Exception as exc:
+            log.warning(
+                "moderation.processor.source_delete_failed",
+                photo_id=photo_id,
+                object_name=object_name,
+                error=str(exc),
+            )
+        return ProcessResult(
+            photo_id=photo_id,
+            decision="pilot_private",
+            new_object_name=new_object,
+            review_queue_id=None,
+            observation_id=observation.id,
+            outbox_status=None,
+        )
 
     if result.decision == "clean":
         new_object = f"{_OBSERVATIONS_PREFIX}{photo_id}.jpg"
@@ -155,25 +294,20 @@ async def process_pending_photo(
         new_object = f"{_QUARANTINE_PREFIX}{photo_id}.jpg"
         new_status = "quarantine"
 
-    storage.copy_object(
+    await asyncio.to_thread(
+        storage.copy_object,
         src_bucket=bucket,
         src_object=object_name,
         dst_bucket=bucket,
         dst_object=new_object,
+        expected_size=len(image_bytes),
+        expected_sha256=image_sha256,
     )
-    storage.delete_object(bucket=bucket, object_name=object_name)
 
     photo.object_name = new_object
+    photo.canonical_object_name = new_object
     photo.status = new_status
     photo.moderated_at = datetime.now(UTC)
-
-    # Find the matching observation row for both paths. Clean rows feed
-    # the outbox; flagged rows feed the review queue.
-    observation = (
-        await session.execute(
-            select(models.Observation).where(models.Observation.photo_id == photo_id)
-        )
-    ).scalar_one_or_none()
 
     review_queue_id: str | None = None
     wrote_outbox = False
@@ -182,6 +316,8 @@ async def process_pending_photo(
         if observation is not None:
             observation.moderation_status = "clean"
             observation.moderation_labels = dict(result.labels)
+            observation.moderation_source = "azure"
+            observation.moderation_policy_version = "azure-content-safety-2023-10-01"
             # Outbox row guarantees at-least-once iNat submit even if the
             # Service Bus send below fails. Replay job picks up rows that
             # stay in `pending` past the 5-min grace window.
@@ -206,6 +342,8 @@ async def process_pending_photo(
         if observation is not None:
             observation.moderation_status = "quarantine"
             observation.moderation_labels = dict(result.labels)
+            observation.moderation_source = "azure"
+            observation.moderation_policy_version = "azure-content-safety-2023-10-01"
 
             # The review queue row needs a group_id. If the observation
             # doesn't exist yet (presign-then-no-create), we can't route
@@ -223,7 +361,29 @@ async def process_pending_photo(
                 )
             )
 
+    # The physical move, observation state, review state, and moderation
+    # outbox completion are one transaction. If the consumer crashes after
+    # this commit, duplicate delivery sees `succeeded` and completes without
+    # trying to process the old source path again.
+    _complete_moderation_outbox(outbox)
     await session.commit()
+
+    # DB now points at a verified destination. Source deletion is best-effort;
+    # a lifecycle sweep can remove a duplicate, while deleting before commit
+    # could strand the database on a missing source after a transaction fault.
+    try:
+        await asyncio.to_thread(
+            storage.delete_object,
+            bucket=bucket,
+            object_name=object_name,
+        )
+    except Exception as exc:
+        log.warning(
+            "moderation.processor.source_delete_failed",
+            photo_id=photo_id,
+            object_name=object_name,
+            error=str(exc),
+        )
 
     log.info(
         "moderation.processor.processed",

@@ -1,10 +1,9 @@
 """Internal moderation endpoint -- manual / admin retry path only.
 
-The production path under ADR 0010 (Azure) is event-driven and does NOT
-call this HTTP route:
+The production path under ADR 0010 (Azure) does NOT call this HTTP route:
 
-    Blob `pending/<id>.jpg` finalize
-        -> Event Grid system topic
+    observation + photo + moderation-outbox transaction commits
+        -> moderation outbox relay
         -> Service Bus queue `moderation-pending`
         -> `dragonfly-moderation-worker` Container App (KEDA-scaled)
         -> `app.moderation.processor.process_pending_photo(...)` direct
@@ -34,6 +33,7 @@ from app.core.internal_auth import require_internal_oidc
 from app.core.storage import SignedUrlGeneratorDep
 from app.db.session import DbSessionDep
 from app.moderation.processor import (
+    ModerationWorkInvalid,
     PhotoNotFound,
     process_pending_photo,
 )
@@ -49,8 +49,10 @@ log = structlog.get_logger()
 
 
 class ProcessRequest(BaseModel):
-    """Direct-trigger shape. Eventarc CloudEvent unpacking lives below."""
+    """Manual retry of an already-committed moderation outbox item."""
 
+    observation_id: str = Field(..., min_length=26, max_length=26)
+    photo_id: str = Field(..., min_length=26, max_length=26)
     bucket: str = Field(..., min_length=1)
     object_name: str = Field(..., min_length=1)
 
@@ -78,15 +80,17 @@ async def moderation_process(
             bucket=payload.bucket,
             object_name=payload.object_name,
             settings=settings,
+            expected_photo_id=payload.photo_id,
+            expected_observation_id=payload.observation_id,
         )
     except PhotoNotFound as exc:
-        # Race with presign commit. 404 lets Eventarc retry.
+        # Manual caller can retry after investigating the committed row.
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Photo row not found for {payload.object_name}",
         ) from exc
     except ModerationUnavailable as exc:
-        # 503 lets Eventarc retry. We never default-allow on outage --
+        # A manual caller receives 503. We never default-allow on outage --
         # docs/moderation.md "failed moderation does not default-allow".
         log.warning(
             "moderation.process.unavailable",
@@ -96,6 +100,11 @@ async def moderation_process(
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Moderation provider unavailable",
+        ) from exc
+    except ModerationWorkInvalid as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Moderation work does not match a committed observation",
         ) from exc
 
     return ProcessResponse(

@@ -31,6 +31,7 @@ log = structlog.get_logger()
 
 class DexHandler:
     name = "dex"
+    version = "1"
 
     # Public state keys -- downstream handlers should reference these
     # constants instead of bare strings.
@@ -56,7 +57,7 @@ class DexHandler:
                 taxon_id=obs.taxon_id,
                 species_name=obs.species_name,
                 first_observation_id=obs.id,
-                first_seen_at=obs.created_at,
+                first_seen_at=obs.observed_at or obs.created_at,
             )
             .on_conflict_do_nothing(constraint="uq_dex_entries_user_taxon")
             .returning(models.DexEntry.id)
@@ -76,7 +77,6 @@ class DexHandler:
                 )
                 .values(dex_count=models.Membership.dex_count + 1)
             )
-            await ctx.db.commit()
             reward = Reward(
                 type="first_find",
                 title="New species!",
@@ -87,7 +87,6 @@ class DexHandler:
             )
         else:
             # Repeat find -- no DB writes beyond the no-op insert.
-            await ctx.db.commit()
             reward = Reward(
                 type="repeat_find",
                 title="Logged",

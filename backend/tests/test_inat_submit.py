@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from datetime import UTC, datetime
+from typing import Any
 
 import httpx
 import pytest
@@ -11,7 +12,7 @@ import respx
 
 from app.core.config import Settings
 from app.inat.client import InatUnavailable, build_inat_client
-from app.inat.submit import submit_observation_to_inat
+from app.inat.submit import submit_observation_to_inat as _submit_observation_to_inat
 
 
 @pytest.fixture
@@ -26,6 +27,28 @@ def client(settings: Settings) -> httpx.AsyncClient:
 
 _DRAGONFLY_OBS_ID = "01J0OBSID00000000000000ULID"
 _OBSERVED_ON = datetime(2026, 5, 10, 12, 0, 0, tzinfo=UTC)
+
+
+async def submit_observation_to_inat(*args: Any, **kwargs: Any) -> Any:
+    kwargs["egress_enabled"] = True
+    return await _submit_observation_to_inat(*args, **kwargs)
+
+
+@respx.mock
+async def test_kill_switch_blocks_before_first_http_call(client: httpx.AsyncClient) -> None:
+    route = respx.post("https://api.inaturalist.org/v1/observations").mock(
+        return_value=httpx.Response(200, json={"id": 1})
+    )
+    with pytest.raises(InatUnavailable, match="egress is disabled"):
+        await _submit_observation_to_inat(
+            client,
+            dragonfly_observation_id=_DRAGONFLY_OBS_ID,
+            photo_bytes=b"jpeg",
+            latitude=39.1,
+            longitude=-84.5,
+            observed_on=_OBSERVED_ON,
+        )
+    assert route.called is False
 
 
 @respx.mock

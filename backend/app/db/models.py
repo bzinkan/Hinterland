@@ -76,6 +76,8 @@ class Membership(TimestampMixin, Base):
     __table_args__ = (
         UniqueConstraint("group_id", "user_id", name="uq_memberships_group_user"),
         CheckConstraint("role in ('parent', 'teacher', 'kid')", name="ck_memberships_role"),
+        CheckConstraint("observation_count >= 0", name="ck_memberships_observation_count"),
+        CheckConstraint("dex_count >= 0", name="ck_memberships_dex_count"),
     )
 
     id: Mapped[str] = mapped_column(String(26), primary_key=True)
@@ -95,7 +97,12 @@ class Photo(TimestampMixin, Base):
             "status in ('pending', 'clean', 'quarantine', 'deleted')",
             name="ck_photos_status",
         ),
+        CheckConstraint(
+            "attachment_status in ('reserved', 'attached', 'deleted')",
+            name="ck_photos_attachment_status",
+        ),
         UniqueConstraint("bucket", "object_name", name="uq_photos_bucket_object"),
+        UniqueConstraint("user_id", "submission_key", name="uq_photos_user_submission"),
     )
 
     id: Mapped[str] = mapped_column(String(26), primary_key=True)
@@ -103,8 +110,20 @@ class Photo(TimestampMixin, Base):
     bucket: Mapped[str] = mapped_column(String(128), nullable=False)
     object_name: Mapped[str] = mapped_column(String(512), nullable=False)
     status: Mapped[str] = mapped_column(String(24), nullable=False, default="pending")
+    attachment_status: Mapped[str] = mapped_column(
+        String(24), nullable=False, default="reserved", server_default="reserved"
+    )
+    # Nullable only for migration-first compatibility with the previous API.
+    # The W1 API always writes this value.
+    submission_key: Mapped[str | None] = mapped_column(String(26))
+    canonical_object_name: Mapped[str | None] = mapped_column(String(512))
     content_type: Mapped[str | None] = mapped_column(String(128))
     checksum: Mapped[str | None] = mapped_column(String(128))
+    byte_count: Mapped[int | None] = mapped_column(Integer)
+    width_px: Mapped[int | None] = mapped_column(Integer)
+    height_px: Mapped[int | None] = mapped_column(Integer)
+    sha256: Mapped[str | None] = mapped_column(String(64))
+    verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     moderated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
@@ -114,40 +133,67 @@ class Observation(TimestampMixin, Base):
         Index("ix_observations_user_created", "user_id", "created_at"),
         Index("ix_observations_group_created", "group_id", "created_at"),
         Index("ix_observations_taxon", "taxon_id"),
-        # One observation per photo. Create-time the photo must still be
-        # `pending`, but that check alone allows a double-submit race; the
-        # moderation worker assumes exactly one observation per photo
-        # (scalar_one_or_none) and crash-loops on duplicates.
         UniqueConstraint("photo_id", name="uq_observations_photo_id"),
+        UniqueConstraint("user_id", "submission_key", name="uq_observations_user_submission"),
+        CheckConstraint(
+            "location_source in ('device_coarse', 'manual_coarse', 'none', 'legacy_coarsened')",
+            name="ck_observations_location_source",
+        ),
+        CheckConstraint(
+            "identification_source in ('catalog', 'cv', 'manual_text', 'unknown', 'legacy')",
+            name="ck_observations_identification_source",
+        ),
+        CheckConstraint(
+            "dispatch_status in ('pending', 'partial', 'complete', 'unverified')",
+            name="ck_observations_dispatch_status",
+        ),
+        CheckConstraint(
+            "moderation_source in ('none', 'noop', 'azure', 'adult')",
+            name="ck_observations_moderation_source",
+        ),
     )
 
     id: Mapped[str] = mapped_column(String(26), primary_key=True)
     user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), nullable=False)
     group_id: Mapped[str] = mapped_column(ForeignKey("groups.id"), nullable=False)
     photo_id: Mapped[str] = mapped_column(ForeignKey("photos.id"), nullable=False)
+    # Nullable only while one legacy API revision may still be running.
+    submission_key: Mapped[str | None] = mapped_column(String(26))
     taxon_id: Mapped[int | None] = mapped_column(Integer)
     species_name: Mapped[str | None] = mapped_column(String(200))
-    latitude: Mapped[float] = mapped_column(Float, nullable=False)
-    longitude: Mapped[float] = mapped_column(Float, nullable=False)
+    latitude: Mapped[float | None] = mapped_column(Float)
+    longitude: Mapped[float | None] = mapped_column(Float)
     geohash4: Mapped[str | None] = mapped_column(String(8))
+    observed_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    location_source: Mapped[str] = mapped_column(
+        String(24), nullable=False, default="legacy_coarsened", server_default="legacy_coarsened"
+    )
+    identification_source: Mapped[str] = mapped_column(
+        String(24), nullable=False, default="legacy", server_default="legacy"
+    )
+    identification_revision: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=1, server_default="1"
+    )
+    dispatch_status: Mapped[str] = mapped_column(
+        String(24), nullable=False, default="unverified", server_default="unverified"
+    )
+    rejected_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     place_name: Mapped[str | None] = mapped_column(String(200))
     inat_observation_id: Mapped[int | None] = mapped_column(Integer)
     submitted_to_inat_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     dispatched_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    # Write-once marker: when a taxon FIRST landed on this observation
-    # (at create when submitted with one, else at the first PATCH
-    # assignment). The taxon-time re-dispatch gates on this being NULL,
-    # so a clear-and-repick can never earn a second round of rewards.
-    # Distinct from dispatched_at, which tracks the last successful
-    # dispatch and is reset for replay recovery.
+    # Compatibility marker introduced before the revisioned identification
+    # event. New identification changes rebuild derived state, but the column
+    # remains part of the deployed mainline schema for one release.
     taxon_first_assigned_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     rewards: Mapped[list[JsonDict]] = mapped_column(JSONB, nullable=False, default=list)
     ecology_tags: Mapped[JsonDict] = mapped_column(JSONB, nullable=False, default=dict)
     # Azure Content Safety lifecycle state for this observation's photo.
-    # CHECK constraint pins the vocabulary to {pending, clean, quarantine,
-    # rejected} (see migration 20260604_0006). Only `clean` rows are
-    # eligible for iNat submission (see `InatSubmitOutbox` + the
-    # Service-Bus-driven submit worker).
+    # The W1 lifecycle adds processing/pilot_private/failed while preserving
+    # pending/clean/quarantine/rejected compatibility. Only `clean` rows can
+    # ever reach the separately default-deny iNat submission path.
     moderation_status: Mapped[str] = mapped_column(
         String(24), nullable=False, default="pending", server_default="pending"
     )
@@ -157,6 +203,123 @@ class Observation(TimestampMixin, Base):
     moderation_labels: Mapped[JsonDict] = mapped_column(
         JSONB, nullable=False, default=dict, server_default="{}"
     )
+    moderation_source: Mapped[str] = mapped_column(
+        String(24), nullable=False, default="none", server_default="none"
+    )
+    moderation_policy_version: Mapped[str | None] = mapped_column(String(64))
+
+
+class ObservationIdempotency(TimestampMixin, Base):
+    """Operation-scoped replay ledger for the two-step observation flow."""
+
+    __tablename__ = "observation_idempotency"
+    __table_args__ = (
+        CheckConstraint(
+            "operation in ('photo_presign', 'observation_create')",
+            name="ck_observation_idempotency_operation",
+        ),
+    )
+
+    user_id: Mapped[str] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
+    )
+    idempotency_key: Mapped[str] = mapped_column(String(26), primary_key=True)
+    operation: Mapped[str] = mapped_column(String(32), primary_key=True)
+    request_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    resource_id: Mapped[str] = mapped_column(String(26), nullable=False)
+
+
+class ModerationOutbox(TimestampMixin, Base):
+    """Committed observation work awaiting relay to the moderation queue."""
+
+    __tablename__ = "moderation_outbox"
+    __table_args__ = (
+        CheckConstraint(
+            "status in ('pending', 'enqueued', 'processing', 'succeeded', 'failed', 'dlq')",
+            name="ck_moderation_outbox_status",
+        ),
+        Index("ix_moderation_outbox_status_attempt", "status", "last_attempt_at"),
+    )
+
+    observation_id: Mapped[str] = mapped_column(
+        ForeignKey("observations.id", ondelete="CASCADE"), primary_key=True
+    )
+    photo_id: Mapped[str] = mapped_column(ForeignKey("photos.id"), nullable=False)
+    status: Mapped[str] = mapped_column(
+        String(24), nullable=False, default="pending", server_default="pending"
+    )
+    retry_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    lease_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_attempt_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_error: Mapped[str | None] = mapped_column(Text)
+
+
+class ObservationHandlerRun(TimestampMixin, Base):
+    """Durable, independently replayable execution record for one handler."""
+
+    __tablename__ = "observation_handler_runs"
+    __table_args__ = (
+        CheckConstraint(
+            "status in ('pending', 'running', 'succeeded', 'failed', 'blocked')",
+            name="ck_observation_handler_runs_status",
+        ),
+        Index("ix_observation_handler_runs_status", "status", "updated_at"),
+    )
+
+    observation_id: Mapped[str] = mapped_column(
+        ForeignKey("observations.id", ondelete="CASCADE"), primary_key=True
+    )
+    handler_name: Mapped[str] = mapped_column(String(80), primary_key=True)
+    handler_version: Mapped[str] = mapped_column(String(32), nullable=False, default="1")
+    status: Mapped[str] = mapped_column(
+        String(24), nullable=False, default="pending", server_default="pending"
+    )
+    state: Mapped[JsonDict] = mapped_column(
+        JSONB, nullable=False, default=dict, server_default="{}"
+    )
+    rewards: Mapped[list[JsonDict]] = mapped_column(
+        JSONB, nullable=False, default=list, server_default="[]"
+    )
+    attempt_count: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default="0"
+    )
+    last_error: Mapped[str | None] = mapped_column(Text)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class DerivedStateRebuild(TimestampMixin, Base):
+    """Per-user authoritative derived-state rebuild requested by a correction."""
+
+    __tablename__ = "derived_state_rebuilds"
+    __table_args__ = (
+        CheckConstraint(
+            "status in ('queued', 'running', 'succeeded', 'failed')",
+            name="ck_derived_state_rebuilds_status",
+        ),
+        Index("ix_derived_state_rebuilds_user_status", "user_id", "status"),
+        Index(
+            "uq_derived_state_rebuilds_active_user",
+            "user_id",
+            unique=True,
+            postgresql_where=text("status in ('queued', 'running')"),
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(26), primary_key=True)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    trigger_observation_id: Mapped[str | None] = mapped_column(
+        ForeignKey("observations.id", ondelete="SET NULL")
+    )
+    status: Mapped[str] = mapped_column(
+        String(24), nullable=False, default="queued", server_default="queued"
+    )
+    attempt_count: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default="0"
+    )
+    last_error: Mapped[str | None] = mapped_column(Text)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 class InatSubmitOutbox(TimestampMixin, Base):
@@ -247,6 +410,20 @@ class ExpeditionProgress(TimestampMixin, Base):
     focused_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
+class ExpeditionObservationContribution(TimestampMixin, Base):
+    """Idempotency gate tying one observation to one expedition step."""
+
+    __tablename__ = "expedition_observation_contributions"
+
+    observation_id: Mapped[str] = mapped_column(
+        ForeignKey("observations.id", ondelete="CASCADE"), primary_key=True
+    )
+    expedition_id: Mapped[str] = mapped_column(
+        ForeignKey("expedition_content.id", ondelete="CASCADE"), primary_key=True
+    )
+    step_id: Mapped[str] = mapped_column(String(120), nullable=False)
+
+
 class ReviewQueueItem(TimestampMixin, Base):
     __tablename__ = "review_queue"
     __table_args__ = (
@@ -255,6 +432,8 @@ class ReviewQueueItem(TimestampMixin, Base):
             name="ck_review_queue_status",
         ),
         Index("ix_review_queue_group_status", "group_id", "status"),
+        UniqueConstraint("photo_id", name="uq_review_queue_photo_id"),
+        UniqueConstraint("observation_id", name="uq_review_queue_observation_id"),
     )
 
     id: Mapped[str] = mapped_column(String(26), primary_key=True)
@@ -302,13 +481,66 @@ class JobState(TimestampMixin, Base):
 
 class SpeciesCache(TimestampMixin, Base):
     __tablename__ = "species_cache"
+    __table_args__ = (
+        Index("ix_species_cache_common_name", "common_name"),
+        Index("ix_species_cache_scientific_name", "scientific_name"),
+    )
 
     taxon_id: Mapped[int] = mapped_column(Integer, primary_key=True)
     scientific_name: Mapped[str | None] = mapped_column(String(200))
     common_name: Mapped[str | None] = mapped_column(String(200))
     iconic_taxon: Mapped[str | None] = mapped_column(String(80))
+    rank: Mapped[str | None] = mapped_column(String(80))
+    ancestor_ids: Mapped[list[int]] = mapped_column(
+        JSONB, nullable=False, default=list, server_default="[]"
+    )
+    aliases: Mapped[list[str]] = mapped_column(
+        JSONB, nullable=False, default=list, server_default="[]"
+    )
+    active: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default="true"
+    )
+    catalog_version: Mapped[str] = mapped_column(
+        String(64), nullable=False, default="legacy", server_default="legacy"
+    )
+    source_updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     source_payload: Mapped[JsonDict] = mapped_column(JSONB, nullable=False, default=dict)
     expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class TaxonomyPack(TimestampMixin, Base):
+    """Published catalog snapshot available for verified mobile import."""
+
+    __tablename__ = "taxonomy_packs"
+    __table_args__ = (
+        UniqueConstraint("pack_id", "version", name="uq_taxonomy_packs_id_version"),
+        Index("ix_taxonomy_packs_active_scope", "active", "scope"),
+    )
+
+    id: Mapped[str] = mapped_column(String(26), primary_key=True)
+    pack_id: Mapped[str] = mapped_column(String(80), nullable=False)
+    version: Mapped[str] = mapped_column(String(64), nullable=False)
+    scope: Mapped[str] = mapped_column(String(80), nullable=False)
+    checksum_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    size_bytes: Mapped[int] = mapped_column(Integer, nullable=False)
+    taxon_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    bucket: Mapped[str] = mapped_column(String(128), nullable=False)
+    object_name: Mapped[str] = mapped_column(String(512), nullable=False)
+    active: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default="true"
+    )
+
+
+class CvSuggestionCache(TimestampMixin, Base):
+    """Post-clean CV result keyed by canonical bytes and explicit model."""
+
+    __tablename__ = "cv_suggestion_cache"
+
+    photo_sha256: Mapped[str] = mapped_column(String(64), primary_key=True)
+    model_version: Mapped[str] = mapped_column(String(64), primary_key=True)
+    suggestions: Mapped[list[JsonDict]] = mapped_column(
+        JSONB, nullable=False, default=list, server_default="[]"
+    )
 
 
 class GeoCache(TimestampMixin, Base):

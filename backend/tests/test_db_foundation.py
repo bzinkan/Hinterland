@@ -1,4 +1,4 @@
-from app.db import models  # noqa: F401
+from app.db import models
 from app.db.base import Base
 
 
@@ -17,10 +17,23 @@ def test_postgres_foundation_tables_are_registered() -> None:
         "ingest_runs",
         "job_state",
         "species_cache",
+        "taxonomy_packs",
+        "cv_suggestion_cache",
         "geo_cache",
         "rarity_cache",
         "expedition_content",
+        "observation_idempotency",
+        "moderation_outbox",
+        "observation_handler_runs",
+        "derived_state_rebuilds",
+        "expedition_observation_contributions",
     }.issubset(table_names)
+
+
+def test_submission_keys_stay_nullable_during_migration_first_rollout() -> None:
+    """The previous API must keep inserting while 0014 runs before deploy."""
+    assert models.Photo.__table__.c.submission_key.nullable is True
+    assert models.Observation.__table__.c.submission_key.nullable is True
 
 
 def test_first_find_and_ingest_idempotency_constraints_exist() -> None:

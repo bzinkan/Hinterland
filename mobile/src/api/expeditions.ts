@@ -40,12 +40,14 @@ export type AvailableListResponse = {
 
 export function listAvailableExpeditions(
   geohash4?: string | null,
+  signal?: AbortSignal,
 ): Promise<AvailableListResponse> {
   const params = new URLSearchParams();
   if (geohash4) params.set("geohash4", geohash4);
   const query = params.toString();
   return apiRequest<AvailableListResponse>(
     `/v1/expeditions/available${query ? `?${query}` : ""}`,
+    { signal },
   );
 }
 
@@ -116,6 +118,6 @@ export type MyProgressResponse = {
   items: ProgressItem[];
 };
 
-export function listMyExpeditions(): Promise<MyProgressResponse> {
-  return apiRequest<MyProgressResponse>("/v1/expeditions/me");
+export function listMyExpeditions(signal?: AbortSignal): Promise<MyProgressResponse> {
+  return apiRequest<MyProgressResponse>("/v1/expeditions/me", { signal });
 }

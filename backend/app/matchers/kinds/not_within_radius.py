@@ -29,7 +29,14 @@ def _approx_distance_m(lat1: float, lng1: float, lat2: float, lng2: float) -> fl
 
 
 def match_not_within_radius(spec: MatchNotWithinRadius, inputs: MatcherInputs) -> bool:
-    """True if NO prior observation by this user is within the radius."""
+    """True if no prior observation is nearby and precise input is available.
+
+    A four-character geohash is intentionally too coarse for a meter-radius
+    decision. Returning ``False`` for W1 coarse/no-location observations avoids
+    awarding progress from misleading geometry.
+    """
+    if inputs.obs_latitude is None or inputs.obs_longitude is None:
+        return False
     for prior in inputs.user_prior_observations:
         if (
             _approx_distance_m(

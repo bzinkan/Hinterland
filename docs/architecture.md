@@ -22,8 +22,8 @@ Azure Container Apps: FastAPI / uvicorn
         +--> Hinterland RS256 kid JWTs (handoff/session)
         +--> Azure Database for PostgreSQL Flexible Server
         +--> Azure Blob Storage (photos, SAS URLs)
-        +--> iNaturalist API (CV + eventual project submit)
-        +--> Azure AI Vision (optional non-LLM organism fallback)
+        +--> Project-owned PostgreSQL taxonomy catalog
+        +--> iNaturalist API (optional post-clean CV; public submit disabled)
         +--> Azure AI Content Safety (async moderation provider)
         +--> Azure Monitor / Log Analytics
 ```
@@ -35,26 +35,29 @@ the adult generates from Classroom.
 
 ## Observation Hot Path
 
-1. Kid captures or chooses a photo.
-2. Client calls `POST /v1/photos/presign` and uploads JPEG bytes to
-   `pending/<photo_id>.jpg` in the private photos container.
-3. Online clients call `POST /v1/photos/{photo_id}/identify` while the photo is
-   still pending. iNaturalist CV returns top suggestions, `no_matches=true`, or
-   `cv_unavailable=true`. When configured, Azure AI Vision may provide
-   non-LLM, display-only fallback organism guesses such as "Dog" after iNat has
-   no usable suggestion; the kid can pick a suggestion, type a display-only
-   name, or skip.
-4. Client calls `POST /v1/observations` with the stable observation shape and
-   the chosen `taxon_id`/`species_name` when known.
-5. API validates ownership, inserts the observation, and atomically bumps the
-   membership observation counter.
-6. Dispatcher runs after the observation is committed. It invokes Dex,
-   Rarity, Expedition, and World/Sanctuary handlers with exception isolation.
-7. Rewards return to the client for the celebration sequence. Failure in any
-   handler does not fail submission; replay can recover missing rewards.
-8. Async moderation/iNat submit work may run later. Public iNat submission
-   remains disabled until the production risk is closed; the kid already saw
-   success.
+1. The kid captures or chooses a photo. Mobile normalizes it, writes it to the
+   document directory, and records an owner-scoped SQLite queue row with a
+   client-generated ULID submission key.
+2. The client calls `POST /v1/photos/presign` with that key and uploads to
+   `pending/uploads/<photo_id>.jpg` using the headers returned by the API.
+3. Identification during capture uses the bundled/project-owned catalog.
+   Manual display text and Unknown remain valid but do not create a Dex entry.
+4. `POST /v1/observations`, using the same idempotency key, validates and
+   canonicalizes the JPEG, strips metadata, and stores immutable bytes under
+   `pending/finalized/`.
+5. One PostgreSQL transaction attaches the photo, inserts exactly one
+   observation, atomically increments the membership counter, and records the
+   moderation outbox plus pending dispatcher-handler rows.
+6. The dispatcher runs handlers under per-handler savepoints. It persists each
+   handler's version, status, state, and rewards. A failed handler leaves the
+   observation saved with `dispatch_status=partial`; replay resumes only
+   incomplete work.
+7. Only the committed moderation outbox can produce Service Bus work. Direct
+   BlobCreated moderation is forbidden. W1 NoOp results are `pilot_private`,
+   not clean safety approvals.
+8. iNaturalist image CV is available only as an optional post-clean action.
+   Public iNaturalist submission stays disabled pending a separate consent and
+   geoprivacy project.
 
 The submission endpoint shape is intentionally stable. Add handlers and workers;
 do not keep expanding the endpoint with feature-specific branches.
@@ -82,22 +85,36 @@ the row through `resolve_current_user_row(...)`, not by directly querying
 dispatcher execution, signed URL issuance, Entra/Hinterland auth verification,
 and source-of-truth writes to Postgres.
 
-**Photo storage.** Azure Blob Storage private container. `pending/`,
-`observations/`, and `quarantine/` prefixes remain the lifecycle vocabulary.
-Signed PUT/GET URLs are SAS URLs behind the existing storage protocol.
+**Photo storage.** Azure Blob Storage private container. Raw reservations use
+`pending/uploads/`; server-verified canonical JPEGs use `pending/finalized/`;
+NoOp results move to private `pilot-private/` for seven-day lifecycle;
+resolved provider results use `observations/` or `quarantine/`. Signed PUT/GET URLs are
+SAS URLs behind the existing storage protocol. Pending, quarantined,
+pilot-private, rejected, and deleted photos are never readable by a child.
+Clean photos are readable by their owner and an authorized managing adult;
+quarantine is adult-reviewer-only. Same-group peer children never receive a
+photo URL.
 
-**Moderation worker.** Async worker code classifies pending photos through the
-`Moderator` protocol. Azure AI Content Safety is the production provider; noop
-is allowed only for local/dev/W1 Internal Testing. Provider outage must retry or
-hold pending; never default-allow on safety outage.
+**Taxonomy catalog.** Replayable audited ingest promotes pinned, reviewed
+taxonomy content into PostgreSQL. The bundled core pack and authenticated
+catalog search are the only immediate kid-facing authority. A child request
+never falls through to a live iNaturalist taxa lookup.
+
+**Moderation worker.** Async worker code claims committed outbox work through a
+lease and classifies canonical photos through the `Moderator` protocol. Azure
+AI Content Safety is the closed-beta provider; noop is allowed only for
+local/dev/W1 and records `pilot_private`. Provider outage or malformed success
+payloads retry/hold pending and never default-allow.
 
 **iNaturalist submit worker.** Async, retryable, and idempotent by Hinterland
 observation id. It is disabled until the iNat OAuth/project account risk is
 closed and moderation clean-path wiring exists.
 
-**Rarity refresh and admin jobs.** Container Apps jobs or equivalent scheduled
-Azure jobs run rarity refresh, stale-review sweep, and dispatcher replay. They
-must be idempotent and auditable.
+**Rarity refresh and admin jobs.** Container Apps jobs run rarity refresh,
+stale-review sweep, legacy-photo cutover reconciliation, moderation-outbox
+relay, dispatcher replay, retention, health probes, and derived-state rebuild.
+They must be idempotent and auditable. The temporary legacy reconciler is the
+only path from old flat `pending/` bytes to verified canonical outbox work.
 
 **Content sync.** Expedition and Sanctuary JSON in `content/` is the source of
 truth. Postgres tables are materialized views synced by scripts/CI.
@@ -106,8 +123,8 @@ truth. Postgres tables are materialized views synced by scripts/CI.
 
 | Dependency | Used For | Failure Mode |
 |---|---|---|
-| iNaturalist CV | Species suggestions before final save | Return `cv_unavailable=true`; kid can choose manually/skip. If iNat responds without usable organism suggestions, try the optional non-LLM fallback, otherwise return `no_matches=true` |
-| Azure AI Vision organism fallback | Display-only organism guesses when iNat has no usable match | Return `fallback_unavailable=true` or `no_matches=true`; fallback picks save as manual `species_name` only and do not trigger taxon rewards |
+| Project taxon catalog | Immediate canonical identification | Bundled core/region cache and PostgreSQL search; manual/Unknown remains available |
+| iNaturalist CV | Optional post-clean suggestions | Requires enable, disclosure-approved, and benchmark-approved gates; otherwise catalog/manual/Unknown remains available |
 | iNaturalist submit | Science contribution | Queue/retry later; kid submission already succeeded |
 | Azure AI Content Safety | Photo moderation | Hold/retry pending; do not default-allow |
 | Reverse geocoding | Place names | No-op/cache miss is acceptable |
@@ -115,19 +132,34 @@ truth. Postgres tables are materialized views synced by scripts/CI.
 
 ## Deployment And Observability
 
-Active API deploys use `.github/workflows/deploy-azure-api-dev.yml`: build in
-ACR, update Azure Container Apps, run Alembic, smoke public probes, and
-optionally run `scripts/smoke_azure_parent_kid.py` with an operator-provided
-Entra bearer token.
+Active API deploys use `.github/workflows/deploy-azure-api-dev.yml`: contain the
+old revision by removing its iNaturalist token aliases and discovering storage
+system topics, build one immutable ACR digest from the repo root, run the
+read-only Observation preflight and additive Alembic migrations, sync taxonomy
+and Expedition content, reconcile legacy pending bytes, rebuild derived state,
+pin every worker/job, cut API traffic, reconcile/rebuild the old-revision race,
+then run public, auth, and Observation canaries.
 
 The legacy `.github/workflows/deploy-cloud-run-dev.yml` is intentionally
 manual/no-op. It must not deploy or recreate Cloud Run after ADR 0010.
 
 Structured logs go to Azure Log Analytics. Key operational events should
 include `observation_id`, `user_id`, `group_id`, reward types, and
-`duration_ms` for dispatcher completion. Azure Monitor alerts should cover API
-5xx/latency, Postgres pressure, async queue/DLQ depth, iNat failures,
-moderation failures, dispatcher replay backlog, and budget anomalies.
+`duration_ms` for dispatcher completion, but never raw coordinates, SAS URLs,
+photo bytes, child-entered manual species text, or provider credentials. Azure
+Monitor alerts cover API 5xx/latency, Postgres pressure, moderation/pending
+photo age, queue/DLQ depth, rebuild backlog/failure, idempotency conflicts,
+state mismatches, dispatcher replay backlog, and budget anomalies.
+
+New clients persist only optional `geohash4`; no location is valid. Legacy
+latitude/longitude is accepted for one compatibility release, converted to
+`geohash4` in memory, and never persisted or logged. Reverse geocoding accepts
+a coarse geohash in a request body rather than raw coordinates in a URL.
+
+Rejection and revision-checked identification correction queue the same
+per-user deterministic rebuild. The rebuild shares the submission advisory
+lock and atomically regenerates counters, Dex, Expedition, Sanctuary, handler
+ledgers, and persisted rewards. It never replays celebrations.
 
 ## Invariants
 
@@ -139,3 +171,6 @@ moderation failures, dispatcher replay backlog, and budget anomalies.
 6. Leaderboard counters live on membership rows.
 7. Ingest/admin jobs are idempotent, replayable, and auditable.
 8. No ads, marketing pushes, public chat, DMs, or kid-to-kid free text in Phase 1.
+9. Direct BlobCreated moderation and pre-clean image egress are forbidden.
+10. New observation location is coarse or absent; raw coordinates are not durable data.
+11. Deployments run additive migrations first, then API/workers/jobs from one immutable digest.

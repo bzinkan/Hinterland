@@ -63,6 +63,7 @@ async def reverse_with_cache(
     session.add(row)
     try:
         await session.flush()
+        await session.commit()
     except Exception:
         # Concurrent writer beat us. Roll back, re-read, return whatever
         # they wrote (which will be the same place_name modulo provider

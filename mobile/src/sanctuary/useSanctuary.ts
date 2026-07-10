@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 
 import { getMySanctuary, type SanctuarySnapshotDto } from "@/src/api/sanctuary";
+import { useAuthSession } from "@/src/auth/session";
 
 /**
  * TanStack Query hook over ``GET /v1/sanctuary/me``.
@@ -11,8 +12,12 @@ import { getMySanctuary, type SanctuarySnapshotDto } from "@/src/api/sanctuary";
  * immediate refetch via the returned ``refetch`` callable.
  */
 export function useSanctuary() {
+  const ownerUserId = useAuthSession((state) =>
+    state.status === "authenticated" ? state.user.id : null,
+  );
   return useQuery<SanctuarySnapshotDto, Error>({
-    queryKey: ["sanctuary", "me"],
-    queryFn: () => getMySanctuary(),
+    queryKey: ["sanctuary", ownerUserId ?? "anonymous"],
+    queryFn: ({ signal }) => getMySanctuary(signal),
+    enabled: ownerUserId != null,
   });
 }

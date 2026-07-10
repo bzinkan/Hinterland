@@ -40,8 +40,13 @@ class MatcherInputs:
     user_prior_observations: tuple[PriorObservation, ...]
     """All of the user's prior observations (for not_within_radius)."""
 
-    obs_latitude: float
-    obs_longitude: float
+    obs_latitude: float | None
+    obs_longitude: float | None
+    """Legacy precise coordinates, when available.
+
+    New observations retain geohash-4 only, so radius matchers must decline
+    when these values are absent rather than inventing a point.
+    """
 
     taxon_sets: Mapping[str, frozenset[int]] = field(default_factory=dict)
     """Curated taxon sets keyed by content id. Used by taxon_set."""

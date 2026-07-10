@@ -138,6 +138,19 @@ def test_not_within_radius_matches_when_no_priors() -> None:
     assert matches(spec, _inputs(priors=())) is True
 
 
+def test_not_within_radius_declines_without_precise_location() -> None:
+    spec = MatchNotWithinRadius(kind="not_within_radius_of_existing", radius_meters=50)
+    inputs = _inputs(priors=())
+    inputs = MatcherInputs(
+        taxon=inputs.taxon,
+        user_dex_taxon_ids=inputs.user_dex_taxon_ids,
+        user_prior_observations=inputs.user_prior_observations,
+        obs_latitude=None,
+        obs_longitude=None,
+    )
+    assert matches(spec, inputs) is False
+
+
 def test_not_within_radius_matches_when_all_priors_far_enough() -> None:
     spec = MatchNotWithinRadius(kind="not_within_radius_of_existing", radius_meters=50)
     # ~110m away (1/1000 of a degree latitude ~= 111m)

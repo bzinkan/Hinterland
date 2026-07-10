@@ -41,6 +41,9 @@ the two docs cannot drift:
 - crash during submit that loses kid data
 - incorrect consent state
 - location / privacy surprise
+- unauthorized photo URL or any pre-clean/external photo egress
+- retry/process death duplicates or loses kid data
+- raw coordinate or account-switch privacy surprise
 
 The expanded definitions below add the operator-facing detail; the
 six bullets above are the canonical list.
@@ -54,16 +57,25 @@ Per AGENTS.md this is forbidden in Phase 1. If a kid can free-text to
 another user, a public feed, or any outbound social surface, stop.
 
 ### Photo appears publicly without a moderation decision
-Moderation is asynchronous by design; the kid can see local success
-before iNat receives anything, but no photo should escape the
-`pending/` bucket (GCS in the GCP runbook; Azure Blob equivalent in
-the W1 Container App deployment) to a public surface without a
-recorded moderation outcome.
+W1 NoOp is `pilot_private`, not approval. It grants no signed URL and creates no
+iNaturalist work. No pending, pilot-private, quarantine, failed, or rejected
+photo may leave Azure.
+
+### Unauthorized photo URL or pre-clean/external egress
+Any owner, peer, or adult receives a signed URL outside the documented matrix,
+or a non-clean photo reaches a third party.
+
+### Retry or process death duplicates/loses kid data
+The durable queue/JPEG vanishes before canonical reconciliation, or repeated
+presign/create produces multiple observations, counter bumps, or reward sets.
+
+### Raw coordinate or account-switch privacy surprise
+Any raw latitude/longitude appears in PostgreSQL, logs, URLs, or analytics, or
+one child's photo/cache/draft/queue state appears for another child.
 
 ### Crash during submit that loses kid data
-The observation is gone from both the durable database and Blob
-storage after the crash — not just stuck in-flight in a queue or in
-the `pending/` object. Stuck-in-flight is fine; vanished is not.
+The queue/JPEG or authoritative Observation vanishes. Stuck retryable work is
+acceptable; vanished or duplicated work is not.
 
 ### Incorrect consent state
 Consent missing for a kid that was provisioned; consent linked to the
@@ -72,11 +84,9 @@ wrong parent; or a consent receipt `id` (the ULID returned from
 `parent_consent_records`.
 
 ### Location / privacy surprise
-Any location captured, displayed, or shared beyond what
-[`docs/risks/0007-google-play-families-location-policy.md`](risks/0007-google-play-families-location-policy.md)
-permits for the chosen option. Under Option C (the default if no
-option was picked), seeing a pin Brian has not personally reviewed in
-logs is a stop condition.
+Any fine/raw location captured, persisted, logged, displayed, or shared beyond
+the optional `geohash4`/no-location contract in
+[`docs/risks/0007-google-play-families-location-policy.md`](risks/0007-google-play-families-location-policy.md).
 
 ## Stop sequence
 

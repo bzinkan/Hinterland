@@ -80,6 +80,13 @@ async def enqueue_inat_submit(
       network blips, auth misconfig, queue-not-found, throttling, etc.
       The full exception is logged at WARNING with stack info.
     """
+    if not settings.inat_submit_enabled:
+        log.info(
+            "inat.enqueue.skipped_disabled",
+            observation_id=observation_id,
+        )
+        return InatEnqueueResult(success=False, reason="disabled")
+
     if not settings.service_bus_enabled:
         log.info(
             "inat.enqueue.skipped_not_configured",

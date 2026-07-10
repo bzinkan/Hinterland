@@ -1,95 +1,84 @@
-# Risk 0002: Azure async safety/science pipeline not wired for closed beta
+# Risk 0002: Azure moderation is not yet cleared for closed beta
 
-- **Status:** Scoped down via Option B (2026-06-04)
+- **Status:** W1 contained; closed-beta gate open
 - **Date filed:** 2026-05-10
-- **Updated:** 2026-06-04 for ADR 0010 + Option B
+- **Updated:** 2026-07-09 for ADR 0015
 - **Owner:** Brian
-- **Source:** Phase 8 exit criteria and ADR 0010 Azure migration
+- **Source:** Observation safety review, ADR 0010, ADR 0015
 
-## 2026-06-04 — Option B decision
+## Decision
 
-Outbound iNat submission was reframed under **Option B**: Dragonfly
-does NOT post kid observations to iNat while the kid is under 13
-(iNat ToS requires 13+). The iNat-submit pipeline ships dormant via
-`Settings.inat_submit_enabled` defaulting to False (PR #6).
+Public iNaturalist submission is disabled for W1 and closed beta. Optional CV is
+a separate post-clean disclosure/accuracy feature and remains disabled. A token
+or dormant queue is not permission to enable either path.
 
-What this means for Risk 0002 closure:
+Moderation is outbox-only. Observation finalization commits an attached
+canonical photo and one `moderation_outbox` row. The relay is the sole Service
+Bus producer. Direct Event Grid/BlobCreated moderation is forbidden and must not
+be restored as rollback.
 
-- **Moderation half is required** for closed beta. Azure Content
-  Safety must be provisioned + wired; the `moderation-pending`
-  queue + Event Grid subscription + `dragonfly-moderation-worker`
-  Container App must be running; flagged photos must route to the
-  review queue. This stays a Risk 0002 close-on-beta item.
-- **iNat-submit half is dormant by default.** The pipeline is built
-  and tested (PR #109 producer + #110 consumer + #111 replay), but
-  no `inat_submit_outbox` rows get written while
-  `inat_submit_enabled=False`. The Service Bus `inat-submit` queue
-  and `dragonfly-inat-submit-worker` Container App sit idle. The
-  infra stays provisioned so flipping the flag back on is a
-  zero-deploy operator action when iNat policy or product scope
-  changes (e.g. a Phase 3 family-account model where the parent's
-  iNat account posts on behalf of the kid).
+## Implemented Containment
 
-Closing condition for Risk 0002 changes to **moderation-only**:
-once Azure Content Safety is provisioned, the moderation worker
-clean/flagged paths smoke-pass on dev, and DLQ alerts fire on
-synthetic failures, the risk closes. The iNat-submit closure
-criteria are descoped to a Phase 3 follow-up.
+- Azure SAS responses carry required upload headers including BlockBlob.
+- Finalization validates/canonicalizes JPEG bytes before attachment.
+- NoOp records `pilot_private`, never `clean`, and grants no signed URL.
+- iNaturalist CV/submission have independent default-deny endpoint, producer,
+  consumer, replay, and manual-endpoint boundaries.
+- The moderation consumer rejects storage-event payloads and validates the
+  committed observation/photo/object envelope.
+- Provider egress repeats bounded decode and verified metadata/hash checks.
+- Content Safety success fails closed without all four exact categories.
+- Copy/move verifies destination length/hash before database commit and deletes
+  source best effort afterward.
+- Adult rejection tombstones and queues deterministic rebuild instead of
+  decrementing counters piecemeal.
+- W1 scripts discover Event Grid topics by storage-account source (not topic
+  name), remove delivery, remove both old-API iNaturalist token aliases,
+  remove/revoke public-iNaturalist work including inherited namespace roles,
+  reconcile legacy pending photos before relay, pin jobs to one digest, and
+  configure retention/health probes.
 
-## What We Have
+## W1 Posture
 
-The code surface exists:
+```text
+MODERATION_PROVIDER=noop
+INAT_CV_ENABLED=false
+INAT_CV_DISCLOSURE_APPROVED=false
+INAT_CV_BENCHMARK_APPROVED=false
+INAT_SUBMIT_ENABLED=false
+```
 
-- `AzureContentSafetyModerator` behind the `Moderator` protocol.
-- `process_pending_photo()` for pending -> clean/quarantine lifecycle.
-- Adult review queue endpoints and mobile review UI.
-- iNat submitter code with idempotency by Hinterland observation id.
-- Admin jobs for rarity refresh, stale-review sweep, and dispatcher replay.
+The outbox relay/consumer still runs so delivery is exercised, but every result
+is `pilot_private`. Bytes are private, unsigned, and purged after seven days.
+This supervised posture does not close the beta risk.
 
-The W1 Android Internal Testing pilot may run with:
+## Remaining Closed-Beta Environment Proof
 
-- `DRAGONFLY_MODERATION_PROVIDER=noop`
-- no iNat OAuth token configured
-- no public iNaturalist submission
-- adult-supervised manual review of the one or few pilot observations
-
-That W1 posture is intentional and does not close this risk.
-
-## What Is Still Missing For Closed Beta
-
-- Azure Blob/Event Grid or Service Bus trigger for `pending/` photo moderation.
-- Azure internal caller auth model for `/internal/*` or direct worker execution.
-- `DRAGONFLY_MODERATION_PROVIDER=azure_content_safety` configured from Key Vault.
-- `observations.moderation_status` and `observations.moderation_labels` migration.
-- Clean moderation path enqueues iNat submit work only after safety decision.
-- iNat retry/DLQ/dead-letter visibility.
-- Scheduled Azure jobs for rarity refresh, stale-review sweep, and dispatcher replay.
-- Azure Monitor alerts/dashboards for API errors, moderation failures, iNat failures,
-  queue/DLQ depth, dispatcher replay backlog, Postgres pressure, and budget.
+- Provision/approve isolated Content Safety and Key Vault references.
+- Run safe, flagged, unavailable, throttled, malformed-200, retry, lease-expiry,
+  duplicate-delivery, destination-exists, DB-after-copy, and DLQ staging cases.
+- Run approve/reject/stale winner and rebuild through deployed jobs.
+- Verify retry exhaustion and failure alerting.
+- Apply/verify 24-hour upload, seven-day pilot-private, and 90-day held-byte
+  retention.
+- Synthetically verify age, queue/DLQ, rebuild, conflict, mismatch, and job
+  alerts.
+- Run 24 hours or 25 submissions with zero duplicate observations,
+  unauthorized reads, or stuck work.
 
 ## Closure Checklist
 
-- [ ] Close Risk 0001: iNat project account/OAuth token and 50-photo benchmark.
-- [ ] Choose Azure async primitive: Event Grid -> queue -> Container Apps job, or
-      Service Bus queue directly from API/worker code.
-- [ ] Implement internal auth for Azure callers or remove HTTP `/internal/*`
-      exposure in favor of queue/job execution.
-- [ ] Configure Azure AI Content Safety endpoint/key through Key Vault-backed
-      Container App secrets.
-- [ ] Add `observations.moderation_status` and `moderation_labels` migration and
-      update the processor to write them.
-- [ ] Wire clean moderation path to enqueue iNat submit.
-- [ ] Wire retry/DLQ and alerting for iNat submit.
-- [ ] Wire scheduled Azure jobs for rarity/sweep/replay.
-- [ ] Verify clean path: real safe photo goes pending -> observations and remains
-      reviewable by the family/group.
-- [ ] Verify flagged path: known test image goes quarantine -> review queue and
-      approve/reject works.
-- [ ] Verify iNat path: clean approved observation appears in iNaturalist within
-      the target window.
+- [ ] Migrations precede deployment and API/all jobs report one digest.
+- [ ] Event Grid moderation is absent; outbox relay is sole producer.
+- [ ] Real Content Safety passes safe/flagged/unavailable/malformed probes.
+- [ ] Review/rebuild canary has no duplicate counters or partial projections.
+- [ ] Required alerts fire synthetically and resolve after repair.
+- [ ] Canary duration/submission threshold completes cleanly.
+- [ ] Architecture, data model, moderation, dispatcher, mobile, ingest, privacy,
+      deployment, and recovery docs match the deployed revision.
 
-## Mitigation
+## Mitigation While Open
 
-The kid hot path is structurally safe while this risk is open: submission returns
-after the observation write and dispatcher run. Moderation/iNat outages cannot
-fail the kid's submit response.
+Keep W1 flags/private retention. If provider, worker, or review is unhealthy,
+pause relay/consumers and preserve committed outbox state. Never mark work clean
+manually and never restore pre-clean photo egress.

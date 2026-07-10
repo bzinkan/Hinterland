@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 
 import { getSpeciesFacts } from "@/src/api/species";
+import { useAuthSession } from "@/src/auth/session";
 
 /**
  * Species fact sheet for an identified observation. The server-side
@@ -8,13 +9,16 @@ import { getSpeciesFacts } from "@/src/api/species";
  * session-long client cache is fine.
  */
 export function useSpeciesFacts(taxonId: number | null) {
+  const ownerUserId = useAuthSession((state) =>
+    state.status === "authenticated" ? state.user.id : null,
+  );
   return useQuery({
-    queryKey: ["species-facts", taxonId],
+    queryKey: ["species-facts", ownerUserId ?? "anonymous", taxonId],
     queryFn: () => {
       if (taxonId === null) throw new Error("useSpeciesFacts disabled without taxonId");
       return getSpeciesFacts(taxonId);
     },
-    enabled: taxonId !== null,
+    enabled: ownerUserId != null && taxonId !== null,
     staleTime: Infinity,
   });
 }

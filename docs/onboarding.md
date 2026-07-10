@@ -69,7 +69,10 @@ Two sub-flavors, depending on who set up the account.
    kid's `role` and group membership from Postgres on authenticated requests.
 3. **Welcome sequence.** One screen: "Hey [nickname]! Let's log your first find. You don't need to know what it is — the app will help." Dismissible but defaults to continuing into the first expedition.
 4. **Auto-launch `backyard_starter`.** The first expedition IS the tutorial. No separate tutorial screens, no "here's how the app works" walkthrough. The first expedition's `intro` copy plus the step-by-step guidance during the first observation is the tutorial.
-5. **Take first photo.** Pre-prompt before the camera permission dialog (see `mobile.md`). Photo, location confirm, taxon pick (iNat CV suggests, kid confirms).
+5. **Take first photo.** Pre-prompt before the camera permission dialog (see
+   `mobile.md`), show a full-image confirmation preview, choose an optional
+   coarse area or no location, then select from the project catalog, enter
+   display-only manual text, or choose Unknown. Pre-save iNaturalist CV is off.
 6. **First submission.** Dispatcher runs, first celebration fires. `first_find` reward, `expedition_step` reward. The kid sees a species they logged and the Dex gaining its first entry.
 7. **Reveal the map.** After the celebration, the app reveals the Dex and the expedition map. These were hidden before the first observation to avoid "empty state" fatigue.
 
@@ -92,7 +95,11 @@ Until consent is given, the kid sees a "Waiting for your grown-up to say yes" sc
 
 Hinterland collects the minimum necessary to operate the app for kids under 13. Nothing more, nothing "just in case," nothing for analytics.
 
-**From kids:** first name or nickname (1–20 chars, kid's choice or parent's choice), age band (9–10, 11–12, 13+ — not exact date of birth), observation photos, observation location (lat/lng rounded to 4 decimal places, ~11m precision), observation taxon ID (via iNat CV, kid-confirmed). That's it. No real name unless the kid chose to use it. No email. No profile photo in Phase 1. No friend lists beyond the class/family group they were placed in.
+**From kids:** first name or nickname (1–20 chars, kid's or parent's choice),
+age band (9–10, 11–12, 13+ — not exact date of birth), observation photos,
+optional `geohash4` coarse area, and project-catalog/manual/Unknown
+identification. New clients discard raw coordinates before upload. No real name
+unless chosen, email, profile photo, or friend list in Phase 1.
 
 **From parents:** email, password, display name, optional school name if they're also the signup. Standard adult account data.
 
@@ -110,14 +117,14 @@ Hinterland collects the minimum necessary to operate the app for kids under 13. 
 
 **Audit-of-record (Phase 1).** Every consent click hits `POST /v1/auth/consent`, which writes a row to the `parent_consent_records` Postgres table and returns its ULID `id`. The columns capture exactly what the audit trail needs and nothing more: `parent_email`, optional `kid_display_name`, `policy_version` (e.g. `2026-05-10-DRAFT`, bumped any time the policy text changes materially), `recorded_at` (server time, tz-aware), `source` (currently always `web_consent`), and nullable `linked_parent_user_id` / `linked_kid_user_id` foreign keys to `users.id` filled in by the parent-signup flow once an Entra-verified token arrives. We deliberately do NOT store raw IP or User-Agent in Phase 1 — the `ip_hash` / `user_agent_hash` columns exist for a future operator-managed-salt scheme but stay NULL today. Structured logging continues to emit `auth.consent.recorded` carrying the same row id so existing log-based ops dashboards keep working; the row, not the log, is the long-term source of truth.
 
-**Revocation is one click.** Parent dashboard has a "Delete my kid's account"
-button that soft-deletes the `users` row, cascades a hard-delete job for all
-`observations`, `dex_entries`, and `expedition_progress` rows under that user,
-and deletes Azure Blob photos. Executed asynchronously via the Azure worker path
-once closed-beta deletion automation is wired; the parent gets an email
-confirming completion.
+**Revocation is one click.** The parent dashboard's delete action immediately
+disables the Azure-backed user/session and queues the reviewed erasure workflow
+for observations, derived state, owner-scoped mobile presentation state, and
+Azure Blob photos. Audit/retention follows the published policy.
 
-**No advertising. No third-party analytics SDKs.** The API service emits Cloud Logging structured logs and that's the entire analytics stack for kid-facing features. ADR 0002's "LLMs are author-time only" rule is the companion principle: nothing runs client-side on a kid's phone that sends their behavior to a third party.
+**No advertising. No third-party analytics SDKs.** The API emits Azure Monitor /
+Log Analytics structured logs and that is the kid-facing analytics stack. ADR
+0002's "LLMs are author-time only" rule is the companion principle.
 
 ## The first five minutes
 
@@ -127,7 +134,8 @@ The target sequence, start to finish, under 5 minutes:
 
 0:00–0:30 — Role picker, tap "I have a login," enter username + PIN, see welcome screen.
 0:30–1:00 — `backyard_starter` intro copy, "find a plant" step shown.
-1:00–3:00 — Camera permission pre-prompt + native dialog, photo taken, location confirmed, taxon suggested and picked.
+1:00–3:00 — Camera pre-prompt + native dialog, photo and full-image preview,
+optional coarse/no location, catalog/manual/Unknown identification.
 3:00–3:30 — Submission, dispatcher runs, celebration fires.
 3:30–5:00 — Kid reads the celebration, maybe reads the expedition's outro copy, sees their Dex with one entry.
 

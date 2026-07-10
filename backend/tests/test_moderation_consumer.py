@@ -18,15 +18,18 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from admin.moderation_consumer import (
     _message_body_to_text,
     _MessageParseError,
-    parse_blob_created_payload,
+    parse_moderation_work_payload,
     process_one,
 )
 from app.core.config import Settings
+from app.db import models
 from app.moderation.processor import ProcessResult
 from app.moderation.provider import ModerationResult, ModerationUnavailable
 
 _BUCKET = "photos"
-_OBJECT_NAME = "pending/01J0OBSID00000000000000ULID.jpg"
+_OBJECT_NAME = "pending/finalized/01J0OBSID00000000000000ULID.jpg"
+_OBS_ID = "01J0OBSID00000000000000ULID"
+_PHOTO_ID = "01J0PHOTOID00000000000ULID"
 
 
 class _MessageWithBody:
@@ -35,48 +38,45 @@ class _MessageWithBody:
 
 
 # ---------------------------------------------------------------------------
-# parse_blob_created_payload
+# parse_moderation_work_payload
 # ---------------------------------------------------------------------------
 
 
-def test_parse_extracts_from_subject() -> None:
+def test_parse_accepts_committed_work_envelope() -> None:
+    body = json.dumps(
+        {
+            "observation_id": _OBS_ID,
+            "photo_id": _PHOTO_ID,
+            "bucket": _BUCKET,
+            "object_name": _OBJECT_NAME,
+        }
+    )
+    out = parse_moderation_work_payload(body)
+    assert out.observation_id == _OBS_ID
+    assert out.photo_id == _PHOTO_ID
+    assert out.bucket == _BUCKET
+    assert out.object_name == _OBJECT_NAME
+
+
+def test_parse_rejects_legacy_blob_created_event() -> None:
     body = json.dumps(
         {
             "type": "Microsoft.Storage.BlobCreated",
             "subject": f"/blobServices/default/containers/{_BUCKET}/blobs/{_OBJECT_NAME}",
-            "data": {"url": "https://x.blob.core.windows.net/photos/pending/foo.jpg"},
         }
     )
-    out = parse_blob_created_payload(body)
-    assert out.bucket == _BUCKET
-    assert out.object_name == _OBJECT_NAME
-
-
-def test_parse_falls_back_to_url_when_subject_missing() -> None:
-    body = json.dumps(
-        {
-            "type": "Microsoft.Storage.BlobCreated",
-            "subject": "",
-            "data": {
-                "url": (
-                    f"https://dragonflyphotosdev.blob.core.windows.net/{_BUCKET}/{_OBJECT_NAME}"
-                ),
-            },
-        }
-    )
-    out = parse_blob_created_payload(body)
-    assert out.bucket == _BUCKET
-    assert out.object_name == _OBJECT_NAME
+    with pytest.raises(_MessageParseError):
+        parse_moderation_work_payload(body)
 
 
 def test_parse_raises_on_non_json() -> None:
     with pytest.raises(_MessageParseError):
-        parse_blob_created_payload("<not-json>")
+        parse_moderation_work_payload("<not-json>")
 
 
 def test_parse_raises_when_json_is_not_object() -> None:
     with pytest.raises(_MessageParseError):
-        parse_blob_created_payload(json.dumps([{"subject": "x"}]))
+        parse_moderation_work_payload(json.dumps([{"subject": "x"}]))
 
 
 def test_message_body_to_text_decodes_byte_iterable_body() -> None:
@@ -84,21 +84,23 @@ def test_message_body_to_text_decodes_byte_iterable_body() -> None:
     assert _message_body_to_text(message) == '{"subject": "abc"}'
 
 
-def test_parse_raises_when_neither_subject_nor_url_present() -> None:
-    body = json.dumps({"type": "Microsoft.Storage.BlobCreated"})
+def test_parse_raises_when_identifiers_missing() -> None:
+    body = json.dumps({"observation_id": _OBS_ID})
     with pytest.raises(_MessageParseError):
-        parse_blob_created_payload(body)
+        parse_moderation_work_payload(body)
 
 
-def test_parse_raises_on_empty_bucket_or_object_name() -> None:
+def test_parse_raises_on_non_pending_object() -> None:
     body = json.dumps(
         {
-            "subject": "/blobServices/default/containers//blobs/foo.jpg",
-            "data": {},
+            "observation_id": _OBS_ID,
+            "photo_id": _PHOTO_ID,
+            "bucket": _BUCKET,
+            "object_name": "observations/public.jpg",
         }
     )
     with pytest.raises(_MessageParseError):
-        parse_blob_created_payload(body)
+        parse_moderation_work_payload(body)
 
 
 # ---------------------------------------------------------------------------
@@ -136,14 +138,36 @@ def fake_session() -> AsyncMock:
 def _good_body() -> str:
     return json.dumps(
         {
-            "subject": f"/blobServices/default/containers/{_BUCKET}/blobs/{_OBJECT_NAME}",
-            "data": {},
+            "observation_id": _OBS_ID,
+            "photo_id": _PHOTO_ID,
+            "bucket": _BUCKET,
+            "object_name": _OBJECT_NAME,
         }
     )
 
 
 def _settings() -> Settings:
     return Settings(env="local", service_bus_namespace="")
+
+
+def _wire_outbox(
+    fake_session: AsyncMock,
+    *,
+    status: str = "enqueued",
+    photo_id: str = _PHOTO_ID,
+    retry_count: int = 0,
+) -> models.ModerationOutbox:
+    outbox = models.ModerationOutbox(
+        observation_id=_OBS_ID,
+        photo_id=photo_id,
+        status=status,
+        retry_count=retry_count,
+    )
+    result = MagicMock()
+    result.scalar_one_or_none.return_value = outbox
+    fake_session.execute = AsyncMock(return_value=result)
+    fake_session.commit = AsyncMock()
+    return outbox
 
 
 async def test_process_one_dead_letters_on_parse_failure(fake_session: AsyncMock) -> None:
@@ -168,6 +192,7 @@ async def test_process_one_abandons_on_photo_not_found(
         raise PhotoNotFound("photo missing")
 
     monkeypatch.setattr(moderation_consumer, "process_pending_photo", boom)
+    outbox = _wire_outbox(fake_session)
 
     result = await process_one(
         fake_session,
@@ -177,6 +202,7 @@ async def test_process_one_abandons_on_photo_not_found(
         body=_good_body(),
     )
     assert result == "abandon"
+    assert outbox.status == "failed"
 
 
 async def test_process_one_abandons_on_moderator_unavailable(
@@ -188,6 +214,7 @@ async def test_process_one_abandons_on_moderator_unavailable(
         raise ModerationUnavailable("vision down")
 
     monkeypatch.setattr(moderation_consumer, "process_pending_photo", boom)
+    outbox = _wire_outbox(fake_session)
 
     result = await process_one(
         fake_session,
@@ -197,6 +224,32 @@ async def test_process_one_abandons_on_moderator_unavailable(
         body=_good_body(),
     )
     assert result == "abandon"
+    assert outbox.status == "failed"
+
+
+async def test_process_one_dead_letters_after_fifth_transient_failure(
+    fake_session: AsyncMock,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from admin import moderation_consumer
+
+    async def boom(*_args: Any, **_kw: Any) -> ProcessResult:
+        raise ModerationUnavailable("provider down")
+
+    monkeypatch.setattr(moderation_consumer, "process_pending_photo", boom)
+    outbox = _wire_outbox(fake_session, retry_count=4)
+
+    result = await process_one(
+        fake_session,
+        _StubStorage(),  # type: ignore[arg-type]
+        _StubModerator(),  # type: ignore[arg-type]
+        _settings(),
+        body=_good_body(),
+    )
+
+    assert result == "dead_letter"
+    assert outbox.status == "dlq"
+    assert outbox.retry_count == 5
 
 
 async def test_process_one_completes_on_clean_decision(
@@ -205,6 +258,7 @@ async def test_process_one_completes_on_clean_decision(
     from admin import moderation_consumer
 
     captured: dict[str, Any] = {}
+    outbox = _wire_outbox(fake_session)
 
     async def fake_processor(
         session: AsyncSession,
@@ -214,8 +268,20 @@ async def test_process_one_completes_on_clean_decision(
         bucket: str,
         object_name: str,
         settings: Settings | None = None,
+        expected_photo_id: str | None = None,
+        expected_observation_id: str | None = None,
     ) -> ProcessResult:
-        captured.update(bucket=bucket, object_name=object_name, settings=settings)
+        captured.update(
+            bucket=bucket,
+            object_name=object_name,
+            settings=settings,
+            expected_photo_id=expected_photo_id,
+            expected_observation_id=expected_observation_id,
+        )
+        # The real processor completes this row in the same commit as the
+        # destination/photo/observation transition.
+        outbox.status = "succeeded"
+        outbox.lease_until = None
         return ProcessResult(
             photo_id="p",
             decision="clean",
@@ -238,6 +304,55 @@ async def test_process_one_completes_on_clean_decision(
     assert captured["bucket"] == _BUCKET
     assert captured["object_name"] == _OBJECT_NAME
     assert isinstance(captured["settings"], Settings)
+    assert captured["expected_photo_id"] == _PHOTO_ID
+    assert captured["expected_observation_id"] == _OBS_ID
+    assert outbox.status == "succeeded"
+    claim_update = str(fake_session.execute.await_args_list[1].args[0])
+    assert "moderation_status NOT IN" in claim_update
+    # Only the processing-lease commit belongs to the consumer. There is no
+    # second, crash-prone consumer terminal commit.
+    fake_session.commit.assert_awaited_once()
+
+
+async def test_process_one_duplicate_succeeded_delivery_is_harmless(
+    fake_session: AsyncMock,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from admin import moderation_consumer
+
+    processor = AsyncMock()
+    monkeypatch.setattr(moderation_consumer, "process_pending_photo", processor)
+    _wire_outbox(fake_session, status="succeeded")
+
+    result = await process_one(
+        fake_session,
+        _StubStorage(),  # type: ignore[arg-type]
+        _StubModerator(),  # type: ignore[arg-type]
+        _settings(),
+        body=_good_body(),
+    )
+
+    assert result == "complete"
+    processor.assert_not_awaited()
+    fake_session.commit.assert_not_awaited()
+
+
+async def test_process_one_dead_letters_without_committed_outbox(
+    fake_session: AsyncMock,
+) -> None:
+    result = MagicMock()
+    result.scalar_one_or_none.return_value = None
+    fake_session.execute = AsyncMock(return_value=result)
+
+    disposition = await process_one(
+        fake_session,
+        _StubStorage(),  # type: ignore[arg-type]
+        _StubModerator(),  # type: ignore[arg-type]
+        _settings(),
+        body=_good_body(),
+    )
+
+    assert disposition == "dead_letter"
 
 
 async def test_consume_no_op_when_service_bus_disabled(

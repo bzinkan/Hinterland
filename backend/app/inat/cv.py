@@ -27,6 +27,7 @@ async def score_image(
     image_bytes: bytes,
     image_filename: str = "observation.jpg",
     top_k: int = 3,
+    egress_enabled: bool = False,
 ) -> list[CvSuggestion]:
     """Call iNat /v1/computervision/score_image with raw image bytes.
 
@@ -38,6 +39,10 @@ async def score_image(
     (401/403) so the route can degrade gracefully without leaking the
     underlying httpx exception type.
     """
+    if not egress_enabled:
+        log.warning("inat.cv.blocked_by_kill_switch")
+        raise InatUnavailable("iNat CV photo egress is disabled")
+
     files = {"image": (image_filename, image_bytes, "image/jpeg")}
     try:
         res = await client.post("/computervision/score_image", files=files)

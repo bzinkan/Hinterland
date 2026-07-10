@@ -2,7 +2,7 @@
 
 `GET /v1/review-queue`              -> pending items for caller's groups
 `POST /v1/review-queue/{id}/approve` -> move quarantine -> observations
-`POST /v1/review-queue/{id}/reject`  -> mark rejected, decrement counter
+`POST /v1/review-queue/{id}/reject`  -> tombstone and queue deterministic rebuild
 
 Only adult roles (parent / teacher) can list or resolve review items.
 The caller must be a member (with adult role) of the item's group --
@@ -11,6 +11,7 @@ checked via the `memberships` join.
 
 from __future__ import annotations
 
+import asyncio
 from datetime import UTC, datetime
 from typing import Annotated, Literal
 
@@ -26,6 +27,7 @@ from app.core.storage import SignedUrlGeneratorDep
 from app.db import models
 from app.db.session import DbSessionDep
 from app.inat.enqueue import enqueue_inat_submit
+from app.moderation.review_service import ReviewResolutionConflict, reject_review_item
 
 router = APIRouter(prefix="/v1/review-queue", tags=["review_queue"])
 
@@ -144,12 +146,13 @@ async def _load_review_for_resolution(
     session: AsyncSession,
     user: models.User,
     review_id: str,
+    *,
+    lock: bool = True,
 ) -> models.ReviewQueueItem:
-    review = (
-        await session.execute(
-            select(models.ReviewQueueItem).where(models.ReviewQueueItem.id == review_id)
-        )
-    ).scalar_one_or_none()
+    statement = select(models.ReviewQueueItem).where(models.ReviewQueueItem.id == review_id)
+    if lock:
+        statement = statement.with_for_update()
+    review = (await session.execute(statement)).scalar_one_or_none()
     if review is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Review item not found")
 
@@ -184,6 +187,8 @@ class ResolveResponse(BaseModel):
     id: str
     status: str
     photo_status: str | None = Field(default=None)
+    rebuild_id: str | None = None
+    rebuild_status: str | None = None
 
 
 @router.post("/{review_id}/approve", response_model=ResolveResponse)
@@ -204,17 +209,22 @@ async def approve_review(
         # Inconsistent state; treat as gone.
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Photo gone")
 
-    # Move quarantine/<id>.jpg back to observations/<id>.jpg.
+    # Write and verify the destination first. The quarantined source remains
+    # authoritative until the database commit succeeds.
+    source_object = photo.object_name
     new_object = f"observations/{photo.id}.jpg"
-    storage.copy_object(
+    await asyncio.to_thread(
+        storage.copy_object,
         src_bucket=photo.bucket,
-        src_object=photo.object_name,
+        src_object=source_object,
         dst_bucket=photo.bucket,
         dst_object=new_object,
+        expected_size=photo.byte_count,
+        expected_sha256=photo.sha256,
     )
-    storage.delete_object(bucket=photo.bucket, object_name=photo.object_name)
 
     photo.object_name = new_object
+    photo.canonical_object_name = new_object
     photo.status = "clean"
     photo.moderated_at = datetime.now(UTC)
 
@@ -240,6 +250,8 @@ async def approve_review(
         ).scalar_one_or_none()
         if observation is not None:
             observation.moderation_status = "clean"
+            observation.moderation_source = "adult"
+            observation.moderation_policy_version = "adult-review-v1"
             if settings.inat_submit_enabled:
                 session.add(
                     models.InatSubmitOutbox(
@@ -250,6 +262,19 @@ async def approve_review(
                 observation_id_for_enqueue = observation.id
 
     await session.commit()
+
+    try:
+        await asyncio.to_thread(
+            storage.delete_object,
+            bucket=photo.bucket,
+            object_name=source_object,
+        )
+    except Exception:
+        log.warning(
+            "review_queue.approve_source_cleanup_failed",
+            review_id=review_id,
+            photo_id=photo.id,
+        )
 
     if observation_id_for_enqueue is not None:
         enq = await enqueue_inat_submit(observation_id_for_enqueue, settings=settings)
@@ -295,42 +320,21 @@ async def reject_review(
     settings: Annotated[Settings, Depends(get_request_settings)],
 ) -> ResolveResponse:
     user = await _resolve_adult_user(session, current_user)
-    review = await _load_review_for_resolution(session, user, review_id)
+    # Authorization is checked without a row lock. The shared rejection
+    # service then takes user-advisory -> review -> observation locks.
+    review = await _load_review_for_resolution(session, user, review_id, lock=False)
 
-    photo = (
-        await session.execute(select(models.Photo).where(models.Photo.id == review.photo_id))
-    ).scalar_one_or_none()
-    if photo is not None:
-        photo.status = "deleted"
-        photo.moderated_at = datetime.now(UTC)
-        # Photo bytes stay in quarantine/ for the 90d lifecycle rule (see
-        # docs/moderation.md "Quarantine moves, it doesn't delete").
-
-    # Decrement the kid's observation_count if we know which observation
-    # this is. Per docs/moderation.md the counter MUST come back down on
-    # reject (it was bumped at submission, before moderation ran).
-    if review.observation_id is not None:
-        observation = (
-            await session.execute(
-                select(models.Observation).where(models.Observation.id == review.observation_id)
-            )
-        ).scalar_one_or_none()
-        if observation is not None:
-            # Mark the observation rejected so the iNat submit consumer
-            # never picks it up even if a stale outbox row exists.
-            observation.moderation_status = "rejected"
-            await session.execute(
-                update(models.Membership)
-                .where(
-                    models.Membership.user_id == observation.user_id,
-                    models.Membership.group_id == observation.group_id,
-                )
-                .values(observation_count=models.Membership.observation_count - 1)
-            )
-
-    review.status = "rejected"
-    review.reviewer_user_id = user.id
-    review.resolved_at = datetime.now(UTC)
+    try:
+        rebuild = await reject_review_item(
+            session,
+            review=review,
+            reviewer_user_id=user.id,
+        )
+    except ReviewResolutionConflict as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(exc),
+        ) from exc
 
     await session.commit()
 
@@ -343,5 +347,72 @@ async def reject_review(
     return ResolveResponse(
         id=review.id,
         status="rejected",
-        photo_status=photo.status if photo is not None else None,
+        photo_status="deleted",
+        rebuild_id=rebuild.id if rebuild is not None else None,
+        rebuild_status=rebuild.status if rebuild is not None else None,
+    )
+
+
+class RebuildStatusItem(BaseModel):
+    id: str
+    user_id: str
+    trigger_observation_id: str | None
+    status: str
+    attempt_count: int
+    last_error: str | None
+    created_at: datetime
+    finished_at: datetime | None
+
+
+class RebuildStatusResponse(BaseModel):
+    items: list[RebuildStatusItem]
+
+
+@router.get("/rebuilds", response_model=RebuildStatusResponse)
+async def list_rebuilds(
+    current_user: CurrentUserDep,
+    session: DbSessionDep,
+    group_id: Annotated[str | None, Query(min_length=26, max_length=26)] = None,
+) -> RebuildStatusResponse:
+    """Adult-only status for rebuilds affecting one of the caller's groups."""
+    user = await _resolve_adult_user(session, current_user)
+    group_ids = await _adult_groups(session, user.id)
+    if group_id is not None:
+        if group_id not in group_ids:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Group not found")
+        group_ids = [group_id]
+    if not group_ids:
+        return RebuildStatusResponse(items=[])
+
+    rows = (
+        (
+            await session.execute(
+                select(models.DerivedStateRebuild)
+                .join(
+                    models.Membership,
+                    models.Membership.user_id == models.DerivedStateRebuild.user_id,
+                )
+                .where(models.Membership.group_id.in_(group_ids))
+                .distinct()
+                .order_by(desc(models.DerivedStateRebuild.created_at))
+                .limit(100)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    return RebuildStatusResponse(
+        items=[
+            RebuildStatusItem(
+                id=row.id,
+                user_id=row.user_id,
+                trigger_observation_id=row.trigger_observation_id,
+                status=row.status,
+                attempt_count=row.attempt_count,
+                last_error=row.last_error,
+                created_at=row.created_at,
+                finished_at=row.finished_at,
+            )
+            for row in rows
+        ]
     )

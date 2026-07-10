@@ -1,48 +1,53 @@
-"""Photo upload endpoints.
+"""Privacy-safe Azure photo reservation and signed-read endpoints.
 
-`POST /v1/photos/presign` issues an Azure Blob user-delegation SAS PUT URL
-for a single image landing at `pending/<photo_id>.jpg` in the photos
-container. The mobile client PUTs the image bytes to that URL sending
-exactly the `required_headers` from the response (Azure Put Blob rejects
-the request without `x-ms-blob-type: BlockBlob`), then calls
-`POST /v1/observations` with the returned `photo_id`. Moderation runs out
-of band via the Service Bus pipeline (see `docs/moderation.md`).
+Blob arrival is deliberately not a moderation trigger. A photo enters the
+moderation outbox only when ``POST /v1/observations`` commits it.
 """
 
 from __future__ import annotations
 
 from datetime import datetime, timedelta
+from hashlib import sha256
 from typing import Annotated, Literal
 
 import structlog
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Response, status
 from pydantic import BaseModel, Field
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from ulid import ULID
 
 from app.core.auth import CurrentUserDep, resolve_current_user_row
 from app.core.config import Settings, get_request_settings
-from app.core.storage import SignedUrlGeneratorDep
+from app.core.errors import api_error_detail
+from app.core.storage import SignedUrlGenerator, SignedUrlGeneratorDep
 from app.db import models
 from app.db.session import DbSessionDep
-from app.inat.client import InatClientDep, InatUnavailable
-from app.inat.cv import score_image
-from app.organism_fallback import (
-    OrganismFallbackDep,
-    OrganismFallbackUnavailable,
-    SuggestionSource,
-)
 
 router = APIRouter(prefix="/v1/photos", tags=["photos"])
-
 log = structlog.get_logger()
 
-# 15 minutes is generous for the offline-then-upload path while keeping the
-# signed-URL exposure window bounded.
 _PRESIGN_TTL = timedelta(minutes=15)
+_PHOTO_GET_TTL = timedelta(minutes=5)
 
 AllowedContentType = Literal["image/jpeg"]
+IdempotencyKeyHeader = Annotated[
+    str | None,
+    Header(
+        alias="Idempotency-Key",
+        min_length=26,
+        max_length=26,
+        pattern=r"^[0-9A-HJKMNP-TV-Z]{26}$",
+    ),
+]
+
+
+def _idempotency_conflict(message: str) -> HTTPException:
+    return HTTPException(
+        status_code=status.HTTP_409_CONFLICT,
+        detail=api_error_detail("idempotency_conflict", message),
+    )
 
 
 class PhotoPresignRequest(BaseModel):
@@ -51,81 +56,16 @@ class PhotoPresignRequest(BaseModel):
 
 class PhotoPresignResponse(BaseModel):
     photo_id: str
-    upload_url: str
+    upload_url: str | None
+    upload_headers: dict[str, str]
+    # One-release compatibility alias for the pre-W1 mobile contract.
+    required_headers: dict[str, str]
     object_name: str
     bucket: str
     content_type: str
-    expires_at: datetime
-    # Headers the client must send verbatim on the PUT. Storage-backend
-    # specific (Azure requires x-ms-blob-type); clients should treat this
-    # as opaque rather than hardcoding header names.
-    required_headers: dict[str, str]
-
-
-@router.post(
-    "/presign",
-    response_model=PhotoPresignResponse,
-    status_code=status.HTTP_201_CREATED,
-)
-async def presign_photo(
-    payload: PhotoPresignRequest,
-    current_user: CurrentUserDep,
-    session: DbSessionDep,
-    signer: SignedUrlGeneratorDep,
-    settings: Annotated[Settings, Depends(get_request_settings)],
-) -> PhotoPresignResponse:
-    user_row = await resolve_current_user_row(session, current_user)
-
-    photo_id = str(ULID())
-    object_name = f"pending/{photo_id}.jpg"
-    bucket = settings.photos_bucket
-
-    upload_url, expires_at = signer.generate_put_url(
-        bucket=bucket,
-        object_name=object_name,
-        content_type=payload.content_type,
-        expires_in=_PRESIGN_TTL,
-    )
-
-    photo = models.Photo(
-        id=photo_id,
-        user_id=user_row.id,
-        bucket=bucket,
-        object_name=object_name,
-        status="pending",
-        content_type=payload.content_type,
-    )
-    session.add(photo)
-    await session.commit()
-
-    log.info(
-        "photos.presign.issued",
-        photo_id=photo_id,
-        user_id=user_row.id,
-        bucket=bucket,
-        object_name=object_name,
-        ttl_seconds=int(_PRESIGN_TTL.total_seconds()),
-    )
-
-    return PhotoPresignResponse(
-        photo_id=photo_id,
-        upload_url=upload_url,
-        object_name=object_name,
-        bucket=bucket,
-        content_type=payload.content_type,
-        expires_at=expires_at,
-        required_headers=signer.put_required_headers(content_type=payload.content_type),
-    )
-
-
-# ---------------------------------------------------------------------------
-# GET /v1/photos/{photo_id}/url -- short-lived signed GET for rendering
-# ---------------------------------------------------------------------------
-
-# 5 minutes is enough for the mobile client to render + cache the image.
-# Shorter than presign because GET is read-only and can be re-issued
-# cheaply.
-_PHOTO_GET_TTL = timedelta(minutes=5)
+    expires_at: datetime | None
+    attachment_status: str
+    observation_id: str | None = None
 
 
 class PhotoUrlResponse(BaseModel):
@@ -134,66 +74,204 @@ class PhotoUrlResponse(BaseModel):
     expires_at: datetime
 
 
-class CvSuggestionDTO(BaseModel):
-    taxon_id: int | None = None
-    common_name: str | None
-    scientific_name: str | None
-    score: float
-    source: SuggestionSource = "inat"
+def _request_hash(payload: PhotoPresignRequest) -> str:
+    return sha256(payload.content_type.encode("ascii")).hexdigest()
 
 
-class PhotoIdentifyResponse(BaseModel):
-    """Top-K iNat CV suggestions for a pending photo.
+async def _find_replay(
+    session: AsyncSession,
+    *,
+    user_id: str,
+    key: str,
+    request_hash: str,
+) -> tuple[models.Photo, str | None] | None:
+    record = (
+        await session.execute(
+            select(models.ObservationIdempotency).where(
+                models.ObservationIdempotency.user_id == user_id,
+                models.ObservationIdempotency.idempotency_key == key,
+                models.ObservationIdempotency.operation == "photo_presign",
+            )
+        )
+    ).scalar_one_or_none()
+    if record is None:
+        return None
+    if record.request_hash != request_hash:
+        raise _idempotency_conflict(
+            "Idempotency-Key was already used with a different presign request"
+        )
 
-    `cv_unavailable` means iNat could not be reached or no token is
-    configured. `no_matches` means iNat responded but returned no usable
-    organism suggestions.
-    """
+    photo = (
+        await session.execute(
+            select(models.Photo).where(
+                models.Photo.id == record.resource_id,
+                models.Photo.user_id == user_id,
+            )
+        )
+    ).scalar_one_or_none()
+    if photo is None:
+        raise _idempotency_conflict("Idempotency record references a missing photo")
 
-    photo_id: str
-    suggestions: list[CvSuggestionDTO]
-    cv_unavailable: bool = False
-    fallback_unavailable: bool = False
-    no_matches: bool = False
+    observation_id = None
+    if photo.attachment_status == "attached":
+        observation_id = (
+            await session.execute(
+                select(models.Observation.id).where(models.Observation.photo_id == photo.id)
+            )
+        ).scalar_one_or_none()
+    return photo, observation_id
 
 
-# Same trust model as the review queue: parent/teacher memberships are
-# the adult review boundary.
-_ADULT_ROLES = frozenset({"parent", "teacher"})
+def _presign_response(
+    *,
+    photo: models.Photo,
+    signer: SignedUrlGenerator,
+    upload_url: str | None,
+    expires_at: datetime | None,
+    observation_id: str | None = None,
+) -> PhotoPresignResponse:
+    content_type = photo.content_type or "image/jpeg"
+    upload_headers = (
+        signer.put_required_headers(content_type=content_type) if upload_url is not None else {}
+    )
+    return PhotoPresignResponse(
+        photo_id=photo.id,
+        upload_url=upload_url,
+        upload_headers=upload_headers,
+        required_headers=upload_headers,
+        object_name=photo.object_name,
+        bucket=photo.bucket,
+        content_type=content_type,
+        expires_at=expires_at,
+        attachment_status=photo.attachment_status,
+        observation_id=observation_id,
+    )
 
 
-async def _shares_group(
+def _fresh_url(
+    photo: models.Photo,
+    signer: object,
+) -> tuple[str, datetime]:
+    # Kept small so the collision/replay path cannot drift from first issue.
+    return signer.generate_put_url(  # type: ignore[attr-defined,no-any-return]
+        bucket=photo.bucket,
+        object_name=photo.object_name,
+        content_type=photo.content_type or "image/jpeg",
+        expires_in=_PRESIGN_TTL,
+    )
+
+
+@router.post("/presign", response_model=PhotoPresignResponse, status_code=status.HTTP_201_CREATED)
+async def presign_photo(
+    payload: PhotoPresignRequest,
+    current_user: CurrentUserDep,
+    session: DbSessionDep,
+    signer: SignedUrlGeneratorDep,
+    settings: Annotated[Settings, Depends(get_request_settings)],
+    idempotency_key: IdempotencyKeyHeader = None,
+) -> PhotoPresignResponse:
+    """Reserve one replay-safe raw upload and return provider-required headers."""
+    user_row = await resolve_current_user_row(session, current_user)
+    if idempotency_key is None and settings.observation_idempotency_required:
+        raise HTTPException(
+            status_code=status.HTTP_428_PRECONDITION_REQUIRED,
+            detail="Idempotency-Key is required for photo reservation",
+        )
+    key = idempotency_key or str(ULID())  # compatibility release for old clients
+    request_hash = _request_hash(payload)
+
+    replay = await _find_replay(session, user_id=user_row.id, key=key, request_hash=request_hash)
+    if replay is not None:
+        photo, observation_id = replay
+        if observation_id is not None or photo.attachment_status != "reserved":
+            return _presign_response(
+                photo=photo,
+                signer=signer,
+                upload_url=None,
+                expires_at=None,
+                observation_id=observation_id,
+            )
+        upload_url, expires_at = _fresh_url(photo, signer)
+        return _presign_response(
+            photo=photo, signer=signer, upload_url=upload_url, expires_at=expires_at
+        )
+
+    photo_id = str(ULID())
+    photo = models.Photo(
+        id=photo_id,
+        user_id=user_row.id,
+        bucket=settings.photos_bucket,
+        object_name=f"pending/uploads/{photo_id}.jpg",
+        status="pending",
+        attachment_status="reserved",
+        submission_key=key,
+        content_type=payload.content_type,
+    )
+    session.add(photo)
+    session.add(
+        models.ObservationIdempotency(
+            user_id=user_row.id,
+            idempotency_key=key,
+            operation="photo_presign",
+            request_hash=request_hash,
+            resource_id=photo_id,
+        )
+    )
+    try:
+        await session.commit()
+    except IntegrityError:
+        # Concurrent requests can race the pre-read. The unique ledger row is
+        # the gate; after rollback the losing request resolves as a replay.
+        await session.rollback()
+        replay = await _find_replay(
+            session, user_id=user_row.id, key=key, request_hash=request_hash
+        )
+        if replay is None:
+            raise
+        photo, observation_id = replay
+        if observation_id is not None or photo.attachment_status != "reserved":
+            return _presign_response(
+                photo=photo,
+                signer=signer,
+                upload_url=None,
+                expires_at=None,
+                observation_id=observation_id,
+            )
+
+    upload_url, expires_at = _fresh_url(photo, signer)
+    log.info(
+        "photos.presign.issued",
+        photo_id=photo.id,
+        user_id=user_row.id,
+        object_name=photo.object_name,
+        replayed=replay is not None,
+    )
+    return _presign_response(
+        photo=photo, signer=signer, upload_url=upload_url, expires_at=expires_at
+    )
+
+
+async def _adult_manages_group(
     session: AsyncSession,
     *,
     caller_user_id: str,
-    photo_owner_id: str,
-    caller_adult_membership_only: bool,
+    observation_group_id: str,
 ) -> bool:
-    """True if caller and photo owner share a group.
+    """Require an adult-role membership in this observation's group.
 
-    With ``caller_adult_membership_only`` the caller's side only counts
-    groups where THEIR membership role is parent/teacher -- the
-    review-queue trust model (a kid group-mate must never unlock another
-    kid's unmoderated or quarantined photo)."""
-    rows = (
+    Sharing some unrelated group with the photo owner is not authorization for
+    this observation; families and teachers may manage multiple isolated groups.
+    """
+    membership_id = (
         await session.execute(
-            select(
-                models.Membership.user_id,
-                models.Membership.group_id,
-                models.Membership.role,
-            ).where(models.Membership.user_id.in_([caller_user_id, photo_owner_id]))
+            select(models.Membership.id).where(
+                models.Membership.user_id == caller_user_id,
+                models.Membership.group_id == observation_group_id,
+                models.Membership.role.in_({"parent", "teacher"}),
+            )
         )
-    ).all()
-    caller_groups: set[str] = set()
-    owner_groups: set[str] = set()
-    for uid, gid, role in rows:
-        if uid == photo_owner_id:
-            owner_groups.add(gid)
-        if uid == caller_user_id:
-            if caller_adult_membership_only and role not in _ADULT_ROLES:
-                continue
-            caller_groups.add(gid)
-    return bool(caller_groups & owner_groups)
+    ).scalar_one_or_none()
+    return membership_id is not None
 
 
 @router.get("/{photo_id}/url", response_model=PhotoUrlResponse)
@@ -204,38 +282,43 @@ async def photo_get_url(
     signer: SignedUrlGeneratorDep,
     settings: Annotated[Settings, Depends(get_request_settings)],
 ) -> PhotoUrlResponse:
+    del settings  # dependency still validates environment-backed storage config
     user_row = await resolve_current_user_row(session, current_user)
-
     photo = (
         await session.execute(select(models.Photo).where(models.Photo.id == photo_id))
     ).scalar_one_or_none()
     if photo is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Photo not found")
-    if photo.status == "deleted":
-        # Rejected photos are gone from every legitimate surface (the kid
-        # gallery renders "removed", teacher review drops resolved items)
-        # and the blob may already be purged -- don't mint working URLs
-        # for them. 404 like missing.
+
+    observation_access = (
+        await session.execute(
+            select(
+                models.Observation.moderation_status,
+                models.Observation.group_id,
+                models.Observation.user_id,
+            ).where(models.Observation.photo_id == photo.id)
+        )
+    ).one_or_none()
+    if observation_access is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Photo not found")
+    moderation_status, observation_group_id, observation_user_id = observation_access
+    if observation_user_id != photo.user_id:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Photo not found")
 
-    if user_row.id != photo.user_id:
-        # Non-owner access. Moderation-passed (`clean`) photos are
-        # group-shared; anything NOT clean (unmoderated `pending`,
-        # flagged `quarantine`) is adult-review material: the caller
-        # must be a parent/teacher AND hold an adult-role membership in
-        # a group shared with the owner. Kids always see their OWN
-        # photos (any non-deleted status) via the owner check above.
-        # All failures 404 like missing -- no enumeration leak.
-        adult_only = photo.status != "clean"
-        if adult_only and user_row.role not in _ADULT_ROLES:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Photo not found")
-        if not await _shares_group(
-            session,
-            caller_user_id=user_row.id,
-            photo_owner_id=photo.user_id,
-            caller_adult_membership_only=adult_only,
-        ):
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Photo not found")
+    is_owner = user_row.id == photo.user_id
+    is_adult = user_row.role in {"parent", "teacher"}
+    adult_manager = is_adult and await _adult_manages_group(
+        session,
+        caller_user_id=user_row.id,
+        observation_group_id=observation_group_id,
+    )
+    allowed = (
+        photo.status == "clean" and moderation_status == "clean" and (is_owner or adult_manager)
+    ) or (photo.status == "quarantine" and moderation_status == "quarantine" and adult_manager)
+    if not allowed:
+        # All lifecycle and authorization denials look absent to prevent ID
+        # enumeration and avoid revealing that a peer submitted a photo.
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Photo not found")
 
     url, expires_at = signer.generate_get_url(
         bucket=photo.bucket,
@@ -245,25 +328,15 @@ async def photo_get_url(
     return PhotoUrlResponse(photo_id=photo.id, url=url, expires_at=expires_at)
 
 
-# ---------------------------------------------------------------------------
-# POST /v1/photos/{photo_id}/identify -- pre-save iNat CV suggestions
-# ---------------------------------------------------------------------------
-
-
-@router.post("/{photo_id}/identify", response_model=PhotoIdentifyResponse)
-async def identify_photo(
+@router.delete("/{photo_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def abandon_photo(
     photo_id: str,
     current_user: CurrentUserDep,
     session: DbSessionDep,
-    inat_client: InatClientDep,
-    organism_fallback: OrganismFallbackDep,
     storage: SignedUrlGeneratorDep,
-    settings: Annotated[Settings, Depends(get_request_settings)],
-) -> PhotoIdentifyResponse:
+) -> Response:
+    """Idempotently abandon an unattached reservation owned by the caller."""
     user_row = await resolve_current_user_row(session, current_user)
-
-    # Pending photo must belong to the caller. Wrong-owner IDs return 404
-    # like missing IDs so the endpoint cannot be used for enumeration.
     photo = (
         await session.execute(
             select(models.Photo).where(
@@ -274,110 +347,24 @@ async def identify_photo(
     ).scalar_one_or_none()
     if photo is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Photo not found")
-    if photo.status != "pending":
+    if photo.attachment_status == "attached":
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail=f"Photo is in status {photo.status}, not pending",
+            detail="An attached photo cannot be abandoned",
         )
-
-    should_try_fallback = settings.organism_fallback_provider != "noop"
-    if not settings.inat_oauth_token and not should_try_fallback:
-        log.info(
-            "observations.identify.cv_unavailable_no_token",
+    if photo.attachment_status != "deleted":
+        photo.attachment_status = "deleted"
+        photo.status = "deleted"
+        await session.commit()
+    try:
+        storage.delete_object(bucket=photo.bucket, object_name=photo.object_name)
+    except Exception:
+        # The raw blob may never have arrived. The database tombstone is
+        # authoritative; the storage lifecycle policy remains a backstop.
+        log.warning(
+            "photos.abandon.delete_failed",
             photo_id=photo_id,
-            pre_save=True,
+            object_name=photo.object_name,
+            exc_info=True,
         )
-        return PhotoIdentifyResponse(photo_id=photo_id, suggestions=[], cv_unavailable=True)
-
-    image_bytes = storage.fetch_object_bytes(bucket=photo.bucket, object_name=photo.object_name)
-
-    suggestions = []
-    cv_unavailable = False
-    if settings.inat_oauth_token:
-        try:
-            suggestions = await score_image(inat_client, image_bytes=image_bytes, top_k=3)
-        except InatUnavailable as exc:
-            cv_unavailable = True
-            log.warning(
-                "observations.identify.cv_unavailable",
-                photo_id=photo_id,
-                pre_save=True,
-                reason=str(exc),
-            )
-    else:
-        cv_unavailable = True
-        log.info(
-            "observations.identify.cv_unavailable_no_token",
-            photo_id=photo_id,
-            pre_save=True,
-        )
-
-    if suggestions:
-        log.info(
-            "observations.identify.scored",
-            photo_id=photo_id,
-            pre_save=True,
-            suggestion_count=len(suggestions),
-            no_matches=False,
-            fallback_used=False,
-        )
-        return PhotoIdentifyResponse(
-            photo_id=photo_id,
-            suggestions=[
-                CvSuggestionDTO(
-                    taxon_id=s.taxon_id,
-                    common_name=s.common_name,
-                    scientific_name=s.scientific_name,
-                    score=s.score,
-                    source="inat",
-                )
-                for s in suggestions
-            ],
-            cv_unavailable=cv_unavailable,
-            no_matches=False,
-        )
-
-    fallback_unavailable = False
-    fallback_suggestions = []
-    if should_try_fallback:
-        try:
-            fallback_suggestions = await organism_fallback.suggest(
-                image_bytes=image_bytes,
-                top_k=3,
-            )
-        except OrganismFallbackUnavailable as exc:
-            fallback_unavailable = True
-            log.warning(
-                "observations.identify.fallback_unavailable",
-                photo_id=photo_id,
-                pre_save=True,
-                reason=str(exc),
-            )
-
-    no_matches = len(fallback_suggestions) == 0
-    log.info(
-        "observations.identify.scored",
-        photo_id=photo_id,
-        pre_save=True,
-        suggestion_count=len(fallback_suggestions),
-        no_matches=no_matches,
-        fallback_used=bool(fallback_suggestions),
-        cv_unavailable=cv_unavailable,
-        fallback_unavailable=fallback_unavailable,
-    )
-    return PhotoIdentifyResponse(
-        photo_id=photo_id,
-        suggestions=[
-            CvSuggestionDTO(
-                taxon_id=None,
-                common_name=s.common_name,
-                scientific_name=s.scientific_name,
-                score=s.score,
-                source="fallback",
-            )
-            for s in fallback_suggestions
-        ],
-        cv_unavailable=cv_unavailable,
-        fallback_unavailable=fallback_unavailable,
-        no_matches=no_matches,
-    )
+    return Response(status_code=status.HTTP_204_NO_CONTENT)

@@ -1,7 +1,14 @@
 import { useQuery } from "@tanstack/react-query";
 import { router } from "expo-router";
 import { useEffect, useState } from "react";
-import { Alert, Pressable, ScrollView, StyleSheet, TextInput } from "react-native";
+import {
+  Alert,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  TextInput,
+} from "react-native";
 
 import DesktopContainer from "@/components/DesktopContainer";
 import { Text, View } from "@/components/Themed";
@@ -13,8 +20,20 @@ import {
   setBearerToken,
 } from "@/src/auth/token";
 import { env } from "@/src/config/env";
+import { useAuthSession } from "@/src/auth/session";
+import {
+  ImperativeRequestSupersededError,
+  runImperativeRequest,
+} from "@/src/auth/requestBoundary";
+import {
+  listQueuedObservations,
+  purgeOwnerObservationQueue,
+} from "@/src/observation/observationQueue";
 
 export default function SettingsScreen() {
+  const session = useAuthSession();
+  const ownerUserId =
+    session.status === "authenticated" ? session.user.id : null;
   const [tokenSaved, setTokenSaved] = useState<boolean | null>(null);
   const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState(false);
@@ -22,8 +41,9 @@ export default function SettingsScreen() {
     env.appEnv === "development" || env.appEnv === "preview";
 
   const me = useQuery({
-    queryKey: ["me"],
-    queryFn: getMe,
+    queryKey: ["me", ownerUserId ?? "anonymous"],
+    queryFn: ({ signal }) => getMe(signal),
+    enabled: ownerUserId != null,
     retry: (count, err) => {
       if (err instanceof ApiError && (err.status === 401 || err.status === 403)) {
         return false;
@@ -47,6 +67,28 @@ export default function SettingsScreen() {
     } finally {
       setBusy(false);
     }
+  }
+
+  async function requestSignOut(): Promise<void> {
+    if (Platform.OS === "web" || !ownerUserId) {
+      await handleSignOut();
+      return;
+    }
+    const pending = (await listQueuedObservations(ownerUserId)).filter(
+      (item) => item.stage !== "complete",
+    );
+    if (pending.length === 0) {
+      await handleSignOut();
+      return;
+    }
+    Alert.alert(
+      "Observations are waiting",
+      `${pending.length} saved ${pending.length === 1 ? "observation" : "observations"} will stay on this device, locked to this account.`,
+      [
+        { text: "Stay signed in", style: "cancel" },
+        { text: "Sign out", onPress: () => void handleSignOut() },
+      ],
+    );
   }
 
   async function handleSaveDevToken() {
@@ -95,12 +137,16 @@ export default function SettingsScreen() {
   async function submitDeletionRequest() {
     setBusy(true);
     try {
-      await requestAccountDeletion();
+      await runImperativeRequest((signal) => requestAccountDeletion(signal));
+      if (ownerUserId && Platform.OS !== "web") {
+        await purgeOwnerObservationQueue(ownerUserId);
+      }
       await clearBearerToken();
       setTokenSaved(false);
       void me.refetch();
       Alert.alert("Deletion requested", "This account has been signed out.");
     } catch (err: unknown) {
+      if (err instanceof ImperativeRequestSupersededError) return;
       Alert.alert(
         "Deletion request failed",
         err instanceof Error ? err.message : String(err),
@@ -110,7 +156,8 @@ export default function SettingsScreen() {
     }
   }
 
-  const signedIn = me.data != null;
+  const signedInUser = me.data ??
+    (session.status === "authenticated" ? session.user : null);
 
   return (
     <DesktopContainer>
@@ -123,15 +170,15 @@ export default function SettingsScreen() {
         />
 
         <Text style={styles.label}>Account</Text>
-        {me.isPending ? (
+        {session.status === "initializing" ? (
           <Text style={styles.value}>checking…</Text>
-        ) : signedIn ? (
+        ) : signedInUser ? (
           <>
-            <Text style={styles.value}>signed in as {me.data.display_name}</Text>
-            <Text style={styles.help}>role: {me.data.role}</Text>
+            <Text style={styles.value}>signed in as {signedInUser.display_name}</Text>
+            <Text style={styles.help}>role: {signedInUser.role}</Text>
             <Pressable
               style={[styles.button, styles.buttonGhost, busy && styles.buttonDisabled]}
-              onPress={handleSignOut}
+              onPress={() => void requestSignOut()}
               disabled={busy}
             >
               <Text style={styles.buttonText}>Sign out</Text>

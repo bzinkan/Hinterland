@@ -1,0 +1,14 @@
+{
+  "catalog_version": "2026.07.09.3",
+  "packs": [
+    {
+      "pack_id": "core",
+      "scope": "global_core",
+      "version": "2026.07.09.3",
+      "path": "core.json",
+      "sha256": "dec29f8887f7f7d3d960db4f90f55be4fa90eb4fdf2b5a8ed53a89df658605df",
+      "size_bytes": 9025,
+      "taxon_count": 45
+    }
+  ]
+}
