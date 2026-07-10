@@ -51,6 +51,7 @@ def test_active_workflow_migrates_before_api_and_removes_retired_aliases() -> No
 
     retire_jobs = workflow.index("Retire obsolete recovery jobs")
     pin_jobs = workflow.index("Pin Hinterland jobs to this image")
+    seed_settings = workflow.index("Seed Hinterland job settings")
     remove_aliases = workflow.index("Remove retired runtime variable aliases")
     required_jobs = workflow.index("Run required pre-deploy jobs")
     deploy_api = workflow.index("Deploy API revision")
@@ -61,6 +62,7 @@ def test_active_workflow_migrates_before_api_and_removes_retired_aliases() -> No
     assert (
         retire_jobs
         < pin_jobs
+        < seed_settings
         < remove_aliases
         < required_jobs
         < deploy_api
@@ -70,6 +72,7 @@ def test_active_workflow_migrates_before_api_and_removes_retired_aliases() -> No
     )
     assert "HINTERLAND_KID_JWKS_PATH" in workflow
     assert "HINTERLAND_SMOKE_ENTRA_BEARER" in workflow
+    assert "HINTERLAND_DATABASE_PASSWORD=secretref:pg-password" in workflow
     assert "--remove-env-vars" in workflow
     assert "hinterland-obs-preflight" in workflow
     assert "hinterland-migrate" in workflow

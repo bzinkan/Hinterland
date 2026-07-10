@@ -34,14 +34,15 @@ jobs:
         run: |
           set -euo pipefail
           ACR_LOGIN_SERVER="$(az acr show --name "${AZURE_ACR_NAME}" --resource-group "${AZURE_RESOURCE_GROUP}" --query loginServer --output tsv)"
-          IMAGE="${ACR_LOGIN_SERVER}/${IMAGE_REPOSITORY}:${GITHUB_SHA}"
-          echo "IMAGE=${IMAGE}" >> "${GITHUB_ENV}"
           az acr build \
             --registry "${AZURE_ACR_NAME}" \
             --image "${IMAGE_REPOSITORY}:${GITHUB_SHA}" \
             --image "${IMAGE_REPOSITORY}:latest" \
             --file backend/Dockerfile \
             .
+          DIGEST="$(az acr repository show --name "${AZURE_ACR_NAME}" --image "${IMAGE_REPOSITORY}:${GITHUB_SHA}" --query digest --output tsv)"
+          IMAGE="${ACR_LOGIN_SERVER}/${IMAGE_REPOSITORY}@${DIGEST}"
+          echo "IMAGE=${IMAGE}" >> "${GITHUB_ENV}"
 
       - name: Retire obsolete recovery jobs
         run: |
@@ -62,6 +63,34 @@ jobs:
               --name "${job}" \
               --resource-group "${AZURE_RESOURCE_GROUP}" \
               --image "${IMAGE}" \
+              --output none
+          done
+
+      - name: Seed Hinterland job settings
+        run: |
+          set -euo pipefail
+          mapfile -t shared_env < <(
+            az containerapp show --name "${AZURE_CONTAINER_APP}" --resource-group "${AZURE_RESOURCE_GROUP}" \
+              --query 'properties.template.containers[0].env[?starts_with(name, `HINTERLAND_`)]' --output json |
+              jq -r '
+                .[] |
+                select(.name != "HINTERLAND_APP_VERSION") |
+                select(.name != "HINTERLAND_DEV_AUTH_ENABLED") |
+                select(.name != "HINTERLAND_DEV_AUTH_TOKEN") |
+                select(.secretRef | not) |
+                select(.value != null) |
+                "\(.name)=\(.value)"
+              '
+          )
+          test "${#shared_env[@]}" -gt 0
+          mapfile -t jobs < <(az containerapp job list --resource-group "${AZURE_RESOURCE_GROUP}" --query "[?starts_with(name, 'hinterland-')].name" --output tsv)
+          for job in "${jobs[@]}"; do
+            secret_names="$(az containerapp job secret list --name "${job}" --resource-group "${AZURE_RESOURCE_GROUP}" --query '[].name' --output tsv)"
+            grep -qx 'pg-password' <<< "${secret_names}"
+            az containerapp job update \
+              --name "${job}" \
+              --resource-group "${AZURE_RESOURCE_GROUP}" \
+              --set-env-vars "${shared_env[@]}" HINTERLAND_DATABASE_PASSWORD=secretref:pg-password \
               --output none
           done
 
