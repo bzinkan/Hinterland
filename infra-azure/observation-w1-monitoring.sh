@@ -438,6 +438,7 @@ if [[ "$SYNTHETIC" == 1 ]]; then
     --resource-group "$RG" \
     --alert-type logalertv2 \
     --add-action email "$receiver_name" "$receiver_email" usecommonalertschema \
+    --no-wait \
     --output none
   echo "synthetic action-group notification accepted"
 

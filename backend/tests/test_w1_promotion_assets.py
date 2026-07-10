@@ -156,3 +156,4 @@ def test_monitoring_artifact_covers_w1_and_revocation_signals() -> None:
     assert "synthetic notification has no uniquely enabled protected receiver" in monitoring
     assert "--add-action email" in monitoring
     assert "usecommonalertschema" in monitoring
+    assert "--no-wait" in monitoring

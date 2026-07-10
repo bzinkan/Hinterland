@@ -96,6 +96,10 @@ state mismatches, missing/failed scheduled jobs, and stale or terminal
 photo-revocation failure. The photo-revocation recovery job is a closed-beta resource and is not
 required in the W1 Azure inventory until it is separately provisioned.
 
+Azure accepts action-group test notifications asynchronously. The promotion
+records that its explicit, enabled protected receiver accepted the request; the
+adult must separately record actual email receipt before declaring W1-ready.
+
 ## Exact Play Internal evidence
 
 Server promotion is necessary but not sufficient. Build with
