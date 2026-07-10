@@ -37,14 +37,21 @@ from app.models.sanctuary import (
 )
 from app.sanctuary.types import ZoneId
 
-# Resolve the repo root from this file's location:
-#   backend/app/sanctuary/content.py
-#   -> parents[0] = backend/app/sanctuary
-#   -> parents[1] = backend/app
-#   -> parents[2] = backend
-#   -> parents[3] = REPO_ROOT
-_REPO_ROOT = Path(__file__).resolve().parents[3]
-_CONTENT_ROOT = _REPO_ROOT / "content" / "sanctuary"
+
+def _default_content_root(*, cwd: Path | None = None, module_file: Path | None = None) -> Path:
+    """Resolve authored content in both the source tree and API image."""
+    working_directory = cwd or Path.cwd()
+    module_path = (module_file or Path(__file__)).resolve()
+    relative_root = Path("content") / "sanctuary"
+    candidates = (
+        working_directory / relative_root,
+        module_path.parents[2] / relative_root,
+        module_path.parents[3] / relative_root,
+    )
+    return next((candidate for candidate in candidates if candidate.is_dir()), candidates[0])
+
+
+_CONTENT_ROOT = _default_content_root()
 
 # Same routing table as scripts/validate_content.py. Each JSON file has one
 # top-level key naming the kind; values are validated through the matching

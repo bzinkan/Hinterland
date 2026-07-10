@@ -158,6 +158,18 @@ def test_hinterland_workflow_migrates_before_api_and_uses_jwks_alias() -> None:
     assert all(len(name) < 32 for name in provisioned_jobs), provisioned_jobs
 
 
+def test_api_image_includes_every_runtime_authored_content_tree() -> None:
+    dockerfile = (_ROOT / "backend/Dockerfile").read_text(encoding="utf-8")
+    dockerignore = (_ROOT / ".dockerignore").read_text(encoding="utf-8")
+
+    assert "COPY content/expeditions/ ./content/expeditions/" in dockerfile
+    assert "COPY content/sanctuary/ ./content/sanctuary/" in dockerfile
+    assert "COPY content/taxa/ ./content/taxa/" in dockerfile
+    assert "!content/expeditions/**" in dockerignore
+    assert "!content/sanctuary/**" in dockerignore
+    assert "!content/taxa/**" in dockerignore
+
+
 def test_migration_registers_legacy_pending_work_before_relay() -> None:
     migration = (
         _ROOT / "backend/alembic/versions/20260709_0014_observation_w1_contract.py"

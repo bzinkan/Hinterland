@@ -13,10 +13,15 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 from datetime import date
+from pathlib import Path
 
 import pytest
 
-from app.sanctuary.content import get_sanctuary_content, reset_sanctuary_content_cache
+from app.sanctuary.content import (
+    _default_content_root,
+    get_sanctuary_content,
+    reset_sanctuary_content_cache,
+)
 from app.sanctuary.service import compute_sanctuary_plan
 from app.sanctuary.types import (
     ElementSnapshot,
@@ -50,6 +55,24 @@ def _reset_content_cache() -> Iterator[None]:
     reset_sanctuary_content_cache()
     yield
     reset_sanctuary_content_cache()
+
+
+def test_content_root_resolves_repository_layout() -> None:
+    assert _default_content_root().is_dir()
+
+
+def test_content_root_resolves_container_image_layout(tmp_path: Path) -> None:
+    app_root = tmp_path / "app"
+    module_file = app_root / "app" / "sanctuary" / "content.py"
+    content_root = app_root / "content" / "sanctuary"
+    content_root.mkdir(parents=True)
+
+    resolved = _default_content_root(
+        cwd=tmp_path / "unrelated-working-directory",
+        module_file=module_file,
+    )
+
+    assert resolved == content_root
 
 
 def _make_observation(

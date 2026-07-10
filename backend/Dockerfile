@@ -32,6 +32,9 @@ COPY backend/admin/ ./admin/
 # materializes it into Postgres after each deploy (docs/runbook.md).
 COPY content/expeditions/ ./content/expeditions/
 COPY content/expedition_taxon_sets.json ./content/expedition_taxon_sets.json
+# Sanctuary is runtime dispatcher content: rebuilds and live WorldHandler
+# dispatches must use the same authored snapshot as the API image.
+COPY content/sanctuary/ ./content/sanctuary/
 # Audited runtime taxonomy snapshot used by the catalog ingest job.
 COPY content/taxa/ ./content/taxa/
 

@@ -10,6 +10,7 @@
 !backend/**
 !content/expedition_taxon_sets.json
 !content/expeditions/**
+!content/sanctuary/**
 !content/taxa/**
 
 # Junk re-admitted by !backend/** (mirrors backend/.dockerignore).
