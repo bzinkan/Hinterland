@@ -49,15 +49,16 @@ def test_active_azure_environment_is_hinterland_only() -> None:
 def test_active_workflow_migrates_before_api_and_removes_retired_aliases() -> None:
     workflow = (_ROOT / ".github/workflows/deploy-azure-api-dev.yml").read_text(encoding="utf-8")
 
+    retire_jobs = workflow.index("Retire obsolete recovery jobs")
     pin_jobs = workflow.index("Pin Hinterland jobs to this image")
     remove_aliases = workflow.index("Remove retired runtime variable aliases")
     required_jobs = workflow.index("Run required pre-deploy jobs")
     deploy_api = workflow.index("Deploy API revision")
-    reconcile = workflow.index("Reconcile post-deploy state")
+    rebuild = workflow.index("Rebuild derived state")
     smoke = workflow.index("Smoke public API surfaces")
     verify = workflow.index("Verify deployed naming and image")
 
-    assert pin_jobs < remove_aliases < required_jobs < deploy_api < reconcile < smoke < verify
+    assert retire_jobs < pin_jobs < remove_aliases < required_jobs < deploy_api < rebuild < smoke < verify
     assert "HINTERLAND_KID_JWKS_PATH" in workflow
     assert "HINTERLAND_SMOKE_ENTRA_BEARER" in workflow
     assert "--remove-env-vars" in workflow

@@ -4,3 +4,4 @@
 # Windows would false-positive the drift gate.
 scripts/sanctuary_assets/svg/**/*.svg text eol=lf
 mobile/src/sanctuary/art/*.gen.ts text eol=lf
+content/taxa/*.json text eol=lf
