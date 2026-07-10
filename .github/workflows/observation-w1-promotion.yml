@@ -59,6 +59,8 @@ jobs:
         with:
           python-version: "3.12"
 
+      - uses: astral-sh/setup-uv@v3
+
       - name: Require a usable protected test-parent credential
         env:
           HINTERLAND_SMOKE_ENTRA_BEARER: ${{ secrets.HINTERLAND_SMOKE_ENTRA_BEARER }}
@@ -366,7 +368,10 @@ jobs:
           echo "IMAGE_DIGEST=${digest}" >> "$GITHUB_ENV"
 
       - name: Install smoke and migration tooling
-        run: python -m pip install ./backend
+        working-directory: backend
+        run: |
+          uv sync --frozen --no-dev
+          echo "${GITHUB_WORKSPACE}/backend/.venv/bin" >> "${GITHUB_PATH}"
 
       - name: Resolve the additive Alembic head
         run: |

@@ -249,8 +249,13 @@ jobs:
         with:
           python-version: "3.12"
 
+      - uses: astral-sh/setup-uv@v3
+
       - name: Install authenticated smoke dependencies
-        run: python -m pip install ./backend
+        working-directory: backend
+        run: |
+          uv sync --frozen --no-dev
+          echo "${GITHUB_WORKSPACE}/backend/.venv/bin" >> "${GITHUB_PATH}"
 
       - name: Authenticated parent and kid smoke
         env:

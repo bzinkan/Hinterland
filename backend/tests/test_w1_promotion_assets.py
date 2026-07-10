@@ -16,6 +16,8 @@ def test_w1_promotion_is_manual_protected_and_never_skips_auth() -> None:
     assert "authenticated checks never skip" in workflow
     assert "HINTERLAND_SMOKE_KID_BEARER" not in workflow
     assert "skipping" not in workflow.lower()
+    assert "uv sync --frozen --no-dev" in workflow
+    assert "pip install ./backend" not in workflow
     assert "actions/upload-artifact@v4" in workflow
 
 

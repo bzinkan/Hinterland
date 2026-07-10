@@ -85,6 +85,8 @@ def test_active_workflow_migrates_before_api_and_removes_retired_aliases() -> No
     assert "hinterland-taxa-catalog-ingest" in workflow
     assert "hinterland-sync-expeditions" in workflow
     assert "hinterland-state-rebuild" in workflow
+    assert "uv sync --frozen --no-dev" in workflow
+    assert "pip install ./backend" not in workflow
     assert not (_ROOT / ".github/workflows/deploy-cloud-run-dev.yml").exists()
     assert not (_ROOT / ".github/workflows/deploy-dev.yml").exists()
 
