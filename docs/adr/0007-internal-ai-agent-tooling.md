@@ -8,7 +8,7 @@
 ## Context
 
 CrewAI and similar frameworks can coordinate specialized agents for content,
-triage, summaries, and operational support. Dragonfly also serves kids ages
+triage, summaries, and operational support. Hinterland also serves kids ages
 9-12, so runtime AI carries a much higher safety, privacy, and correctness
 burden than normal internal automation.
 

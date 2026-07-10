@@ -105,27 +105,27 @@ In priority order. Do the cheap, immediate-effect actions first.
   at the Container App env-var layer. The W1 pilot runs on Azure
   Container Apps; use `az containerapp revision` / `az containerapp
   update --set-env-vars` patterns.
-  - **iNat submission**: confirm `DRAGONFLY_INAT_OAUTH_TOKEN` is
+  - **iNat submission**: confirm `HINTERLAND_INAT_OAUTH_TOKEN` is
     unset (it should already be unset for W1 per
     [`docs/risks/0002-async-workers-production-unwired.md`](risks/0002-async-workers-production-unwired.md);
     if it somehow got set, unset it). This is the canonical gate
     that keeps observations off the public iNaturalist project.
   - **Moderation**: in W1, moderation runs the noop path because
-    `DRAGONFLY_MODERATION_PROVIDER=cloud_vision_safesearch` is
+    `HINTERLAND_MODERATION_PROVIDER=cloud_vision_safesearch` is
     intentionally NOT set per risk 0002 (Cloud Vision API not yet
     enabled; cost meter starts on flip). No moderation kill-switch
     is needed during W1. If you suspect moderation has been flipped
     on out-of-band, confirm via `az containerapp show` + grep for
-    `DRAGONFLY_MODERATION_PROVIDER` and unset it.
+    `HINTERLAND_MODERATION_PROVIDER` and unset it.
   - **Internal worker routes**: `/internal/*` can be hard-disabled
-    by clearing either `DRAGONFLY_INTERNAL_OIDC_AUDIENCE` or
-    `DRAGONFLY_INTERNAL_OIDC_ALLOWED_SERVICE_ACCOUNTS`. The backend
+    by clearing either `HINTERLAND_INTERNAL_OIDC_AUDIENCE` or
+    `HINTERLAND_INTERNAL_OIDC_ALLOWED_SERVICE_ACCOUNTS`. The backend
     then fail-closes every `/internal/*` request with
     `503 internal_oidc_misconfigured`. This is the documented kill
     lever for moderation / iNat worker routes.
   - **If the bug is in the API itself** (not config): do a
     revision-pinned rollback. The runbook documents the Cloud Run
-    pattern (`gcloud run services update-traffic dragonfly-api
+    pattern (`gcloud run services update-traffic hinterland-api
     --region us-central1 --to-revisions REVISION_NAME=100`); the
     Azure-side equivalent is `az containerapp revision set-mode
     single --revision <previous>` (or the multiple-revision

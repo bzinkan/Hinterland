@@ -10,7 +10,7 @@ describe("Play Internal Maestro contract", () => {
   const config = readFileSync(join(root, ".maestro", "config.yaml"), "utf8");
 
   it("targets the store package and the committed media fixture", () => {
-    expect(flow).toContain("appId: com.dragonfly.app");
+    expect(flow).toContain("appId: app.thehinterlandguide");
     expect(flow).toContain("../../assets/images/icon.png");
     expect(existsSync(join(root, "assets", "images", "icon.png"))).toBe(true);
     expect(config).toContain('"flows/*.yaml"');

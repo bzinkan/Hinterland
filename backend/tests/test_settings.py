@@ -20,9 +20,9 @@ def test_settings_accept_typed_environment_overrides() -> None:
     assert settings.readiness_database_required is True
 
 
-def test_dragonfly_environment_remains_supported(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_hinterland_environment_remains_supported(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("HINTERLAND_INAT_CV_ENABLED", raising=False)
-    monkeypatch.setenv("DRAGONFLY_INAT_CV_ENABLED", "true")
+    monkeypatch.setenv("HINTERLAND_INAT_CV_ENABLED", "true")
 
     assert Settings().inat_cv_enabled is True
     assert Settings().inat_cv_egress_allowed is False
@@ -55,7 +55,7 @@ def test_hinterland_can_require_observation_idempotency(
 
 def test_content_root_defaults_to_image_path() -> None:
     # backend/Dockerfile bakes content/expeditions/ into the image here;
-    # local runs override via DRAGONFLY_CONTENT_ROOT (see the
+    # local runs override via HINTERLAND_CONTENT_ROOT (see the
     # scripts/sync_expeditions.py shim).
     assert Settings().content_root == "/app/content/expeditions"
     assert Settings(content_root="/tmp/expeditions").content_root == "/tmp/expeditions"
@@ -67,20 +67,19 @@ def test_dev_login_settings_default_off() -> None:
     assert settings.dev_login_key is None
 
 
-def test_dev_login_settings_read_dragonfly_env_vars(monkeypatch: pytest.MonkeyPatch) -> None:
-    # env_prefix DRAGONFLY_ maps dev_login_* to the deployment-facing names.
-    monkeypatch.setenv("DRAGONFLY_DEV_LOGIN_ENABLED", "true")
-    monkeypatch.setenv("DRAGONFLY_DEV_LOGIN_KEY", "shared-key")
+def test_dev_login_settings_read_hinterland_env_vars(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("HINTERLAND_DEV_AUTH_ENABLED", "true")
+    monkeypatch.setenv("HINTERLAND_DEV_AUTH_TOKEN", "shared-key")
     settings = Settings()
     assert settings.dev_login_enabled is True
     assert settings.dev_login_key == "shared-key"
 
 
 def test_settings_read_hinterland_env_vars(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv("DRAGONFLY_ENV", raising=False)
-    monkeypatch.delenv("DRAGONFLY_DEV_LOGIN_ENABLED", raising=False)
-    monkeypatch.delenv("DRAGONFLY_DEV_LOGIN_KEY", raising=False)
-    monkeypatch.delenv("DRAGONFLY_DRAGONFLY_JWT_ISSUER", raising=False)
+    monkeypatch.delenv("HINTERLAND_ENV", raising=False)
+    monkeypatch.delenv("HINTERLAND_DEV_AUTH_ENABLED", raising=False)
+    monkeypatch.delenv("HINTERLAND_DEV_AUTH_TOKEN", raising=False)
+    monkeypatch.delenv("HINTERLAND_KID_JWT_ISSUER", raising=False)
     monkeypatch.setenv("HINTERLAND_ENV", "dev")
     monkeypatch.setenv("HINTERLAND_DATABASE_PORT", "6544")
     monkeypatch.setenv("HINTERLAND_DEV_AUTH_ENABLED", "true")
@@ -96,23 +95,21 @@ def test_settings_read_hinterland_env_vars(monkeypatch: pytest.MonkeyPatch) -> N
     assert settings.database_port == 6544
     assert settings.dev_login_enabled is True
     assert settings.dev_login_key == "hinterland-dev-key"
-    assert settings.dragonfly_jwt_issuer == "https://api.thehinterlandguide.app"
-    assert settings.dragonfly_jwt_audience == "hinterland-api"
-    assert settings.dragonfly_jwt_kid == "k1-2026-07"
+    assert settings.hinterland_jwt_issuer == "https://api.thehinterlandguide.app"
+    assert settings.hinterland_jwt_audience == "hinterland-api"
+    assert settings.hinterland_jwt_kid == "k1-2026-07"
     assert settings.organism_fallback_provider == "azure_vision"
 
 
-def test_hinterland_env_vars_win_over_dragonfly_env_vars(
+def test_hinterland_settings_use_the_deployment_variable_names(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setenv("HINTERLAND_ENV", "prod")
+    monkeypatch.setenv("HINTERLAND_ENV", "dev")
     monkeypatch.setenv("HINTERLAND_DEV_AUTH_TOKEN", "hinterland-key")
-    monkeypatch.setenv("DRAGONFLY_ENV", "dev")
-    monkeypatch.setenv("DRAGONFLY_DEV_LOGIN_KEY", "dragonfly-key")
 
     settings = Settings()
 
-    assert settings.env == "prod"
+    assert settings.env == "dev"
     assert settings.dev_login_key == "hinterland-key"
 
 

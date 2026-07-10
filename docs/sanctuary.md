@@ -736,7 +736,7 @@ mutates state and never accepts a `user_id` query parameter.
     }
   ],
   "recent_events": [ ... ],
-  "guide_message": {"speaker": "dragonfly", "text": "..."},
+  "guide_message": {"speaker": "guide", "text": "..."},
   "mystery_cues": [ ... ],
   "journal": [ ... ]
 }
@@ -925,7 +925,7 @@ location, an external API, or any new permission.
 
 Two more surfaces ride on top of the delight layer:
 
-- **SeasonBanner** sits between the screen header and the Dragonfly guide
+- **SeasonBanner** sits between the screen header and the field guide
   bar. It renders the authored season label (`Spring` / `Summer` /
   `Autumn` / `Winter`), the `background_tone` word, and -- when
   present -- the authored `variant_copy` line verbatim. The tint comes
@@ -950,7 +950,7 @@ Two more surfaces ride on top of the delight layer:
 Three new panels were added to the Sanctuary screen on top of the MVP
 diorama:
 
-- **IdentityReflectionPanel** — sits between the Dragonfly guide bar
+- **IdentityReflectionPanel** — sits between the field guide bar
   and the diorama. Renders `data.identity_reflection.text` verbatim
   in a soft italic style. Hidden when the server returns `null`.
 - **RelationshipMomentsPanel** — sits after the diorama. Renders one
@@ -1040,9 +1040,9 @@ No comment field. No share button. No external link reachable by the
 kid (per the app-store compliance checklist: *"No external links
 reachable by kids in Phase 1"*).
 
-### Dragonfly guide
+### Field Guide
 
-A small in-scene character — Dragonfly — surfaces short,
+A small field-guide marker surfaces short,
 *pre-authored* lines pointing the kid at the next outdoor thing to
 look for. The lines are static content shipped in JSON. There is no
 chat. There is no on-demand generation. Per `AGENTS.md`:
@@ -1051,7 +1051,7 @@ chat. There is no on-demand generation. Per `AGENTS.md`:
 ### mystery cues
 
 Not-yet-unlocked content is rendered as faint silhouettes or empty
-patches with a one-line Dragonfly-guide nudge ("look for bugs in
+patches with a one-line field-guide nudge ("look for bugs in
 the grass" / "check under leaves"). The kid sees "there is more out
 there" without being told what species count as which thing —
 preserving the surprise of real discovery. Never reveals the answer.

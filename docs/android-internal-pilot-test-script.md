@@ -75,7 +75,7 @@ Internal testing track. No classroom rollout. No public release.
   (same flow exercised by `scripts/smoke_azure_parent_kid.py`).
 - [ ] Create the kid account from the parent account in the parents web app.
   The kid-create flow renders a QR handoff modal whose payload is
-  `dragonfly.kid-handoff.v2` per Phase 7. Have the kid's device ready
+  `hinterland.kid-handoff.v1` per Phase 7. Have the kid's device ready
   to scan.
 
 ## Kid flow (adult-supervised; the kid is the one tapping)

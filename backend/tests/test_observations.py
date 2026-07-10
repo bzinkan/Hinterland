@@ -130,7 +130,7 @@ def _photo_row(status: str = "pending") -> models.Photo:
     return models.Photo(
         id=_PHOTO_ID,
         user_id=_USER_ID,
-        bucket="dragonfly-photos-test",
+        bucket="hinterland-photos-test",
         object_name=f"pending/{_PHOTO_ID}.jpg",
         status=status,
         attachment_status="reserved",
@@ -767,7 +767,7 @@ def _obs_with_photo(
     photo = models.Photo(
         id=f"PHOTO{obs_id[:21]}",
         user_id=_USER_ID,
-        bucket="dragonfly-photos-test",
+        bucket="hinterland-photos-test",
         object_name=f"pending/{obs_id}.jpg",
         status="pending",
         content_type="image/jpeg",

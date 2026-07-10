@@ -32,10 +32,7 @@ INAT_REFRESH_RG=hinterland-dev-rg
 INAT_REFRESH_SECRET=inat-oauth-token
 ```
 
-The Container App still receives the secret as `DRAGONFLY_INAT_OAUTH_TOKEN`
-for compatibility while the backend settings layer also accepts
-`HINTERLAND_INAT_OAUTH_TOKEN` if/when the active environment moves that secret
-name:
+The Container App receives the secret as `HINTERLAND_INAT_OAUTH_TOKEN`.
 
 ```bash
 INAT_REFRESH_VAULT=hinterland-kv-dev \
@@ -68,7 +65,7 @@ Once iNat approves the Hinterland OAuth app (account-age + improving-ID gates pe
 
 1. Register the OAuth app, capture `client_id` + `client_secret`
 2. Store both in Key Vault as `inat-oauth-client-id` + `inat-oauth-client-secret`
-3. Replace this script with a Container Apps Job using the password grant (long-lived bearer tokens — no daily rotation)
+3. Replace this script with a Container Apps Job using the password grant (long-lived bearer tokens, with no daily rotation)
 4. Delete this README
 
 Path to OAuth-app eligibility:

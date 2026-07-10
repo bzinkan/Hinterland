@@ -105,9 +105,9 @@ Device: Samsung Galaxy S21 Ultra (SM-G998U), Android 15, new architecture
       M2 data-driven scene with the web platform-split per the
       cross-platform addendum below)
 
-One field note: the deep link `exp+dragonfly://expo-development-client/…`
+One field note: the deep link `exp+hinterland://expo-development-client/…`
 is also claimed by Expo Go when installed — launch the dev client
-explicitly (`adb shell am start -n com.dragonfly.app.dev/.MainActivity -a
+explicitly (`adb shell am start -n app.thehinterlandguide.dev/.MainActivity -a
 android.intent.action.VIEW -d "<link>"`) or pick the server from the dev
 client's launcher UI.
 

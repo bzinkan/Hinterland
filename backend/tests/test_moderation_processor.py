@@ -27,7 +27,7 @@ from app.moderation.provider import ModerationResult, ModerationUnavailable
 _PHOTO_ID = "01J0PHOTOID00000000000ULID"
 _OBS_ID = "01J0OBSID00000000000000ULID"
 _GROUP_ID = "01J0GROUPID00000000000ULID"
-_BUCKET = "dragonfly-photos-test"
+_BUCKET = "hinterland-photos-test"
 _OBJECT_NAME = f"pending/finalized/{_PHOTO_ID}.jpg"
 
 
@@ -501,7 +501,7 @@ async def test_clean_with_observation_and_inat_disabled_default_skips_outbox(
 
     # SB configured but inat_submit_enabled defaults to False.
     settings = Settings(
-        env="local", service_bus_namespace="dragonfly-sb-test.servicebus.windows.net"
+        env="local", service_bus_namespace="hinterland-sb-test.servicebus.windows.net"
     )
 
     result = await process_pending_photo(
@@ -584,7 +584,7 @@ async def test_clean_with_inat_enabled_and_successful_enqueue_flips_outbox(
 
     settings = Settings(
         env="local",
-        service_bus_namespace="dragonfly-sb-test.servicebus.windows.net",
+        service_bus_namespace="hinterland-sb-test.servicebus.windows.net",
         inat_submit_enabled=True,
     )
 

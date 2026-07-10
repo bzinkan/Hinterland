@@ -8,7 +8,7 @@
 
 ## Context
 
-Dragonfly has two separate mapping needs, each with different requirements and different "right answers":
+Hinterland has two separate mapping needs, each with different requirements and different "right answers":
 
 1. **In-app map rendering.** Phase 2's territory claim view. A kid sees tiles they've unlocked by observing in different geohash cells. They pan around, see their group's claims, maybe a teacher zooms in to a field-trip location. This is UI surface area.
 2. **Location data enrichment.** Turning `(40.71, -74.00)` into "near Central Park" for observation display, and serving "three closest parks" results in the "Start where you are" onboarding flow. This is backend API calls, mostly cacheable.
@@ -22,7 +22,7 @@ At the same time, the open mapping ecosystem has matured substantially. MapLibre
 
 ## Decision
 
-**Use MapLibre GL with OpenStreetMap tiles for all in-app map rendering. Use Google Maps Platform's data APIs (Geocoding, Places) server-side for location enrichment. Do not embed the Google Maps SDK in the Dragonfly mobile app.**
+**Use MapLibre GL with OpenStreetMap tiles for all in-app map rendering. Use Google Maps Platform's data APIs (Geocoding, Places) server-side for location enrichment. Do not embed the Google Maps SDK in the Hinterland mobile app.**
 
 Concretely:
 
@@ -47,10 +47,10 @@ Geocoding cache key: the raw lat/lng is rounded to 4 decimal places (~11m precis
 ### Negative
 
 - **Two vendors instead of one.** Google for data, whoever-provides-OSM-tiles for rendering. Monitoring, outage handling, and billing are split. Mitigation: both are read-heavy and cacheable — a 30-minute tile provider outage is a degraded-mode UX, not a broken app.
-- **OSM data quality varies regionally.** In rural US areas and internationally, OSM tiles may be sparser than Google's. Dragonfly's initial focus (US schools and families) is fine here; international expansion would warrant a re-look.
-- **MapLibre requires styling work.** Google Maps has a default style that just works. MapLibre needs a style JSON to be chosen or authored. Initial plan: use the Stadia "Outdoors" or "Osm Bright" style off the shelf for Phase 2, invest in a custom Dragonfly style only if it becomes a brand priority.
+- **OSM data quality varies regionally.** In rural US areas and internationally, OSM tiles may be sparser than Google's. Hinterland's initial focus (US schools and families) is fine here; international expansion would warrant a re-look.
+- **MapLibre requires styling work.** Google Maps has a default style that just works. MapLibre needs a style JSON to be chosen or authored. Initial plan: use the Stadia "Outdoors" or "Osm Bright" style off the shelf for Phase 2, invest in a custom Hinterland style only if it becomes a brand priority.
 - **Tile provider is a critical dependency.** If the chosen provider (Stadia, Protomaps, self-host) goes down or changes terms, the map goes blank. Mitigation: MapLibre style specs are portable across providers — swapping providers is a one-line config change, not a rewrite.
-- **Loss of Google SDK features we don't use.** Directions, indoor maps, 3D buildings, traffic overlays. None of these are on Dragonfly's roadmap in any phase. No real cost.
+- **Loss of Google SDK features we don't use.** Directions, indoor maps, 3D buildings, traffic overlays. None of these are on Hinterland's roadmap in any phase. No real cost.
 
 ### Neutral
 
@@ -61,7 +61,7 @@ Geocoding cache key: the raw lat/lng is rounded to 4 decimal places (~11m precis
 
 ### All-in on Google Maps Platform (SDK + data APIs)
 
-**Rejected.** This is the "obvious" choice that most tutorials point to, and it's the wrong one for this app. Per-map-view pricing penalizes the exact engagement we're trying to drive (territory map opens). The SDK's UI affordances (Street View tap-through most prominently) are wrong for a kid-facing app. On-screen attribution requirements clutter a precious UI. And we gain nothing in Dragonfly's feature set that OSM can't provide.
+**Rejected.** This is the "obvious" choice that most tutorials point to, and it's the wrong one for this app. Per-map-view pricing penalizes the exact engagement we're trying to drive (territory map opens). The SDK's UI affordances (Street View tap-through most prominently) are wrong for a kid-facing app. On-screen attribution requirements clutter a precious UI. And we gain nothing in Hinterland's feature set that OSM can't provide.
 
 Would become the right call if Google offered a "kids app tier" with SDK feature restrictions and pricing that didn't punish engagement — neither exists.
 
@@ -77,7 +77,7 @@ We could self-host for Phase 3+ if Google's data-API costs become a line item we
 
 ### Mapbox GL (not MapLibre)
 
-**Considered and rejected in favor of MapLibre.** Mapbox GL is the proprietary version MapLibre was forked from; it's higher-polish but has a free tier and per-view pricing on the paid tiers. For a greenfield project starting in 2026, MapLibre is the more defensible choice: identical rendering capabilities in the code paths Dragonfly uses, genuinely open license, no pricing-change risk, larger community contributor base post-fork. If Mapbox ships a compelling feature MapLibre lacks (the main candidates are realtime traffic and 3D terrain at polish-level), revisit — but neither is on our roadmap.
+**Considered and rejected in favor of MapLibre.** Mapbox GL is the proprietary version MapLibre was forked from; it's higher-polish but has a free tier and per-view pricing on the paid tiers. For a greenfield project starting in 2026, MapLibre is the more defensible choice: identical rendering capabilities in the code paths Hinterland uses, genuinely open license, no pricing-change risk, larger community contributor base post-fork. If Mapbox ships a compelling feature MapLibre lacks (the main candidates are realtime traffic and 3D terrain at polish-level), revisit — but neither is on our roadmap.
 
 ## Follow-ups
 

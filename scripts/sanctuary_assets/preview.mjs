@@ -28,7 +28,7 @@ const SPRITE_PLACEMENTS = {
   pond: [
     ["svg/sprites/scenery/rock-large-a.svg", 122, 254, 0.7],
     ["svg/sprites/elements/pond-bullfrog.svg", 190, 252, 0.5],
-    ["svg/sprites/elements/pond-dragonfly.svg", 340, 240, 0.4],
+    ["svg/sprites/elements/pond-winged-insect.svg", 340, 240, 0.4],
     ["svg/sprites/scenery/rock-small-d.svg", 396, 252, 0.35],
   ],
 };

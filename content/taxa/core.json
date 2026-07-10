@@ -22,7 +22,7 @@
     {"taxon_id": 47157, "scientific_name": "Lepidoptera", "common_name": "Butterflies and Moths", "rank": "order", "iconic_taxon": "Insecta", "ancestor_ids": [], "aliases": ["butterfly", "moth"]},
     {"taxon_id": 47201, "scientific_name": "Hymenoptera", "common_name": "Ants, Bees, Wasps, and Sawflies", "rank": "order", "iconic_taxon": "Insecta", "ancestor_ids": [], "aliases": ["ant", "bee", "wasp", "sawfly"]},
     {"taxon_id": 47208, "scientific_name": "Coleoptera", "common_name": "Beetles", "rank": "order", "iconic_taxon": "Insecta", "ancestor_ids": [], "aliases": ["beetle", "beetles"]},
-    {"taxon_id": 47792, "scientific_name": "Odonata", "common_name": "Dragonflies and Damselflies", "rank": "order", "iconic_taxon": "Insecta", "ancestor_ids": [], "aliases": ["dragonfly", "damselfly"]},
+    {"taxon_id": 47792, "scientific_name": "Odonata", "common_name": "Odonata and Damselflies", "rank": "order", "iconic_taxon": "Insecta", "ancestor_ids": [], "aliases": ["damselfly"]},
     {"taxon_id": 47822, "scientific_name": "Diptera", "common_name": "Flies", "rank": "order", "iconic_taxon": "Insecta", "ancestor_ids": [], "aliases": ["fly", "flies"]},
     {"taxon_id": 47735, "scientific_name": "Diplopoda", "common_name": "Millipedes", "rank": "class", "iconic_taxon": "Animalia", "ancestor_ids": [], "aliases": ["millipede", "millipedes"]},
     {"taxon_id": 48147, "scientific_name": "Isopoda", "common_name": "Isopods", "rank": "order", "iconic_taxon": "Animalia", "ancestor_ids": [], "aliases": ["isopod", "woodlouse", "pillbug"]},

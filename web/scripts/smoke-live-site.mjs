@@ -1,7 +1,7 @@
 const baseUrl = (process.env.LANDING_BASE_URL || "https://thehinterlandguide.app").replace(/\/+$/, "");
 
 const routes = [
-  { path: "/", title: "Dragonfly", canonical: "https://thehinterlandguide.app/" },
+  { path: "/", title: "The Hinterland Guide", canonical: "https://thehinterlandguide.app/" },
   { path: "/privacy", title: "Privacy", canonical: "https://thehinterlandguide.app/privacy" },
   { path: "/terms", title: "Terms", canonical: "https://thehinterlandguide.app/terms" },
   { path: "/support", title: "Support", canonical: "https://thehinterlandguide.app/support" },
@@ -10,7 +10,7 @@ const routes = [
 
 const failures = [];
 const pages = new Map();
-const pilotMailtoSubject = "mailto:support@thehinterlandguide.app?subject=Dragonfly%20pilot%20access%20request";
+const pilotMailtoSubject = "mailto:support@thehinterlandguide.app?subject=The%20Hinterland%20Guide%20pilot%20access%20request";
 const pilotMailtoFields = [
   "Parent%2Fguardian%20name%3A",
   "Email%3A",
@@ -49,7 +49,7 @@ async function fetchPage(route) {
   let response = await fetch(url, {
     headers: {
       "Cache-Control": "no-cache",
-      "User-Agent": "DragonflyLandingSmoke/1.0",
+      "User-Agent": "HinterlandGuideLandingSmoke/1.0",
     },
   });
 
@@ -58,7 +58,7 @@ async function fetchPage(route) {
     response = await fetch(fallbackUrl, {
       headers: {
         "Cache-Control": "no-cache",
-        "User-Agent": "DragonflyLandingSmoke/1.0",
+        "User-Agent": "HinterlandGuideLandingSmoke/1.0",
       },
     });
   }

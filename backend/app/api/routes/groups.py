@@ -408,7 +408,7 @@ async def create_kid(
         settings=settings,
     )
     handoff_expires_at = datetime.now(UTC) + timedelta(
-        seconds=settings.dragonfly_handoff_ttl_seconds
+        seconds=settings.hinterland_handoff_ttl_seconds
     )
 
     log.info(

@@ -286,7 +286,7 @@ def test_kid_exchange_happy_path(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Valid handoff JWT -> 200 with a fresh session JWT and the kid user."""
-    if not hasattr(auth_routes_module, "verify_dragonfly_jwt"):
+    if not hasattr(auth_routes_module, "verify_hinterland_jwt"):
         pytest.skip("kid-exchange route not present yet")
 
     exp_unix = int((datetime.now(UTC) + timedelta(minutes=15)).timestamp())
@@ -307,7 +307,7 @@ def test_kid_exchange_happy_path(
             "token_type": "handoff",
         }
 
-    monkeypatch.setattr(auth_routes_module, "verify_dragonfly_jwt", fake_verify)
+    monkeypatch.setattr(auth_routes_module, "verify_hinterland_jwt", fake_verify)
     monkeypatch.setattr(
         auth_routes_module,
         "mint_session_token",
@@ -344,13 +344,13 @@ def test_kid_exchange_rejects_replayed_jti(
     the route maps it to 409. 401 would be wrong -- the token itself is
     not invalid; it's just already been spent.
     """
-    if not hasattr(auth_routes_module, "verify_dragonfly_jwt"):
+    if not hasattr(auth_routes_module, "verify_hinterland_jwt"):
         pytest.skip("kid-exchange route not present yet")
 
     exp_unix = int((datetime.now(UTC) + timedelta(minutes=15)).timestamp())
     monkeypatch.setattr(
         auth_routes_module,
-        "verify_dragonfly_jwt",
+        "verify_hinterland_jwt",
         lambda token, *, settings, expected_token_type=None: {
             "sub": "01J0KIDEXCHANGEID0000000UL",
             "jti": "01HANDOFFJTI00000000000000",
@@ -383,17 +383,17 @@ def test_kid_exchange_rejects_invalid_token(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """A handoff JWT failing signature/expiry/audience -> 401."""
-    if not hasattr(auth_routes_module, "verify_dragonfly_jwt"):
+    if not hasattr(auth_routes_module, "verify_hinterland_jwt"):
         pytest.skip("kid-exchange route not present yet")
-    if not hasattr(auth_routes_module, "InvalidDragonflyJwt"):
-        pytest.skip("InvalidDragonflyJwt not present yet")
+    if not hasattr(auth_routes_module, "InvalidHinterlandJwt"):
+        pytest.skip("InvalidHinterlandJwt not present yet")
 
-    invalid_exc = auth_routes_module.InvalidDragonflyJwt("Expired handoff token")
+    invalid_exc = auth_routes_module.InvalidHinterlandJwt("Expired handoff token")
 
     def fake_verify(token: str, *, settings: Settings, expected_token_type: str | None = None):
         raise invalid_exc
 
-    monkeypatch.setattr(auth_routes_module, "verify_dragonfly_jwt", fake_verify)
+    monkeypatch.setattr(auth_routes_module, "verify_hinterland_jwt", fake_verify)
 
     response = kid_exchange_client.post(
         "/v1/auth/kid-exchange",
@@ -404,18 +404,10 @@ def test_kid_exchange_rejects_invalid_token(
     assert response.headers["www-authenticate"] == "Bearer"
 
 
-@pytest.mark.parametrize(
-    "path",
-    [
-        "/.well-known/dragonfly-kid-jwks.json",
-        "/.well-known/hinterland-kid-jwks.json",
-    ],
-)
 def test_kid_jwks_endpoint_returns_keys(
     monkeypatch: pytest.MonkeyPatch,
-    path: str,
 ) -> None:
-    """Both additive-rebrand JWKS paths return the published key set."""
+    """The public Hinterland JWKS endpoint returns the published key set."""
     if not hasattr(auth_routes_module, "public_jwks"):
         pytest.skip("public_jwks not present yet")
 
@@ -438,7 +430,7 @@ def test_kid_jwks_endpoint_returns_keys(
 
     app = create_app(Settings(env="local", app_version="test"))
     with TestClient(app) as test_client:
-        response = test_client.get(path)
+        response = test_client.get("/.well-known/hinterland-kid-jwks.json")
 
     assert response.status_code == 200
     body = response.json()

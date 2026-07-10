@@ -43,7 +43,7 @@
     },
     {
       "id": "new_wings",
-      "description": "Find a new dragonfly, damselfly, butterfly, or moth",
+      "description": "Find a new damselfly, butterfly, or moth",
       "match": {
         "kind": "all_of",
         "matches": [
@@ -57,7 +57,7 @@
           }
         ]
       },
-      "hint": "Dragonflies patrol water and sunny clearings. Butterflies work the flowers. Moths wait near lights."
+      "hint": "Odonata patrol water and sunny clearings. Butterflies work the flowers. Moths wait near lights."
     },
     {
       "id": "new_ground",

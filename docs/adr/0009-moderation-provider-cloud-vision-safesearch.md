@@ -9,7 +9,7 @@
 
 ## Context
 
-`docs/moderation.md` specifies the full pipeline: photos arrive in `gs://dragonfly-photos-<env>-<project>/pending/<obs_id>.jpg` via signed PUT, an Eventarc `google.cloud.storage.object.v1.finalized` trigger fires a moderation Cloud Run service, and that service moves the object to `observations/` (clean) or `quarantine/` (flagged) and writes a `review_queue` row in the flag case. None of that depends on the provider.
+`docs/moderation.md` specifies the full pipeline: photos arrive in `gs://hinterland-photos-<env>-<project>/pending/<obs_id>.jpg` via signed PUT, an Eventarc `google.cloud.storage.object.v1.finalized` trigger fires a moderation Cloud Run service, and that service moves the object to `observations/` (clean) or `quarantine/` (flagged) and writes a `review_queue` row in the flag case. None of that depends on the provider.
 
 What is *not* yet decided is which provider the moderation Cloud Run service calls. `docs/moderation.md` flags Cloud Vision SafeSearch as the leading candidate but defers the choice to "a follow-up ADR." Phase 8 (async workers, per `AGENTS.md`) is blocked on this decision because the worker can't be implemented until the provider's request/response shape is settled.
 
@@ -20,7 +20,7 @@ The choice has to satisfy:
 3. **GCP-native preferred.** Per ADR 0005, we run on GCP. Cross-cloud calls add IAM federation, network egress cost, and an extra failure mode without product benefit.
 4. **No kid-facing runtime LLM.** ADR 0002 and ADR 0007 forbid live LLM calls on the kid request path. The moderation worker is *not* on the kid's request path (it's an Eventarc-triggered post-upload worker), so an LLM call here is not strictly forbidden by either ADR — but the spirit of those ADRs (no opaque, prompt-engineered classifier in the safety boundary for child users) still applies. A purpose-built classifier with a labeled response is preferred to a vision-LLM here.
 5. **Auditable.** When a teacher reviews a quarantined photo, the UI needs to surface *why* it was flagged. Provider response must include named labels and confidence, not opaque scores.
-6. **Tunable without redeploy.** `docs/moderation.md` already specifies `DRAGONFLY_MODERATION_THRESHOLD` and `DRAGONFLY_MODERATION_FLAG_LABELS` env vars. The provider's response shape has to fit that contract.
+6. **Tunable without redeploy.** `docs/moderation.md` already specifies `HINTERLAND_MODERATION_THRESHOLD` and `HINTERLAND_MODERATION_FLAG_LABELS` env vars. The provider's response shape has to fit that contract.
 
 ## Decision
 
@@ -42,7 +42,7 @@ Rationale for the per-label thresholds:
 - **`medical`**: kids photographing nature will sometimes capture animal injuries, road-killed wildlife, or specimens that read as "medical content" to SafeSearch. Flagging at `LIKELY` over-quarantines legitimate observations. `VERY_LIKELY` keeps real medical imagery (surgical, gore, etc.) in the gate without sending every roadside-skunk photo to teacher review.
 - **`spoof`**: SafeSearch's `spoof` label flags meme-modified or doctored images. It is not a child-safety category. Surfacing it here would be category drift; if anti-meme rules ever matter (Phase 2+), they get their own ADR.
 
-These defaults populate `DRAGONFLY_MODERATION_FLAG_LABELS` and `DRAGONFLY_MODERATION_THRESHOLD` (the threshold maps to the SafeSearch likelihood enum). Both are revision-level env vars on the moderation Cloud Run service so we can tighten or loosen without a code change — see `docs/moderation.md` "Moderation provider configuration."
+These defaults populate `HINTERLAND_MODERATION_FLAG_LABELS` and `HINTERLAND_MODERATION_THRESHOLD` (the threshold maps to the SafeSearch likelihood enum). Both are revision-level env vars on the moderation Cloud Run service so we can tighten or loosen without a code change — see `docs/moderation.md` "Moderation provider configuration."
 
 ### Region
 
@@ -104,8 +104,8 @@ Moderation failures (Vision 5xx, throttle, network fault) are **non-2xx returns 
 
 - **Phase 8 implementation.** Build the moderation Cloud Run service against SafeSearch. The interface in `docs/moderation.md` ("Moderation provider configuration" and "What the moderation Cloud Run service writes") is the spec.
 - **Default env vars.** When the moderation Cloud Run service ships, set:
-  - `DRAGONFLY_MODERATION_FLAG_LABELS = ["adult","violence","racy","medical"]`
-  - `DRAGONFLY_MODERATION_THRESHOLD = "LIKELY"` (with the `medical=VERY_LIKELY` override applied in code, since SafeSearch is per-label)
+  - `HINTERLAND_MODERATION_FLAG_LABELS = ["adult","violence","racy","medical"]`
+  - `HINTERLAND_MODERATION_THRESHOLD = "LIKELY"` (with the `medical=VERY_LIKELY` override applied in code, since SafeSearch is per-label)
   Document the override in the moderation service README.
 - **Regional endpoint.** Use `us-central1-vision.googleapis.com` for the Vision API call. Verify in the worker's startup log that the configured endpoint is regional, not global.
 - **Cost alarm.** Add a Cloud Monitoring alarm at 2x expected monthly Vision API spend (initial expectation ~$45 → alarm at $90).

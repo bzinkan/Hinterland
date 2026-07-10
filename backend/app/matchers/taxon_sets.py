@@ -17,7 +17,7 @@ _TAXON_SET_FILENAME = "expedition_taxon_sets.json"
 
 
 def _candidate_paths() -> list[Path]:
-    override = os.environ.get("DRAGONFLY_TAXON_SETS_PATH")
+    override = os.environ.get("HINTERLAND_TAXON_SETS_PATH")
     paths: list[Path] = []
     if override:
         paths.append(Path(override))

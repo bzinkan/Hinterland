@@ -23,7 +23,7 @@ export const TERRAIN_SIZE = 26; // world units, square, centered on origin
 export const TERRAIN_SEGMENTS = 96; // grid resolution per side
 export const ISLAND_RADIUS = 9.2;
 export const WATER_LEVEL = -0.18; // pond water surface height
-const SEED = fnv1a32("dragonfly-sanctuary-island-v1");
+const SEED = fnv1a32("hinterland-sanctuary-island-v1");
 
 // ---------------------------------------------------------------------------
 // Seeded value noise (lattice + smoothstep), 3 octaves.

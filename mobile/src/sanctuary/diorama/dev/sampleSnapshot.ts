@@ -113,7 +113,7 @@ export function makeSampleSnapshot(tier: number): SanctuarySnapshotDto {
   }
   if (tiers.pond >= 3) {
     elements.push(
-      element("dev_pond_dragonfly", "pond", "charismatic", "A dragonfly dances", "sanctuary.pond.dragonfly"),
+      element("dev_pond_damselfly", "pond", "charismatic", "A damselfly dances", "sanctuary.pond.damselfly"),
     );
   }
   if (tiers.sky >= 1) {
@@ -147,7 +147,7 @@ export function makeSampleSnapshot(tier: number): SanctuarySnapshotDto {
     elements,
     recent_events: [],
     guide_message: {
-      speaker: "dragonfly",
+      speaker: "guide",
       text:
         tier === 0
           ? "Your Sanctuary is quiet. One real observation can wake it up."

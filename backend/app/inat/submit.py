@@ -52,7 +52,7 @@ _COORD_DECIMAL_PLACES = 2
 async def submit_observation_to_inat(
     inat_client: httpx.AsyncClient,
     *,
-    dragonfly_observation_id: str,
+    hinterland_observation_id: str,
     photo_bytes: bytes,
     latitude: float | None,
     longitude: float | None,
@@ -65,7 +65,7 @@ async def submit_observation_to_inat(
     if not egress_enabled:
         log.warning(
             "inat.submit.blocked_by_kill_switch",
-            dragonfly_observation_id=dragonfly_observation_id,
+            hinterland_observation_id=hinterland_observation_id,
         )
         raise InatUnavailable("iNat observation/photo egress is disabled")
     if (latitude is None) != (longitude is None):
@@ -74,7 +74,7 @@ async def submit_observation_to_inat(
     # Step 1: create the observation. Use Hinterland's id as the iNat
     # uuid -- gives idempotency for free under Cloud Tasks redelivery.
     observation_payload: dict[str, object] = {
-        "uuid": dragonfly_observation_id,
+        "uuid": hinterland_observation_id,
         "observed_on_string": observed_on.isoformat(),
     }
     if latitude is not None and longitude is not None:
@@ -124,7 +124,7 @@ async def submit_observation_to_inat(
     inat_observation_id: int = raw_id
 
     # Step 2: attach the photo via /v1/observation_photos.
-    files = {"file": (f"{dragonfly_observation_id}.jpg", photo_bytes, "image/jpeg")}
+    files = {"file": (f"{hinterland_observation_id}.jpg", photo_bytes, "image/jpeg")}
     data = {"observation_photo[observation_id]": str(inat_observation_id)}
     try:
         photo_res = await inat_client.post(
@@ -155,10 +155,10 @@ async def submit_observation_to_inat(
 
     log.info(
         "inat.submit.complete",
-        dragonfly_observation_id=dragonfly_observation_id,
+        hinterland_observation_id=hinterland_observation_id,
         inat_observation_id=inat_observation_id,
     )
     return InatSubmitResult(
         inat_observation_id=inat_observation_id,
-        inat_uuid=dragonfly_observation_id,
+        inat_uuid=hinterland_observation_id,
     )

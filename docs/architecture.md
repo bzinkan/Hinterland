@@ -71,8 +71,7 @@ Kids never enter email/password. A parent/teacher provisions a kid, the backend
 mints a 15-minute single-use Hinterland handoff JWT, and the kid app exchanges
 that at `POST /v1/auth/kid-exchange` for a 30-day Hinterland session JWT.
 Hinterland kid JWTs are RS256 and are verified against
-`/.well-known/dragonfly-kid-jwks.json` (the path keeps the legacy name; it is a
-deployed client contract — see ADR 0013).
+`/.well-known/hinterland-kid-jwks.json`.
 
 The backend augments request identity from Postgres on every real token path:
 `CurrentUser.uid` is the canonical local `users.id`. Route code should resolve

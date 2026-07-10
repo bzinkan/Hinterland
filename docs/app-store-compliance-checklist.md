@@ -12,7 +12,7 @@ smokes in [`landing-deploy-runbook.md`](landing-deploy-runbook.md).
 The first store surface is Google Play Internal Testing for a tiny,
 adult-supervised W1 pilot.
 
-- [x] `play-internal` uses stable package `com.dragonfly.app`.
+- [x] `play-internal` uses stable package `app.thehinterlandguide`.
 - [x] `play-internal` display name is `Hinterland Internal`.
 - [x] `play-internal` blocks `ACCESS_FINE_LOCATION`.
 - [x] `play-internal` explicitly requests `ACCESS_COARSE_LOCATION`.

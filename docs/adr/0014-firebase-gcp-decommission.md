@@ -71,9 +71,9 @@ resources, verify:
 After those gates, the external cleanup order is:
 
 1. Remove unused GitHub GCP/Firebase secrets.
-2. Delete/deactivate Firebase Hosting sites `dragonfly-parents-dev` and
-   `dragonfly-landing-dev`.
-3. Disable Firebase Auth/project usage for `dragonflyapp-495423`.
+2. Delete/deactivate Firebase Hosting sites `hinterland-parents-dev` and
+   `hinterland-landing-dev`.
+3. Disable Firebase Auth/project usage for `hinterlandapp-495423`.
 4. Delete the Cloud DNS zone only after every record is recreated and verified
    in Azure DNS or the active registrar/DNS provider.
 5. Delete the GCS bucket and old Cloud SQL instance only after explicit data
@@ -86,5 +86,5 @@ After those gates, the external cleanup order is:
 - Firebase SDK removal shrinks the mobile dependency graph and removes the old
   native adult password form.
 - Rollback to the old GCP stack is no longer a supported operational path.
-- The `DRAGONFLY_*` env prefix, bundle ids, and JWKS path remain compatibility
+- The `HINTERLAND_*` env prefix, bundle ids, and JWKS path remain compatibility
   names until separately migrated under ADR 0013/0012.

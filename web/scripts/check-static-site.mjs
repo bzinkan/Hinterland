@@ -23,7 +23,7 @@ const favicon = read("public/favicon.svg");
 const touchIconPng = readBinary("public/apple-touch-icon.png");
 
 const failures = [];
-const pilotMailtoSubject = "mailto:support@thehinterlandguide.app?subject=Dragonfly%20pilot%20access%20request";
+const pilotMailtoSubject = "mailto:support@thehinterlandguide.app?subject=The%20Hinterland%20Guide%20pilot%20access%20request";
 const pilotMailtoFields = [
   "Parent%2Fguardian%20name%3A",
   "Email%3A",
@@ -124,16 +124,16 @@ function expectPngDimensions(file, buffer, width, height) {
 
 expectIncludes("public/index.html", "Turn backyard curiosity into real science.");
 expectIncludes("public/index.html", "curious explorers of all ages");
-expectIncludes("public/index.html", "<title>Dragonfly &mdash; Real nature, real science for curious kids</title>");
-expectIncludes("public/index.html", 'content="Dragonfly is a field app for kids ages 9&ndash;12. Kids log real outdoor observations, build a personal Dex, complete nature expeditions, and grow their own Sanctuary."');
+expectIncludes("public/index.html", "<title>The Hinterland Guide &mdash; Real nature, real science for curious kids</title>");
+expectIncludes("public/index.html", 'content="The Hinterland Guide is a field app for kids ages 9&ndash;12. Kids log real outdoor observations, build a personal Dex, complete nature expeditions, and grow their own Sanctuary."');
 expectIncludes("public/index.html", '<link rel="canonical" href="https://thehinterlandguide.app/">');
 expectIncludes("public/index.html", '<meta name="robots" content="index,follow">');
 expectIncludes("public/index.html", '<meta name="theme-color" content="#2f6f4e">');
-expectIncludes("public/index.html", '<meta property="og:title" content="Dragonfly &mdash; Turn backyard curiosity into real science">');
+expectIncludes("public/index.html", '<meta property="og:title" content="The Hinterland Guide &mdash; Turn backyard curiosity into real science">');
 expectIncludes("public/index.html", '<meta property="og:description" content="An invite-only field app where kids make real nature observations and grow a living Sanctuary from what they discover.">');
 expectIncludes("public/index.html", '<meta property="og:image" content="https://thehinterlandguide.app/social-card.png">');
 expectIncludes("public/index.html", '<meta name="twitter:card" content="summary_large_image">');
-expectIncludes("public/index.html", '<meta name="twitter:title" content="Dragonfly &mdash; Turn backyard curiosity into real science">');
+expectIncludes("public/index.html", '<meta name="twitter:title" content="The Hinterland Guide &mdash; Turn backyard curiosity into real science">');
 expectIncludes("public/index.html", '<meta name="twitter:image" content="https://thehinterlandguide.app/social-card.png">');
 expectIncludes("public/index.html", '<link rel="apple-touch-icon" href="/apple-touch-icon.png">');
 expectIncludes("public/index.html", '<link rel="manifest" href="/site.webmanifest">');
@@ -145,12 +145,12 @@ expectIncludes("public/index.html", 'scroll-margin-top: 96px;');
 expectIncludes("public/index.html", '@media (prefers-reduced-motion: reduce)');
 expectIncludes("public/index.html", '@media (forced-colors: active)');
 expectIncludes("public/index.html", '-webkit-tap-highlight-color');
-expectIncludes("public/index.html", 'aria-label="Request Dragonfly pilot access by email"');
+expectIncludes("public/index.html", 'aria-label="Request The Hinterland Guide pilot access by email"');
 expectIncludes("public/index.html", "Request pilot access");
 expectIncludes("public/index.html", pilotMailtoSubject);
 expectIncludes("public/index.html", "Parent%2Fguardian%20name%3A%0D%0AEmail%3A");
 expectIncludes("public/index.html", "Please do not include your child&rsquo;s full name in this request.");
-expectIncludes("public/index.html", "Dragonfly is in a small supervised pilot. We&rsquo;ll reply if we can include your family in the next test group.");
+expectIncludes("public/index.html", "The Hinterland Guide is in a small supervised pilot. We&rsquo;ll reply if we can include your family in the next test group.");
 expectIncludes("public/index.html", "Known families only during this Internal Testing phase.");
 expectIncludes("public/index.html", "The pilot request email asks for adult contact details and kids&rsquo; age range only.");
 expectIncludes("public/index.html", "What happens next?");
@@ -163,10 +163,10 @@ expectIncludes("public/index.html", 'id="sanctuary"');
 expectIncludes("public/index.html", 'id="safety"');
 expectIncludes("public/index.html", 'id="pilot"');
 expectIncludes("public/index.html", 'id="faq"');
-expectIncludes("public/index.html", "Is Dragonfly public?");
-expectIncludes("public/index.html", "What data does Dragonfly collect?");
-expectIncludes("public/index.html", "Can teachers use Dragonfly?");
-expectIncludes("public/index.html", "Is Dragonfly available now?");
+expectIncludes("public/index.html", "Is The Hinterland Guide public?");
+expectIncludes("public/index.html", "What data does The Hinterland Guide collect?");
+expectIncludes("public/index.html", "Can teachers use The Hinterland Guide?");
+expectIncludes("public/index.html", "Is The Hinterland Guide available now?");
 expectIncludes("public/index.html", "How do I get support?");
 expectIncludes("public/index.html", "support@thehinterlandguide.app");
 expectIncludes("public/index.html", "privacy@thehinterlandguide.app");
@@ -175,7 +175,7 @@ expectIncludes("public/index.html", 'href="/terms"');
 expectIncludes("public/index.html", 'href="/support"');
 expectIncludes("public/index.html", 'href="/contact"');
 
-expectIncludes("public/privacy.html", "This page is written for the Dragonfly pilot and will be updated before broader release.");
+expectIncludes("public/privacy.html", "This page is written for the Hinterland Guide pilot and will be updated before broader release.");
 expectIncludes("public/privacy.html", "curious explorers of all ages");
 expectIncludes("public/privacy.html", "Organism photos");
 expectIncludes("public/privacy.html", "Observation location");
@@ -187,8 +187,8 @@ expectIncludes("public/privacy.html", "iNaturalist public submission is pilot-li
 expectIncludes("public/privacy.html", "privacy@thehinterlandguide.app");
 expectIncludes("public/privacy.html", "Last updated: June 10, 2026.");
 
-expectIncludes("public/terms.html", "Dragonfly is a beta/pilot product");
-expectIncludes("public/terms.html", "Kids should use Dragonfly only with adult permission");
+expectIncludes("public/terms.html", "The Hinterland Guide is a beta/pilot product");
+expectIncludes("public/terms.html", "Kids should use The Hinterland Guide only with adult permission");
 expectIncludes("public/terms.html", "No emergency or safety use");
 expectIncludes("public/terms.html", "Do not upload harmful, inappropriate");
 expectIncludes("public/terms.html", "No public social network features");
@@ -208,8 +208,8 @@ expectIncludes("public/contact.html", "Request pilot access");
 expectIncludes("public/contact.html", pilotMailtoSubject);
 expectIncludes("public/contact.html", "Parent%2Fguardian%20name%3A%0D%0AEmail%3A");
 expectIncludes("public/contact.html", "Please do not include your child&rsquo;s full name in this request.");
-expectIncludes("public/contact.html", "Dragonfly is in a small supervised pilot. We&rsquo;ll reply if we can");
-expectIncludes("public/contact.html", "Dragonfly is in limited Android testing");
+expectIncludes("public/contact.html", "The Hinterland Guide is in a small supervised pilot. We&rsquo;ll reply if we can");
+expectIncludes("public/contact.html", "The Hinterland Guide is in limited Android testing");
 
 for (const [file, url] of [
   ["public/privacy.html", "https://thehinterlandguide.app/privacy"],
@@ -261,7 +261,7 @@ const forbiddenCopy = [
   [/automatic iNaturalist submission/i, "automatic iNaturalist submission"],
   [/no location collected/i, "no location collected"],
   [/precise location is not collected/i, "precise-location reassurance"],
-  [/Dragonfly%20Android%20pilot/i, "old Android pilot mailto subject"],
+  [/The Hinterland Guide%20Android%20pilot/i, "old Android pilot mailto subject"],
   [/Kid%20age%20range/i, "old kid age mailto field"],
   [/Adult%20name%3A/i, "old adult name mailto field"],
   [/child(?:%27|'|&rsquo;)s%20full%20name%3A/i, "child full name mailto field"],
@@ -290,12 +290,12 @@ for (const [file, content] of Object.entries(pages)) {
   }
 }
 
-if (manifest.name !== "Dragonfly") {
-  failures.push("public/site.webmanifest must name the app Dragonfly");
+if (manifest.name !== "The Hinterland Guide") {
+  failures.push("public/site.webmanifest must name the app The Hinterland Guide");
 }
 
 if (manifest.theme_color !== "#2f6f4e") {
-  failures.push("public/site.webmanifest must use the Dragonfly theme color");
+  failures.push("public/site.webmanifest must use the Hinterland Guide theme color");
 }
 
 for (const icon of ["/favicon.svg", "/apple-touch-icon.png"]) {
@@ -333,14 +333,14 @@ for (const url of [
   }
 }
 
-for (const text of ["Dragonfly", "Real nature.", "Real science.", "Closed beta"]) {
+for (const text of ["The Hinterland Guide", "Real nature.", "Real science.", "Closed beta"]) {
   if (!socialCardSource.includes(text)) {
     failures.push(`public/social-card.svg is missing: ${text}`);
   }
 }
 
-if (!favicon.includes("Dragonfly")) {
-  failures.push("public/favicon.svg should include Dragonfly title text");
+if (!favicon.includes("The Hinterland Guide")) {
+  failures.push("public/favicon.svg should include The Hinterland Guide title text");
 }
 
 if (failures.length > 0) {

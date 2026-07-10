@@ -119,7 +119,7 @@ def _photo_row(status: str = "quarantine") -> models.Photo:
     return models.Photo(
         id=_PHOTO_ID,
         user_id=_KID_ID,
-        bucket="dragonfly-photos-test",
+        bucket="hinterland-photos-test",
         object_name=f"quarantine/{_PHOTO_ID}.jpg",
         status=status,
         content_type="image/jpeg",
@@ -420,13 +420,13 @@ def test_approve_happy_path_moves_photo_back_and_marks_review(
     # Photo was moved quarantine -> observations
     assert storage.copy_calls == [
         (
-            "dragonfly-photos-test",
+            "hinterland-photos-test",
             f"quarantine/{_PHOTO_ID}.jpg",
-            "dragonfly-photos-test",
+            "hinterland-photos-test",
             f"observations/{_PHOTO_ID}.jpg",
         )
     ]
-    assert storage.delete_calls == [("dragonfly-photos-test", f"quarantine/{_PHOTO_ID}.jpg")]
+    assert storage.delete_calls == [("hinterland-photos-test", f"quarantine/{_PHOTO_ID}.jpg")]
     assert photo.status == "clean"
     assert photo.object_name == f"observations/{_PHOTO_ID}.jpg"
     assert photo.canonical_object_name == photo.object_name

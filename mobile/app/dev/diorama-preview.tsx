@@ -26,7 +26,7 @@ const TIERS = [0, 1, 3, 5, 10, 20, 50] as const;
  * to see dormant scenes with silhouettes (tier 0), first wakes (step 0 ->
  * 1 while inside a scene), and fully grown biomes; tap a card to enter
  * its full-bleed scene, meadow first for the real backdrop art. Reach it
- * at exp+dragonfly://dev/diorama-preview. Same guarded require as
+ * at exp+hinterland://dev/diorama-preview. Same guarded require as
  * skia-smoke so pre-rebuild clients see a note instead of crashing.
  */
 export default function DioramaPreviewScreen() {

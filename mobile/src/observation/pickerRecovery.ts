@@ -2,7 +2,7 @@ import * as SecureStore from "expo-secure-store";
 
 import { createSubmissionUlid } from "@/src/observation/ulid";
 
-const PICKER_MARKER_KEY = "dragonfly.observation_picker_request.v1";
+const PICKER_MARKER_KEY = "hinterland.observation_picker_request.v1";
 const PICKER_MARKER_TTL_MS = 30 * 60_000;
 
 export type PickerRequestMarker = {

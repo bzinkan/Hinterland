@@ -8,7 +8,7 @@
 
 ## Context
 
-ADR 0005 picked GCP as the runtime. The full beta surface (Phases 0-11 + web follow-ups 1-5) was built and verified on GCP between 2026-05-05 and 2026-06-01. `https://parents.dragonfly-app.net` and `https://dragonfly-app.net` were part of that historical deployment.
+ADR 0005 picked GCP as the runtime. The full beta surface (Phases 0-11 + web follow-ups 1-5) was built and verified on GCP between 2026-05-05 and 2026-06-01. `https://parents.hinterland-app.net` and `https://hinterland-app.net` were part of that historical deployment.
 
 Two facts changed the calculation:
 
@@ -21,7 +21,7 @@ The non-negotiable invariants in AGENTS.md are cloud-agnostic and unchanged. Thi
 
 ## Decision
 
-Use the following Azure services for the Phase 1 target architecture, in subscription `5a04114f-9102-4e0b-828b-b385096edfbc` (tenant `3b7e8876-fd7e-4b71-b14f-f1bf9beb8e05`), resource group `dragonfly-dev-rg` in region `eastus2`:
+Use the following Azure services for the Phase 1 target architecture, in subscription `5a04114f-9102-4e0b-828b-b385096edfbc` (tenant `3b7e8876-fd7e-4b71-b14f-f1bf9beb8e05`), resource group `hinterland-dev-rg` in region `eastus2`:
 
 ### 1. Auth: Microsoft Entra External Identities (CIAM)
 
@@ -39,7 +39,7 @@ Rejected: Auth0 (third-party, not in the $1000 credit umbrella), Azure AD B2C (d
 
 Replaces Cloud SQL for PostgreSQL.
 
-One Burstable B1ms Flexible Server in `dragonfly-dev-rg` holds the same schema, migrated via `pg_dump` from the Cloud SQL dev instance. Public access with firewall rules in dev; private endpoint deferred to prod unless data residency or compliance requires it sooner.
+One Burstable B1ms Flexible Server in `hinterland-dev-rg` holds the same schema, migrated via `pg_dump` from the Cloud SQL dev instance. Public access with firewall rules in dev; private endpoint deferred to prod unless data residency or compliance requires it sooner.
 
 The SQLAlchemy + asyncpg + Alembic stack is unchanged. Only the connection URL changes (driver, host, sslmode). Alembic migrations run as-is.
 
@@ -49,7 +49,7 @@ Rejected: Cosmos DB for PostgreSQL (overprovisioned for our scale), Single Serve
 
 Replaces Cloud Storage.
 
-One Storage account `dragonflyphotosdev` (lowercase, alphanumeric — Azure account names have tight constraints) with a private container `photos`. Photo uploads use user-delegation SAS URLs (the SAS equivalent of GCS signed URLs); SafeSearch quarantine writes to the same container with a different prefix.
+One Storage account `hinterlandphotosdev` (lowercase, alphanumeric — Azure account names have tight constraints) with a private container `photos`. Photo uploads use user-delegation SAS URLs (the SAS equivalent of GCS signed URLs); SafeSearch quarantine writes to the same container with a different prefix.
 
 Photos in the existing GCS bucket are migrated via `azcopy` with a GCS service-account key. After cutover the GCS bucket is set to read-only for 7 days, then deleted.
 
@@ -65,7 +65,7 @@ Phase 1 keeps the synchronous moderation path (Cloud Tasks + Eventarc were plann
 
 Replaces Cloud Run.
 
-`dragonfly-api` runs on Azure Container Apps with min-replicas = 0, max-replicas = 3, in a Container Apps managed environment in `dragonfly-dev-rg`. The image is built from `backend/Dockerfile` (unchanged) and pushed to Azure Container Registry `dragonflyacrdev`.
+`hinterland-api` runs on Azure Container Apps with min-replicas = 0, max-replicas = 3, in a Container Apps managed environment in `hinterland-dev-rg`. The image is built from `backend/Dockerfile` (unchanged) and pushed to Azure Container Registry `hinterlandacrdev`.
 
 Rejected: App Service (less suited for containerized workloads), Container Instances (no scale-to-zero), AKS (operational burden for a beta).
 
@@ -73,7 +73,7 @@ Rejected: App Service (less suited for containerized workloads), Container Insta
 
 Replaces Secret Manager.
 
-Database passwords, Entra app client secrets, and the handoff-token signing key live in `dragonfly-kv-dev`. The Container App reads them via managed identity at startup; runtime env vars never carry plaintext secrets.
+Database passwords, Entra app client secrets, and the handoff-token signing key live in `hinterland-kv-dev`. The Container App reads them via managed identity at startup; runtime env vars never carry plaintext secrets.
 
 ### 7. Moderation: Azure AI Content Safety
 
@@ -147,7 +147,7 @@ Each phase is one PR (or a small group of related PRs) — same cadence as the G
 ## Consequences
 
 - Loses Firebase's mature mobile auth SDKs; gains an Azure-native flow we control end-to-end.
-- Adds a second cloud tenant (Entra External Identities is its own tenant separate from the management tenant `briandragonflyapp.onmicrosoft.com`).
+- Adds a second cloud tenant (Entra External Identities is its own tenant separate from the management tenant `brianhinterlandapp.onmicrosoft.com`).
 - The handoff-token mechanic gets reimagined; the QR shape from PR #69 stays, the contents change to a backend-signed JWT.
 - Five risk docs (0001-0006) continue to apply; new risk 0007 will track the migration cutover.
 - The GCP architecture work (5 weeks, ~$0 spent) is not wasted — it validated the shape of the system; Phase 6/7 are mechanical translations.
@@ -167,7 +167,7 @@ Phases 0-10 landed. The full state + scope cuts are documented in
 Key deltas vs the ADR plan:
 
 - **Postgres landed in centralus**, not eastus2. This Sponsored subscription's quota blocks Burstable Postgres in eastus + eastus2; the ~25ms cross-region latency to the Container App in eastus2 is acceptable.
-- **The old Dragonfly apex/`www` Firebase fallback is superseded.** ADR 0014 makes Azure Static Web Apps the only active landing/parents hosting path.
+- **The old Hinterland apex/`www` Firebase fallback is superseded.** ADR 0014 makes Azure Static Web Apps the only active landing/parents hosting path.
 - **Cloud SQL was stopped, not deleted.** Activation-policy NEVER preserves data and backups, zero compute cost, instant restart.
 - **MSAL is the active adult web auth path.** Native mobile uses kid QR/dev login and parent web handoff; Firebase email/password sign-in is removed by ADR 0014.
 
@@ -199,13 +199,13 @@ The FastAPI auth dependency dispatches on the `iss` claim:
 - **Hinterland path (kids).** Verify against the backend's own JWKS:
   - issuer: `https://api.thehinterlandguide.app`
   - audience: `hinterland-api`
-  - signature: RS256 with the kid-handoff RSA-2048 keypair stored in Key Vault; public JWKS served at `/.well-known/dragonfly-kid-jwks.json`
+  - signature: RS256 with the kid-handoff RSA-2048 keypair stored in Key Vault; public JWKS served at `/.well-known/hinterland-kid-jwks.json`
 
 Kids never receive an Entra-issued token. This overrides ADR Section 1's RFC 8693 token-exchange sketch — RFC 8693 is over-engineered for one flow, and shipping kid tokens through Entra would require seat-licenses we don't want.
 
 ### Option C: backend-augmented claims
 
-Claims `role` and `group_id` are NOT carried in the JWT (neither Entra-issued nor Dragonfly-issued). On every request the auth dependency resolves them from Postgres (`users.role`, `users.group_id`) and attaches them to the request context.
+Claims `role` and `group_id` are NOT carried in the JWT (neither Entra-issued nor Hinterland-issued). On every request the auth dependency resolves them from Postgres (`users.role`, `users.group_id`) and attaches them to the request context.
 
 A 30-second TTL in-memory per-process cache (`{user_id: (role, group_id, expires_at)}`) keeps the per-request DB hit cheap. A `bust_user_cache(user_id)` hook is called from any code path that mutates `users.role` or `users.disabled_at`, so admin demotions and disablement take effect within one in-flight request rather than on cache expiry.
 
@@ -216,10 +216,10 @@ This resolves ADR Section 1's "claims-mapping policy or backend-augmented claims
 1. Parent calls Admin API → backend mints a kid-handoff JWT: RS256, kid header = `k1-2026-07`, issuer `https://api.thehinterlandguide.app`, audience `hinterland-api`, `jti` = random ULID, `exp` = now + 15 minutes, single-use.
 2. QR encodes the handoff JWT (same QR shape as PR #69, only the token contents changed).
 3. Kid device scans QR, POSTs the handoff JWT to `/v1/auth/kid-exchange`.
-4. Backend validates signature + claims, checks `jti` is unused (atomic insert into `kid_handoff_jti`), then issues a session JWT with the same Dragonfly-path issuer/audience and a 30-day expiry.
+4. Backend validates signature + claims, checks `jti` is unused (atomic insert into `kid_handoff_jti`), then issues a session JWT with the same Hinterland-path issuer/audience and a 30-day expiry.
 5. Kid app stores the session JWT and uses it as a Bearer token on subsequent requests.
 
-The public verification key is served from `/.well-known/dragonfly-kid-jwks.json` so the Hinterland verifier path can fetch + rotate without an out-of-band trust bootstrap.
+The public verification key is served from `/.well-known/hinterland-kid-jwks.json` so the Hinterland verifier path can fetch + rotate without an out-of-band trust bootstrap.
 
 This overrides ADR Section 6's mention of HS256/Ed25519 for handoff tokens — RS256 with a public JWKS is the chosen shape so the verifier can run the same JWKS-fetch code for both paths.
 
@@ -241,7 +241,7 @@ Alembic migration `add_entra_identity_columns` (lands in Phase 6 PR 6a):
 
 | Earlier ADR statement | Phase 1 resolution |
 |---|---|
-| Section 1: RFC 8693 token exchange for kids | Kids never get an Entra token. Backend-signed Dragonfly-path JWT only. |
+| Section 1: RFC 8693 token exchange for kids | Kids never get an Entra token. Backend-signed Hinterland-path JWT only. |
 | Section 1: claims via Entra claims-mapping policy or backend on first request | Backend-augmented on every request, 30s TTL cache, `bust_user_cache` hook. |
-| Section 6: handoff token signed with a project secret (HS-style) | RS256 with public JWKS at `/.well-known/dragonfly-kid-jwks.json`. |
+| Section 6: handoff token signed with a project secret (HS-style) | RS256 with public JWKS at `/.well-known/hinterland-kid-jwks.json`. |
 | Open question: kid handoff token semantics | Custom `/v1/auth/kid-exchange`, 15-min single-use handoff → 30-day session JWT. |

@@ -211,7 +211,7 @@ function Header() {
 function GuideBar({ text }: { text: string }) {
   return (
     <View style={styles.guideBar} accessibilityRole="text">
-      <Text style={styles.guideBarSpeaker}>Dragonfly</Text>
+      <Text style={styles.guideBarSpeaker}>Guide</Text>
       <Text style={styles.guideBarText}>{text}</Text>
     </View>
   );

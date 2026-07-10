@@ -83,7 +83,7 @@ def stub_token_verifier(
     def fake_verify_bearer(token: str, settings: Settings) -> tuple[str, dict[str, Any]]:
         if raises is not None:
             raise raises
-        path = "dragonfly" if role == "kid" else "entra"
+        path = "hinterland" if role == "kid" else "entra"
         return (path, claims)
 
     patched_any = False

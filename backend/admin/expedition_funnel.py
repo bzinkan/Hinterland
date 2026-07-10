@@ -13,7 +13,7 @@ Run after a pilot (or any time you want a read on engagement):
     python -m admin.expedition_funnel --days 14 --csv > funnel.csv
 
 In Azure this runs as the manual Container Apps Job
-`dragonfly-expedition-funnel` (kick off with `az containerapp job
+`hinterland-expedition-funnel` (kick off with `az containerapp job
 start`); the report goes to stdout, so read it from the job execution
 logs.
 

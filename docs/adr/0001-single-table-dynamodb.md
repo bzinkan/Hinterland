@@ -9,7 +9,7 @@
 
 ## Context
 
-Dragonfly needs a primary data store for users, groups, memberships, observations, a per-user species Dex, expedition progress, a per-region rarity cache, a photo review queue, and job state. The app is serverless (Lambda + API Gateway), expected to stay under 10k DAU for the first year, and is built and maintained by one person.
+Hinterland needs a primary data store for users, groups, memberships, observations, a per-user species Dex, expedition progress, a per-region rarity cache, a photo review queue, and job state. The app is serverless (Lambda + API Gateway), expected to stay under 10k DAU for the first year, and is built and maintained by one person.
 
 The access patterns are well-enumerated and narrow (see `docs/data-model.md`):
 
@@ -27,7 +27,7 @@ Three operational constraints matter:
 
 ## Decision
 
-Use **a single DynamoDB table named `Dragonfly`** with a composite primary key (`PK`, `SK`) and two global secondary indexes (`GSI1`, `GSI2`), in on-demand billing mode. Store every entity type in that one table using prefix-based keys (`USER#<id>`, `GROUP#<id>`, `OBS#<ts>#<id>`, etc.).
+Use **a single DynamoDB table named `Hinterland`** with a composite primary key (`PK`, `SK`) and two global secondary indexes (`GSI1`, `GSI2`), in on-demand billing mode. Store every entity type in that one table using prefix-based keys (`USER#<id>`, `GROUP#<id>`, `OBS#<ts>#<id>`, etc.).
 
 The concrete schema is in `docs/data-model.md`; it is normative and must stay synchronized with the CDK definition in `infra/stacks/data_stack.py`.
 

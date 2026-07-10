@@ -62,7 +62,7 @@ type SkiaModule = typeof import("@shopify/react-native-skia");
  * D4 GO/NO-GO spike (ADR 0012): the meadow island rendered from real
  * generated art on one Skia canvas -- parallax pan, wind sway, tap-to-dive
  * via the shared hitTest contract, dormant desaturation, and an honest
- * UI-thread frame HUD. Dev route only (exp+dragonfly://dev/diorama-spike);
+ * UI-thread frame HUD. Dev route only (exp+hinterland://dev/diorama-spike);
  * no flag wiring, no tab changes.
  *
  * Same guarded require() as skia-smoke: a dev client that predates the

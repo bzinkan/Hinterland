@@ -329,7 +329,7 @@ async def test_consume_no_op_when_submit_kill_switch_disabled() -> None:
 
     settings = Settings(
         env="local",
-        service_bus_namespace="dragonfly-sb-test.servicebus.windows.net",
+        service_bus_namespace="hinterland-sb-test.servicebus.windows.net",
         inat_submit_enabled=False,
     )
     processed = await consume(

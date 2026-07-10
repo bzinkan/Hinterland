@@ -14,9 +14,8 @@ photos.status='deleted' update + memberships.observation_count
 decrement mirrors what the manual reject endpoint
 (POST /v1/review-queue/{id}/reject) does.
 
-Run as a Cloud Run Job triggered by Cloud Scheduler nightly. Spec
-mirrors the dragonfly-cleanup-smoke-nightly cron in
-infra-gcp/main.tf; document the new cron in runbook follow-up.
+Run as a Container Apps Job on the Azure schedule. Document the cron in the
+runbook when it is provisioned.
 """
 
 from __future__ import annotations

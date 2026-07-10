@@ -7,9 +7,8 @@ moderation, durable rewards, and rebuild recovery.
 ## Environment Boundary
 
 Active dev resources are in the Gordi-backed Azure subscription and isolated
-`hinterland-dev-rg`. Never target `gordi-pilot-rg`. Public/runtime resources use
-Hinterland names; compatibility environment variables and JWKS path may retain
-`DRAGONFLY_`/`dragonfly` under ADR 0013.
+`hinterland-dev-rg`. Never target `gordi-pilot-rg`. Public/runtime resources
+use the `HINTERLAND_` settings contract and the `hinterland` kid-auth path.
 
 Record subscription, resource group, image digest, Alembic revision, API
 revision, job executions, and smoke request IDs for each promotion. Never put
@@ -20,21 +19,20 @@ SAS URLs, child photos, manual child text, or raw coordinates in tickets.
 ```bash
 curl -fsS https://api.thehinterlandguide.app/health
 curl -fsS https://api.thehinterlandguide.app/ready
-curl -fsS https://api.thehinterlandguide.app/.well-known/dragonfly-kid-jwks.json
+curl -fsS https://api.thehinterlandguide.app/.well-known/hinterland-kid-jwks.json
 ```
 
 The authenticated parent/kid smoke requires an operator-provided test-parent
 Entra token:
 
 ```bash
-DRAGONFLY_API_BASE_URL=https://api.thehinterlandguide.app \
-DRAGONFLY_SMOKE_ENTRA_BEARER="<access-token>" \
+HINTERLAND_API_BASE_URL=https://api.thehinterlandguide.app \
+HINTERLAND_SMOKE_ENTRA_BEARER="<access-token>" \
 python scripts/smoke_azure_parent_kid.py
 ```
 
 It records consent, resolves parent signup, creates a group/kid, exchanges the
-kid handoff, calls `/v1/me`, and verifies starter Expedition visibility. The old
-Firebase smoke must not be restored.
+kid handoff, calls `/v1/me`, and verifies starter Expedition visibility.
 
 ## Migrations-First Deployment
 
@@ -44,8 +42,7 @@ test-only smoke tokens.
 
 The required order is:
 
-1. remove both iNaturalist token environment aliases from the old API, apply
-   W1 flags, delete iNaturalist jobs, verify no inherited iNaturalist-queue
+1. apply W1 flags, delete iNaturalist jobs, verify no inherited iNaturalist-queue
    roles, and discover/remove moderation subscriptions from every Event Grid
    system topic sourced by the photo storage account;
 2. build from the repository root and resolve one immutable
@@ -55,47 +52,32 @@ The required order is:
    `alembic upgrade head` to succeed;
 5. ingest the checked-in taxonomy catalog and sync Expedition content from the
    migration digest;
-6. run `hinterland-legacy-reconcile` before any outbox relay so
-   old `pending/<photo_id>.jpg` rows become verified canonical work;
+6. run `hinterland-state-rebuild` before any outbox relay when recovery is
+   required;
 7. run an initial `hinterland-state-rebuild` pass before recreating dispatcher
    replay; dispatcher replay also excludes users with queued/running rebuilds;
 8. pin every consumer and scheduled job to the same digest;
 9. update the API only after migration success;
-10. run legacy reconciliation and derived-state rebuild again after cutover to
-    close the old-revision race; both remain scheduled for the compatibility
-    release; and
+10. run derived-state rebuild again after cutover when the deployment report
+    requires it; and
 11. run public, authenticated, Observation, privacy, and worker canaries.
 
 The root build context is mandatory because the image is also the Expedition
 content version. `job start --image` is not a substitute for `job update`: a
 start-time override can replace template environment/command configuration.
 
-Before first use, provision/contain the W1 jobs and lifecycle contract from
-Git Bash (not the Windows `bash.exe` WSL alias) with:
+The Azure deployment workflow provisions and pins the W1 jobs to the same
+image digest as the API. Do not run a separate bootstrap script.
 
-```bash
-MERGE_SHA="$(git rev-parse HEAD)"
-az acr build --registry hinterlandacrdev \
-  --image "hinterland-api:${MERGE_SHA}" \
-  --file backend/Dockerfile .
-DIGEST="$(az acr repository show --name hinterlandacrdev \
-  --image "hinterland-api:${MERGE_SHA}" --query digest -o tsv | tr -d '\r')"
-export HINTERLAND_PHASE9_IMAGE="hinterlandacrdev.azurecr.io/hinterland-api@${DIGEST}"
-MSYS_NO_PATHCONV=1 bash infra-azure/phase-9-observation-w1.sh
-```
-
-Submission-key columns remain nullable only for the migration-first window so
-the previous API can keep inserting. The new API always writes them. The
-legacy reconciler fills any compatibility rows, removes race-written raw
-coordinates, and registers only verified canonical photos for relay.
+Submission-key columns remain nullable only for the migration-first window.
+The API always writes them and recovery jobs register only verified canonical
+photos for relay.
 
 If preflight finds migration-managed duplicate photo/review/counter repair,
 review the JSON and rerun with the exact report acknowledgement token. Duplicate
 submission keys are hard blockers and cannot be waived. Never edit an applied
 Alembic revision.
 
-The Cloud Run workflow is manual/no-op. Recreating a GCP runtime is an incident,
-not a rollback strategy.
 
 ## Local Database And Migrations
 
@@ -122,13 +104,10 @@ INAT_SUBMIT_ENABLED=false
 OBSERVATION_IDEMPOTENCY_REQUIRED=true
 ```
 
-Set both active `HINTERLAND_` and compatibility `DRAGONFLY_` names where the
-environment may contain either. The old API has no CV flag, so containment must
-remove both OAuth-token environment aliases before build/migration. The
-repaired revision additionally requires explicit CV gates, so token absence is
-not the only permanent control. Delete/disable the iNaturalist consumer and
-replay jobs, and revoke direct or inherited runtime access to the inert submit
-queue while preserving stale work without processing.
+Set the active `HINTERLAND_` settings. The revision requires explicit CV gates,
+so token absence is not the only permanent control. Delete or disable the
+iNaturalist consumer and replay jobs, and revoke direct or inherited runtime
+access to the inert submit queue while preserving stale work without processing.
 
 Enumerate all Event Grid system topics whose `source` is the photo storage
 account; Azure-generated topic names are not stable. Confirm none of their
@@ -249,7 +228,7 @@ npm test -- --runInBand
 APP_ENV=play-internal npm run config:play-internal
 ```
 
-Verify `com.dragonfly.app`, display name `Hinterland Internal`, update channel
+Verify `app.thehinterlandguide`, display name `Hinterland Internal`, update channel
 `play-internal`, fine location blocked, coarse foreground only, and current
 Hinterland API URL. Then run the physical-device pilot script.
 

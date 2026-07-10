@@ -244,13 +244,12 @@ export const CORE_TAXA: readonly CoreTaxon[] = [
   {
     "taxon_id": 47792,
     "scientific_name": "Odonata",
-    "common_name": "Dragonflies and Damselflies",
+    "common_name": "Odonata and Damselflies",
     "rank": "order",
     "iconic_taxon": "Insecta",
     "ancestor_ids": [],
     "aliases": [
-      "dragonfly",
-      "damselfly"
+     "damselfly"
     ]
   },
   {

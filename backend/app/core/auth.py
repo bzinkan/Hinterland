@@ -11,7 +11,7 @@ The Azure-era auth model has two parallel paths:
 
 The verifier dispatches based on the unverified ``iss`` claim. Adult tokens
 land in :func:`app.core.entra.verify_entra_id_token`; kid tokens land in
-:func:`app.core.kid_jwt.verify_dragonfly_jwt`. Either way the user must
+:func:`app.core.kid_jwt.verify_hinterland_jwt`. Either way the user must
 exist in the local ``users`` table and must not be disabled, both of which
 are checked via :func:`get_user_with_claims` (a 30-second TTL cache so the
 hot path is at most one Postgres round-trip per cache miss).
@@ -23,7 +23,7 @@ or ``token_type``) flow through ``current_user_from_claims`` without
 touching the DB session mock, keeping the existing test surface green.
 The short-circuit is gated by ``settings.stub_auth_allowed`` and is
 fail-closed everywhere except ``env == "local"`` (or an explicit
-``DRAGONFLY_ALLOW_STUB_AUTH`` override).
+``HINTERLAND_ALLOW_STUB_AUTH`` override).
 """
 
 from __future__ import annotations
@@ -42,7 +42,7 @@ from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import Settings, get_request_settings
-from app.core.kid_jwt import InvalidDragonflyJwt, verify_dragonfly_jwt
+from app.core.kid_jwt import InvalidHinterlandJwt, verify_hinterland_jwt
 from app.db import models
 from app.db.session import get_db_session
 
@@ -54,8 +54,8 @@ _USER_ROLES = set(get_args(UserRole))
 bearer_scheme = HTTPBearer(auto_error=False)
 
 # Path discriminator surfaced by ``verify_bearer_token`` -- "entra" for
-# adult MSAL tokens, "dragonfly" for kid RS256 session tokens.
-TokenPath = Literal["entra", "dragonfly"]
+# adult MSAL tokens, "hinterland" for kid RS256 session tokens.
+TokenPath = Literal["entra", "hinterland"]
 
 
 class CurrentUser(BaseModel):
@@ -195,11 +195,11 @@ def _verify_entra_inline(token: str, settings: Settings) -> dict[str, object]:
     return cast(dict[str, object], decoded)
 
 
-def _verify_dragonfly(token: str, settings: Settings) -> dict[str, object]:
+def _verify_hinterland(token: str, settings: Settings) -> dict[str, object]:
     """Verify a Hinterland RS256 kid session JWT."""
     try:
-        claims = verify_dragonfly_jwt(token, settings=settings, expected_token_type="session")
-    except InvalidDragonflyJwt as exc:
+        claims = verify_hinterland_jwt(token, settings=settings, expected_token_type="session")
+    except InvalidHinterlandJwt as exc:
         raise InvalidAuthToken(str(exc)) from exc
     return cast(dict[str, object], dict(claims))
 
@@ -213,7 +213,7 @@ def verify_bearer_token(token: str, settings: Settings) -> tuple[TokenPath, dict
     * a ``https://login.microsoftonline.com/{tenant}/v2.0`` prefix
 
     routes to the Entra verifier. The Hinterland path requires ``iss ==
-    settings.dragonfly_jwt_issuer`` (default
+    settings.hinterland_jwt_issuer`` (default
     ``https://api.thehinterlandguide.app``).
 
     Returns ``(path, verified_claims)``. Raises :class:`InvalidAuthToken`
@@ -226,8 +226,8 @@ def verify_bearer_token(token: str, settings: Settings) -> tuple[TokenPath, dict
     if iss == settings.entra_issuer or iss.startswith("https://login.microsoftonline.com/"):
         return ("entra", _verify_entra(token, settings))
 
-    if iss == settings.dragonfly_jwt_issuer:
-        return ("dragonfly", _verify_dragonfly(token, settings))
+    if iss == settings.hinterland_jwt_issuer:
+        return ("hinterland", _verify_hinterland(token, settings))
 
     raise InvalidAuthToken(f"Unrecognized token issuer: {iss}")
 
@@ -280,7 +280,7 @@ async def _query_user_with_claims(
     session: AsyncSession,
     *,
     entra_oid: str | None,
-    dragonfly_sub: str | None,
+    hinterland_sub: str | None,
     legacy_uid: str | None,
 ) -> CachedUserClaims | None:
     """Fetch a users row + primary group_id from Postgres in a single round-trip.
@@ -294,8 +294,8 @@ async def _query_user_with_claims(
     user_q = select(models.User)
     if entra_oid is not None:
         user_q = user_q.where(models.User.entra_oid == entra_oid)
-    elif dragonfly_sub is not None:
-        user_q = user_q.where(models.User.id == dragonfly_sub)
+    elif hinterland_sub is not None:
+        user_q = user_q.where(models.User.id == hinterland_sub)
     elif legacy_uid is not None:
         # Legacy compatibility: old rows/tests may still carry firebase_uid as
         # ``uid``. Drop only after the live-data audit in ADR 0014.
@@ -330,7 +330,7 @@ async def get_user_with_claims(
     settings: Settings,
     *,
     entra_oid: str | None = None,
-    dragonfly_sub: str | None = None,
+    hinterland_sub: str | None = None,
     legacy_uid: str | None = None,
 ) -> CachedUserClaims | None:
     """Resolve a users row + role + primary group_id with a 30s TTL cache.
@@ -343,8 +343,8 @@ async def get_user_with_claims(
     cache = _get_cache(settings)
     if entra_oid is not None:
         key: tuple[str, str] = ("entra", entra_oid)
-    elif dragonfly_sub is not None:
-        key = ("sub", dragonfly_sub)
+    elif hinterland_sub is not None:
+        key = ("sub", hinterland_sub)
     elif legacy_uid is not None:
         key = ("legacy", legacy_uid)
     else:
@@ -357,7 +357,7 @@ async def get_user_with_claims(
     resolved = await _query_user_with_claims(
         session,
         entra_oid=entra_oid,
-        dragonfly_sub=dragonfly_sub,
+        hinterland_sub=hinterland_sub,
         legacy_uid=legacy_uid,
     )
     if resolved is not None:
@@ -369,7 +369,7 @@ def bust_user_cache(
     user_id: str,
     *,
     entra_oid: str | None = None,
-    dragonfly_sub: str | None = None,
+    hinterland_sub: str | None = None,
     legacy_uid: str | None = None,
     settings: Settings | None = None,
 ) -> None:
@@ -384,8 +384,8 @@ def bust_user_cache(
         return
     if entra_oid is not None:
         _claim_cache.pop(("entra", entra_oid), None)
-    if dragonfly_sub is not None:
-        _claim_cache.pop(("sub", dragonfly_sub), None)
+    if hinterland_sub is not None:
+        _claim_cache.pop(("sub", hinterland_sub), None)
     if legacy_uid is not None:
         _claim_cache.pop(("legacy", legacy_uid), None)
 
@@ -495,8 +495,8 @@ async def get_current_user(
 
     if path == "entra":
         return await _resolve_entra(raw_claims, session, settings)
-    if path == "dragonfly":
-        return await _resolve_dragonfly(raw_claims, session, settings)
+    if path == "hinterland":
+        return await _resolve_hinterland(raw_claims, session, settings)
     raise _http_401("Unrecognized token path")  # pragma: no cover
 
 
@@ -518,7 +518,7 @@ async def _resolve_entra(
     return _overlay_claims(cached, raw_claims)
 
 
-async def _resolve_dragonfly(
+async def _resolve_hinterland(
     raw_claims: dict[str, object],
     session: AsyncSession,
     settings: Settings,
@@ -527,7 +527,7 @@ async def _resolve_dragonfly(
     if sub is None:
         raise _http_401("Kid session token missing sub claim")
 
-    cached = await get_user_with_claims(session, settings, dragonfly_sub=sub)
+    cached = await get_user_with_claims(session, settings, hinterland_sub=sub)
     if cached is None:
         raise _http_401("Kid session references missing user")
     if cached.disabled:

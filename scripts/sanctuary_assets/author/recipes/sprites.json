@@ -11,7 +11,7 @@
     "sanctuary.pond.actinopterygii": { "motif": "fish" },
     "sanctuary.pond.amphibia": { "motif": "frog", "bull": false },
     "sanctuary.pond.bullfrog": { "motif": "frog", "bull": true },
-    "sanctuary.pond.dragonfly": { "motif": "dragonfly" },
+    "sanctuary.pond.damselfly": { "motif": "damselfly" },
     "sanctuary.pond.frog_in_the_water_moment": { "motif": "frog-in-water" },
     "sanctuary.pond.mollusca": { "motif": "snail" },
     "sanctuary.sky.aves": { "motif": "bird-soar" },

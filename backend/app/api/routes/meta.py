@@ -80,7 +80,7 @@ async def ready(
             ReadinessCheck(
                 name="database",
                 status="skipped",
-                detail="set DRAGONFLY_READINESS_DATABASE_REQUIRED=true to enforce it",
+                detail="set HINTERLAND_READINESS_DATABASE_REQUIRED=true to enforce it",
             )
         )
 

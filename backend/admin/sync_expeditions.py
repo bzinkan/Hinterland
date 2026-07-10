@@ -21,7 +21,7 @@ IS the content version. Per docs/expedition-authoring.md:
 In Azure this runs as the manual Container Apps Job
 `hinterland-sync-expeditions`, started after each deploy when provisioned (see
 docs/runbook.md). Local dev goes through the scripts/sync_expeditions.py
-shim, which points `DRAGONFLY_CONTENT_ROOT` at the repo checkout:
+shim, which points `HINTERLAND_CONTENT_ROOT` at the repo checkout:
 
     python -m admin.sync_expeditions
     python -m admin.sync_expeditions --dry-run
@@ -181,7 +181,7 @@ async def main(argv: list[str] | None = None) -> int:
     settings = get_settings()
     content_root = Path(settings.content_root)
 
-    # A missing root is a packaging regression (bad DRAGONFLY_CONTENT_ROOT,
+    # A missing root is a packaging regression (bad HINTERLAND_CONTENT_ROOT,
     # or the Dockerfile/.dockerignore stopped shipping content/expeditions),
     # not an empty catalog -- fail loud instead of "nothing to sync".
     if not content_root.is_dir():

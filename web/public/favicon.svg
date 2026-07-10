@@ -1,9 +1,7 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-labelledby="title">
-  <title id="title">Dragonfly icon</title>
+  <title id="title">The Hinterland Guide field mark</title>
   <rect width="64" height="64" rx="14" fill="#fbf7ec"/>
   <circle cx="32" cy="32" r="24" fill="#d9ead2" stroke="#2f6f4e" stroke-width="3"/>
-  <path d="M32 16c2.5 9 2.5 23 0 32" fill="none" stroke="#234f3a" stroke-width="3.5" stroke-linecap="round"/>
-  <path d="M29 25C17 12 7 18 20 30c-13 3-10 15 7 9" fill="#eef8f5" stroke="#5e9fba" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
-  <path d="M35 25c12-13 22-7 9 5 13 3 10 15-7 9" fill="#eef8f5" stroke="#5e9fba" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
-  <circle cx="32" cy="14" r="3" fill="#234f3a"/>
+  <path d="M18 29c5-8 23-10 29-2M17 37c8 8 23 8 31 0" fill="none" stroke="#85bbca" stroke-width="2.5" stroke-linecap="round"/>
+  <path d="M24 20v24M40 20v24M24 32h16" fill="none" stroke="#234f3a" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
 </svg>

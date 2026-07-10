@@ -10,8 +10,8 @@ import { kidExchange } from "@/src/api/auth";
 import { setBearerToken } from "@/src/auth/token";
 
 type HandoffPayload = {
-  v: 2;
-  kind: "dragonfly.kid-handoff.v2";
+  v: 1;
+  kind: "hinterland.kid-handoff.v1";
   handoff_token: string;
 };
 
@@ -107,8 +107,8 @@ function parseHandoff(raw: string): HandoffPayload {
   if (
     typeof parsed !== "object" ||
     parsed == null ||
-    (parsed as { v?: unknown }).v !== 2 ||
-    (parsed as { kind?: unknown }).kind !== "dragonfly.kid-handoff.v2" ||
+    (parsed as { v?: unknown }).v !== 1 ||
+    (parsed as { kind?: unknown }).kind !== "hinterland.kid-handoff.v1" ||
     typeof (parsed as { handoff_token?: unknown }).handoff_token !== "string"
   ) {
     throw new Error("That QR code is not a Hinterland kid sign-in code.");

@@ -5,7 +5,7 @@ The endpoint accepts a Hinterland RS256 handoff JWT in the request body
 ``kid_handoff_jti``, and mints a long-lived session JWT for the kid's
 device.
 
-The tests stub ``verify_dragonfly_jwt`` and ``mint_session_token`` so the
+The tests stub ``verify_hinterland_jwt`` and ``mint_session_token`` so the
 endpoint logic can be exercised without real Azure Key Vault credentials.
 """
 
@@ -82,7 +82,7 @@ def _valid_handoff_claims(*, exp_offset_seconds: int = 900) -> dict[str, object]
 
 
 def _route_ready() -> bool:
-    return hasattr(auth_routes_module, "verify_dragonfly_jwt") and hasattr(
+    return hasattr(auth_routes_module, "verify_hinterland_jwt") and hasattr(
         auth_routes_module, "mint_session_token"
     )
 
@@ -98,7 +98,7 @@ def test_kid_exchange_happy_path(
 
     monkeypatch.setattr(
         auth_routes_module,
-        "verify_dragonfly_jwt",
+        "verify_hinterland_jwt",
         lambda token, *, settings, expected_token_type=None: _valid_handoff_claims(),
     )
     monkeypatch.setattr(
@@ -142,7 +142,7 @@ def test_kid_exchange_replay_attack_rejected(
 
     monkeypatch.setattr(
         auth_routes_module,
-        "verify_dragonfly_jwt",
+        "verify_hinterland_jwt",
         lambda token, *, settings, expected_token_type=None: _valid_handoff_claims(),
     )
 
@@ -166,18 +166,18 @@ def test_kid_exchange_expired_handoff_rejected(
     kid_exchange_client: TestClient,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """An expired handoff JWT bubbles InvalidDragonflyJwt -> 401."""
+    """An expired handoff JWT bubbles InvalidHinterlandJwt -> 401."""
     if not _route_ready():
         pytest.skip("kid-exchange route not present yet")
-    if not hasattr(auth_routes_module, "InvalidDragonflyJwt"):
-        pytest.skip("InvalidDragonflyJwt not present yet")
+    if not hasattr(auth_routes_module, "InvalidHinterlandJwt"):
+        pytest.skip("InvalidHinterlandJwt not present yet")
 
-    invalid = auth_routes_module.InvalidDragonflyJwt("Signature has expired")
+    invalid = auth_routes_module.InvalidHinterlandJwt("Signature has expired")
 
     def fake_verify(token: str, *, settings: Settings, expected_token_type=None):
         raise invalid
 
-    monkeypatch.setattr(auth_routes_module, "verify_dragonfly_jwt", fake_verify)
+    monkeypatch.setattr(auth_routes_module, "verify_hinterland_jwt", fake_verify)
 
     response = kid_exchange_client.post(
         "/v1/auth/kid-exchange",
@@ -192,18 +192,18 @@ def test_kid_exchange_wrong_audience_rejected(
     kid_exchange_client: TestClient,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A token failing audience check raises InvalidDragonflyJwt -> 401."""
+    """A token failing audience check raises InvalidHinterlandJwt -> 401."""
     if not _route_ready():
         pytest.skip("kid-exchange route not present yet")
-    if not hasattr(auth_routes_module, "InvalidDragonflyJwt"):
-        pytest.skip("InvalidDragonflyJwt not present yet")
+    if not hasattr(auth_routes_module, "InvalidHinterlandJwt"):
+        pytest.skip("InvalidHinterlandJwt not present yet")
 
-    invalid = auth_routes_module.InvalidDragonflyJwt("Invalid audience")
+    invalid = auth_routes_module.InvalidHinterlandJwt("Invalid audience")
 
     def fake_verify(token: str, *, settings: Settings, expected_token_type=None):
         raise invalid
 
-    monkeypatch.setattr(auth_routes_module, "verify_dragonfly_jwt", fake_verify)
+    monkeypatch.setattr(auth_routes_module, "verify_hinterland_jwt", fake_verify)
 
     response = kid_exchange_client.post(
         "/v1/auth/kid-exchange",
@@ -235,7 +235,7 @@ def test_kid_exchange_disabled_kid_rejected(
 
     monkeypatch.setattr(
         auth_routes_module,
-        "verify_dragonfly_jwt",
+        "verify_hinterland_jwt",
         lambda token, *, settings, expected_token_type=None: _valid_handoff_claims(),
     )
     monkeypatch.setattr(

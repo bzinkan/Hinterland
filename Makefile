@@ -20,7 +20,7 @@ help:
 	@echo "  make terraform-plan-dev  - Terraform plan for dev GCP foundation"
 	@echo "  make cdk-synth           - legacy CDK synth (dry run)"
 	@echo "  make cdk-diff            - legacy CDK diff against deployed stack"
-	@echo "  make cdk-deploy          - legacy CDK deploy (requires DRAGONFLY_ENV)"
+	@echo "  make cdk-deploy          - legacy CDK deploy (requires HINTERLAND_ENV)"
 
 install:
 	cd backend && uv sync
@@ -74,8 +74,8 @@ cdk-diff:
 	cd infra && uv run cdk diff
 
 cdk-deploy:
-	@if [ -z "$$DRAGONFLY_ENV" ]; then \
-		echo "Set DRAGONFLY_ENV=dev|staging|prod first"; exit 1; \
+	@if [ -z "$$HINTERLAND_ENV" ]; then \
+		echo "Set HINTERLAND_ENV=dev|staging|prod first"; exit 1; \
 	fi
 	cd infra && uv run cdk deploy --all --require-approval never
 

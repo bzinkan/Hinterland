@@ -1,10 +1,8 @@
-# Azure environment contracts
+# Azure Environment Contracts
 
-These non-secret files centralize resource names used by safety-sensitive
-operator scripts. They do not contain credentials. Current phase scripts and
-the active deployment target Hinterland resources; compatibility names remain
-only where ADR 0013 requires them.
+`hinterland-dev.env` is the non-secret source of truth for the active Azure
+resource names. It is consumed by reviewed operational work only.
 
-Every script must pass an explicit subscription/resource group and refuse
-`gordi-pilot-rg`. Sharing the Gordi subscription means billing only, never
-runtime resources.
+Every Azure operation must target `hinterland-dev-rg` in the configured Gordi
+subscription. The environment contains no credentials; secrets belong in Key
+Vault or GitHub Actions secrets.

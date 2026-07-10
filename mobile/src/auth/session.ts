@@ -5,7 +5,7 @@ import { Platform } from "react-native";
 
 import type { CurrentUser } from "@/src/api/auth";
 
-const SESSION_USER_KEY = "dragonfly.session_user.v1";
+const SESSION_USER_KEY = "hinterland.session_user.v1";
 
 type AuthSession =
   | { status: "initializing"; user: null }

@@ -37,7 +37,7 @@ Required before any kid sees the build:
 - Route code resolves authenticated users through `resolve_current_user_row`.
 - Native Android play-internal/production does not issue third-party auth SDK
   tokens.
-- Kids sign in by scanning `dragonfly.kid-handoff.v2` QR payloads.
+- Kids sign in by scanning `hinterland.kid-handoff.v1` QR payloads.
 - Account deletion request exists at `DELETE /v1/me` and is wired in Settings.
 
 ### 3. Store And Privacy Gates

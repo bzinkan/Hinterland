@@ -7,7 +7,7 @@
 
 ## Context
 
-The `dragonfly-app.net` Workspace organization enforces the
+The `hinterland-app.net` Workspace organization enforces the
 `constraints/iam.allowedPolicyMemberDomains` org policy. With it in place,
 attempts to grant `allUsers` or `allAuthenticatedUsers` the
 `roles/run.invoker` role are silently rejected — Cloud Run accepts the
@@ -34,8 +34,8 @@ in our app code. Leaving `allUsers` blocked means we either:
 ## Decision
 
 Override `iam.allowedPolicyMemberDomains` at project scope for the **dev
-project (`dragonflyapp-495423`)**. Combine with an explicit `allUsers`
-invoker binding on the `dragonfly-api` Cloud Run service. Authentication
+project (`hinterlandapp-495423`)**. Combine with an explicit `allUsers`
+invoker binding on the `hinterland-api` Cloud Run service. Authentication
 becomes the responsibility of `app/core/auth.py` and the Firebase ID
 token verification it performs.
 
@@ -93,7 +93,7 @@ applies before the `allUsers` invoker binding.
 - **Port the policy decision to staging/prod separately.** When those
   environments come online with mobile traffic, this same decision will
   need a per-env ADR. Most likely the answer will be the same shape but
-  with a narrower allow-list (e.g., `dragonfly-app.net` + a CDN range)
+  with a narrower allow-list (e.g., `hinterland-app.net` + a CDN range)
   rather than `allow_all`.
 
 ## Alternatives considered
@@ -127,7 +127,7 @@ clever.
 ### Switch from `allow_all = "TRUE"` to an explicit allowed list
 
 **Considered, deferred.** A narrower override (e.g., allow only
-`allUsers` and `domain:dragonfly-app.net`, leaving
+`allUsers` and `domain:hinterland-app.net`, leaving
 `allAuthenticatedUsers` blocked) reduces the blast radius if a future
 mistake binds something to `allAuthenticatedUsers`. Not worth the
 complexity in dev where convenience matters more; revisit when mapping
@@ -136,9 +136,9 @@ per-env ADR.
 
 ## Follow-ups
 
-- Verify after apply: `gcloud run services get-iam-policy dragonfly-api
+- Verify after apply: `gcloud run services get-iam-policy hinterland-api
   --region us-central1` should show `allUsers` with `roles/run.invoker`.
-  Then a fresh-tab `curl` to `https://api.dragonfly-app.net/health`
+  Then a fresh-tab `curl` to `https://api.hinterland-app.net/health`
   (no auth header) should return 200.
 - Update `docs/runbook.md` "Smoke-testing `/health` in dev" section to
   drop the identity-token requirement once the change is applied.

@@ -26,18 +26,18 @@ Read these before you click anything in the Play Console.
 
 When you upload the first AAB to a Play Console app, **the package name
 on that AAB becomes permanent for that app entry**. There is no rename.
-If you upload `com.dragonfly.app.dev` (development build) to a Play
+If you upload `app.thehinterlandguide.dev` (development build) to a Play
 Console entry intended to become the production listing, you must
 **delete that Play Console entry and create a new one** to recover --
 and the deletion has a multi-week cooldown.
 
 The pilot AAB must be built from the `play-internal` EAS profile so the
-package name is the FINAL `com.dragonfly.app`. The development /
-preview profiles use `com.dragonfly.app.dev` / `app.thehinterlandguide.staging`
+package name is the FINAL `app.thehinterlandguide`. The development /
+preview profiles use `app.thehinterlandguide.dev` / `app.thehinterlandguide.staging`
 and are NOT safe to upload to the production-intended Play Console
 entry.
 
-### Do not upload `com.dragonfly.app.dev` to the production-intended app
+### Do not upload `app.thehinterlandguide.dev` to the production-intended app
 
 Same warning, stated for emphasis. If the only thing you read in this
 doc is this section, you avoided the worst-case mistake.
@@ -81,7 +81,7 @@ URL for the `.aab` file. Save it locally; do NOT commit it. Add the
 filename to `.gitignore` if you download it inside the repo.
 
 Expected build properties:
-- Package name: `com.dragonfly.app`
+- Package name: `app.thehinterlandguide`
 - Display name: `Hinterland Internal`
 - App version: `0.1.0` (the `version` field in `mobile/app.config.ts`)
 - Version code: auto-incremented by EAS (the `play-internal` profile
@@ -135,8 +135,8 @@ Working directory: `mobile/`.
    version — cross-check against `mobile/app.config.ts` if a key is
    not at the expected path):
 
-   - [ ] `android.package` is `com.dragonfly.app` (NOT
-     `com.dragonfly.app.dev` or `app.thehinterlandguide.staging`).
+   - [ ] `android.package` is `app.thehinterlandguide` (NOT
+     `app.thehinterlandguide.dev` or `app.thehinterlandguide.staging`).
    - [ ] `name` is `Hinterland Internal` (the `play-internal` branch
      of `displayName()` in `mobile/app.config.ts`).
    - [ ] `version` is `0.1.0` (the `version` field in
@@ -150,7 +150,7 @@ Working directory: `mobile/`.
    - [ ] `ACCESS_FINE_LOCATION` is blocked and only coarse foreground
      location is requested.
 
-   If `android.package` is anything other than `com.dragonfly.app`:
+   If `android.package` is anything other than `app.thehinterlandguide`:
    STOP. You are in the wrong `APP_ENV`. Re-run with
    `APP_ENV=play-internal` prefixed.
 
@@ -177,7 +177,7 @@ Working directory: `mobile/`.
 
 ### Expected values
 
-- [ ] Package name: `com.dragonfly.app`
+- [ ] Package name: `app.thehinterlandguide`
 - [ ] Display name on the device: `Hinterland Internal`
 - [ ] App version: `0.1.0`
 - [ ] Track: Internal testing (NOT Closed, NOT Open, NOT Production)
@@ -189,7 +189,7 @@ Working directory: `mobile/`.
 - If `npx tsc --noEmit` fails: fix locally before building the AAB.
   Do not ship an AAB whose typecheck did not pass.
 - If `npx expo config --type public` shows `android.package` as
-  anything other than `com.dragonfly.app`: STOP. You are in the
+  anything other than `app.thehinterlandguide`: STOP. You are in the
   wrong `APP_ENV`. Re-run with `APP_ENV=play-internal` prefixed.
 - If the EAS build's `versionCode` is not monotonically greater
   than the last AAB uploaded to Play Console on the `play-internal`
@@ -288,14 +288,14 @@ Out of scope for the pilot (and out of scope for this PR):
   separately.
 - **Play Developer API automation** -- the AAB upload above is manual.
   Automation is a post-pilot exercise.
-- **Production release of `com.dragonfly.app`** -- the first AAB on
+- **Production release of `app.thehinterlandguide`** -- the first AAB on
   the Internal testing track locks the package name but does not
   trigger production rollout. The production rollout is its own
   multi-day Play Console process.
 
 ## Recovery: if you uploaded the wrong package name
 
-If you uploaded an AAB with `com.dragonfly.app.dev` (or any other
+If you uploaded an AAB with `app.thehinterlandguide.dev` (or any other
 non-final package name) to the Play Console entry you intend to use
 for production:
 
@@ -304,7 +304,7 @@ for production:
    App availability** → **Remove app**.
 3. There is a 30-day cooldown before the package name can be reused.
 4. Create a NEW Play Console entry after the cooldown expires, using
-   a clean `com.dragonfly.app` AAB.
+   a clean `app.thehinterlandguide` AAB.
 
 A development-named AAB on a development-named Play Console entry is
 fine, just keep them separate from the production-intended entry.

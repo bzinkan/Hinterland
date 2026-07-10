@@ -5,7 +5,7 @@ Revises: 20260510_0002
 Create Date: 2026-06-02
 
 Phase 6a introduces Microsoft Entra ID as the adult identity provider and a
-new Dragonfly RS256 token path for kid sessions. This migration:
+new Hinterland RS256 token path for kid sessions. This migration:
 
 (a) adds ``users.entra_oid`` (Entra Object ID) -- nullable + unique +
     indexed for the auth dependency's hot-path lookup. Adults are resolved

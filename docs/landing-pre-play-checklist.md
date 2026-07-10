@@ -1,6 +1,6 @@
 # Landing Pre-Play Review Checklist
 
-Use this checklist before entering Dragonfly's public landing/support URLs in
+Use this checklist before entering Hinterland's public landing/support URLs in
 Google Play Console, sharing them with pilot parents, or relying on them during
 app review. It is not legal advice. Re-check current Google Play policy and get
 legal review before Closed, Open, or Production tracks.
@@ -61,11 +61,11 @@ Related docs:
 - [ ] `privacy@thehinterlandguide.app` is live and monitored for privacy requests.
 - [ ] App name in Play Console matches the current listing plan. Production
       listing name: `Hinterland` (renamed per ADR 0013; update the Console
-      listing if it was created as `Dragonfly`); internal tester device
+      listing if it was created as `Hinterland`); internal tester device
       label is `Hinterland Internal` from the `play-internal` build.
 - [ ] Package-name caution is understood: the first AAB uploaded to the
-      production-intended Play Console app must use `com.dragonfly.app`, not
-      `com.dragonfly.app.dev` or `app.thehinterlandguide.staging`.
+      production-intended Play Console app must use `app.thehinterlandguide`, not
+      `app.thehinterlandguide.dev` or `app.thehinterlandguide.staging`.
 - [ ] Data Safety draft answers align with landing/privacy copy: photos,
       approximate location, user content/species selection, adult email, no ads,
       no tracking.
@@ -79,7 +79,7 @@ Related docs:
 
 - [ ] `Request pilot access` CTA works.
 - [ ] CTA opens an email to `support@thehinterlandguide.app`.
-- [ ] CTA subject is `Dragonfly pilot access request`.
+- [ ] CTA subject is `Hinterland pilot access request`.
 - [ ] CTA body asks for adult contact and pilot logistics only.
 - [ ] CTA does not request a child's full name.
 - [ ] Nearby CTA copy says not to include a child's full name.

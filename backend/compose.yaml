@@ -1,22 +1,22 @@
-name: dragonfly-backend
+name: hinterland-backend
 
 services:
   postgres:
     image: postgres:16
-    container_name: dragonfly-postgres
+    container_name: hinterland-postgres
     environment:
-      POSTGRES_DB: dragonfly
-      POSTGRES_USER: dragonfly
-      POSTGRES_PASSWORD: dragonfly
+      POSTGRES_DB: hinterland
+      POSTGRES_USER: hinterland
+      POSTGRES_PASSWORD: hinterland
     ports:
       - "5432:5432"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U dragonfly -d dragonfly"]
+      test: ["CMD-SHELL", "pg_isready -U hinterland -d hinterland"]
       interval: 5s
       timeout: 5s
       retries: 10
     volumes:
-      - dragonfly-postgres:/var/lib/postgresql/data
+      - hinterland-postgres:/var/lib/postgresql/data
 
 volumes:
-  dragonfly-postgres:
+  hinterland-postgres:

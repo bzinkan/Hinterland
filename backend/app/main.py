@@ -1,8 +1,4 @@
-"""Hinterland API entry point.
-
-FastAPI app for Azure Container Apps, with the Mangum handler retained for the
-legacy AWS path until that compatibility layer is intentionally removed.
-"""
+"""Hinterland API entry point for Azure Container Apps."""
 
 from __future__ import annotations
 
@@ -12,7 +8,6 @@ from contextlib import asynccontextmanager
 import structlog
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from mangum import Mangum
 
 from app.api.routes.auth import router as auth_router
 from app.api.routes.auth import well_known_router
@@ -20,8 +15,6 @@ from app.api.routes.dex import router as dex_router
 from app.api.routes.expeditions import router as expeditions_router
 from app.api.routes.geocode import router as geocode_router
 from app.api.routes.groups import router as groups_router
-from app.api.routes.internal_inat import router as internal_inat_router
-from app.api.routes.internal_moderation import router as internal_moderation_router
 from app.api.routes.meta import platform_router, v1_router
 from app.api.routes.observations import router as observations_router
 from app.api.routes.photos import router as photos_router
@@ -85,12 +78,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(sanctuary_router)
     app.include_router(species_router)
     app.include_router(taxa_router)
-    app.include_router(internal_moderation_router)
-    app.include_router(internal_inat_router)
     return app
 
 
 app = create_app()
-
-# Lambda entry point. API Gateway invokes this on the legacy AWS path.
-handler = Mangum(app, lifespan="on")

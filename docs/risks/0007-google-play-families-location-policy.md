@@ -25,7 +25,7 @@ Radius-based Expedition rules decline when only coarse/no location is present.
 
 ## Code State
 
-- `APP_ENV=play-internal` uses package `com.dragonfly.app` and display name
+- `APP_ENV=play-internal` uses package `app.thehinterlandguide` and display name
   `Hinterland Internal`.
 - `android.blockedPermissions` includes
   `android.permission.ACCESS_FINE_LOCATION`.

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import re
 from pathlib import Path
 
 _ROOT = Path(__file__).resolve().parents[2]
@@ -18,18 +17,13 @@ def test_w1_lifecycle_policy_has_only_safe_prefix_rules() -> None:
     assert raw["actions"]["baseBlob"]["delete"]["daysAfterModificationGreaterThan"] == 1
 
     held = rules["observation-quarantine-rejected-90d"]["definition"]
-    assert held["filters"]["prefixMatch"] == [
-        "photos/quarantine/",
-        "photos/rejected/",
-    ]
+    assert held["filters"]["prefixMatch"] == ["photos/quarantine/", "photos/rejected/"]
     assert held["actions"]["baseBlob"]["delete"]["daysAfterModificationGreaterThan"] == 90
 
     pilot = rules["observation-pilot-private-7d"]["definition"]
     assert pilot["filters"]["prefixMatch"] == ["photos/pilot-private/"]
     assert pilot["actions"]["baseBlob"]["delete"]["daysAfterModificationGreaterThan"] == 7
 
-    # Finalized/pilot state needs a relational check and must never be covered
-    # by an unconditional Azure lifecycle prefix rule.
     prefixes = [
         prefix
         for rule in policy["rules"]
@@ -38,124 +32,52 @@ def test_w1_lifecycle_policy_has_only_safe_prefix_rules() -> None:
     assert "photos/pending/finalized/" not in prefixes
 
 
-def test_hinterland_phase9_is_digest_pinned_and_egress_default_deny() -> None:
-    script = (_ROOT / "infra-azure/phase-9-observation-w1.sh").read_text(encoding="utf-8")
-
-    assert "environments/hinterland-dev.env" in script
-    assert "HINTERLAND_DATABASE_HOST" in script
-    assert "postgres-host" not in script
-    assert "postgres-admin-user" not in script
-    assert "postgres-database" not in script
-    assert "az storage container-rm create" in script
-    assert "az storage container create" not in script
-    assert "command az \"$@\" | tr -d '\\r'" in script
-    assert "azure_file_path" in script
-    assert '--policy "@${POLICY_AZ_PATH}"' in script
-    assert '--yaml "$job_yaml_az"' in script
-    assert "< <(" not in script
-    assert '"$RG" == "gordi-pilot-rg"' in script
-    assert '"$IMAGE" != *@sha256:*' in script
-    assert "HINTERLAND_MODERATION_PROVIDER=noop" in script
-    assert "HINTERLAND_INAT_CV_ENABLED=false" in script
-    assert "HINTERLAND_INAT_SUBMIT_ENABLED=false" in script
-    assert "--remove-env-vars HINTERLAND_INAT_OAUTH_TOKEN" in script
-    assert script.index("--remove-env-vars HINTERLAND_INAT_OAUTH_TOKEN") < script.index(
-        "HINTERLAND_INAT_CV_ENABLED=false"
-    )
-    assert "admin.observation_migration_preflight" in script
-    assert "admin.observation_legacy_reconcile" in script
-    assert "HINTERLAND_OBSERVATION_PREFLIGHT_ACK" in script
-    assert script.index("run read-only Observation migration preflight") < script.index(
-        "run additive migrations"
-    )
-    assert "event-subscription delete" in script
-    assert "event-subscription create" not in script
-    assert "az eventgrid system-topic list" in script
-    assert "STORAGE_ACCOUNT_ID" in script
-    assert "${topic_source,,}" in script
-    assert 'if ! remaining="$(az eventgrid system-topic event-subscription list' in script
-    assert "could not verify direct moderation producer removal" in script
-    assert script.index(
-        'if ! remaining="$(az eventgrid system-topic event-subscription list'
-    ) < script.index("could not verify direct moderation producer removal")
-    assert "EVENT_GRID_TOPIC" not in script
-    assert "inat-submit-worker" in script and "job delete" in script
-    assert "remaining_inat_jobs" in script
-    assert '--scope "$SB_NAMESPACE_ID"' in script
-    assert "--include-inherited" in script
-    assert "Azure Service Bus Data Owner" in script
-    assert "wait_for_role_absent" in script
-    assert "for attempt in $(seq 1 12)" in script
-    assert "triggerType: Manual" in script
-    assert "manualTriggerConfig:" in script
-    assert script.index("triggerType: Manual") < script.index("manualTriggerConfig:")
-    assert '"$raw_days" =~ ^1([.]0+)?$' in script
-    assert '"$held_days" =~ ^90([.]0+)?$' in script
-    assert '"$pilot_days" =~ ^7([.]0+)?$' in script
-    assert script.index('wait_for_job "${PREFIX}-legacy-reconcile"') < script.index(
-        'ensure_job "${PREFIX}-mod-outbox-relay"'
-    )
-    assert script.index('wait_for_job "${PREFIX}-taxa-catalog-ingest"') < script.index(
-        'wait_for_job "${PREFIX}-legacy-reconcile"'
-    )
-    assert script.index('wait_for_job "${PREFIX}-sync-expeditions"') < script.index(
-        'wait_for_job "${PREFIX}-legacy-reconcile"'
-    )
-    assert script.index('wait_for_job "${PREFIX}-legacy-reconcile"') < script.index(
-        'wait_for_job "${PREFIX}-state-rebuild"'
-    )
-    assert script.index('wait_for_job "${PREFIX}-state-rebuild"') < script.index(
-        'ensure_job "${PREFIX}-dispatcher-replay"'
-    )
-    assert script.index("countDetails.activeMessageCount") < script.index(
-        'ensure_job "${PREFIX}-mod-outbox-relay"'
+def test_active_azure_environment_is_hinterland_only() -> None:
+    environment = (_ROOT / "infra-azure/environments/hinterland-dev.env").read_text(
+        encoding="utf-8"
     )
 
+    assert 'PROJECT_SLUG="hinterland"' in environment
+    assert 'HINTERLAND_RESOURCE_GROUP="hinterland-dev-rg"' in environment
+    assert 'HINTERLAND_CONTAINER_APP_NAME="hinterland-api"' in environment
+    assert 'HINTERLAND_KID_JWKS_PATH="/.well-known/hinterland-kid-jwks.json"' in environment
+    assert not (_ROOT / "infra-azure/phase-9-observation-w1.sh").exists()
+    assert not (_ROOT / "infra-gcp").exists()
+    assert not (_ROOT / "infra").exists()
 
-def test_hinterland_workflow_migrates_before_api_and_uses_jwks_alias() -> None:
-    # Observation deployment repairs the existing Azure workflow; a second
-    # deploy workflow would create competing production authorities.
+
+def test_active_workflow_migrates_before_api_and_removes_retired_aliases() -> None:
     workflow = (_ROOT / ".github/workflows/deploy-azure-api-dev.yml").read_text(encoding="utf-8")
 
-    containment = workflow.index("Contain Observation egress before build")
-    build = workflow.index("Build immutable image")
-    preflight = workflow.index("Run read-only Observation migration preflight")
-    migration = workflow.index("Run additive migrations first")
-    catalog = workflow.index("Sync taxonomy catalog and Expedition content before rebuilds")
-    legacy = workflow.index("Reconcile legacy pending photos before consumers")
-    rebuild = workflow.index("Rebuild adopted state before dispatcher replay")
-    pin_jobs = workflow.index("Pin every Hinterland consumer and job")
-    deploy_api = workflow.index("Deploy API after migrations")
-    post_cutover = workflow.index("Close the old-revision compatibility race")
-    assert containment < build < preflight < migration < catalog < legacy < rebuild
-    assert rebuild < pin_jobs < deploy_api
-    assert deploy_api < post_cutover
+    retire_jobs = workflow.index("Retire obsolete recovery jobs")
+    pin_jobs = workflow.index("Pin Hinterland jobs to this image")
+    remove_aliases = workflow.index("Remove retired runtime variable aliases")
+    required_jobs = workflow.index("Run required pre-deploy jobs")
+    deploy_api = workflow.index("Deploy API revision")
+    rebuild = workflow.index("Rebuild derived state")
+    smoke = workflow.index("Smoke public API surfaces")
+    verify = workflow.index("Verify deployed naming and image")
+
+    assert (
+        retire_jobs
+        < pin_jobs
+        < remove_aliases
+        < required_jobs
+        < deploy_api
+        < rebuild
+        < smoke
+        < verify
+    )
     assert "HINTERLAND_KID_JWKS_PATH" in workflow
-    assert "HINTERLAND_INAT_CV_ENABLED=false" in workflow
-    assert "HINTERLAND_INAT_SUBMIT_ENABLED=false" in workflow
-    assert "remaining_inat_jobs" in workflow
-    assert "HINTERLAND_INAT_OAUTH_TOKEN" in workflow
-    assert "az eventgrid system-topic list" in workflow
-    assert "EVENT_GRID_TOPIC" not in workflow
-    assert "--include-inherited" in workflow
-    assert "Azure Service Bus Data Owner" in workflow
-    assert "for attempt in $(seq 1 12)" in workflow
-    assert "gordi-pilot-rg" in workflow
-    assert "< <(" not in workflow
-
-    required_block = re.search(r"required_jobs=\(\s*(.*?)\s*\)", workflow, re.DOTALL)
-    assert required_block is not None
-    required_jobs = [line.strip() for line in required_block.group(1).splitlines()]
-    assert required_jobs
-    assert all(len(name) < 32 for name in required_jobs), required_jobs
-
-    script = (_ROOT / "infra-azure/phase-9-observation-w1.sh").read_text(encoding="utf-8")
-    provisioned_jobs = {
-        f"hinterland-{suffix}"
-        for suffix in re.findall(r'ensure_job "\$\{PREFIX\}-([a-z0-9-]+)"', script)
-    }
-    assert provisioned_jobs
-    assert all(len(name) < 32 for name in provisioned_jobs), provisioned_jobs
+    assert "HINTERLAND_SMOKE_ENTRA_BEARER" in workflow
+    assert "--remove-env-vars" in workflow
+    assert "hinterland-obs-preflight" in workflow
+    assert "hinterland-migrate" in workflow
+    assert "hinterland-taxa-catalog-ingest" in workflow
+    assert "hinterland-sync-expeditions" in workflow
+    assert "hinterland-state-rebuild" in workflow
+    assert not (_ROOT / ".github/workflows/deploy-cloud-run-dev.yml").exists()
+    assert not (_ROOT / ".github/workflows/deploy-dev.yml").exists()
 
 
 def test_api_image_includes_every_runtime_authored_content_tree() -> None:
@@ -170,7 +92,7 @@ def test_api_image_includes_every_runtime_authored_content_tree() -> None:
     assert "!content/taxa/**" in dockerignore
 
 
-def test_migration_registers_legacy_pending_work_before_relay() -> None:
+def test_migration_registers_pending_work_before_relay() -> None:
     migration = (
         _ROOT / "backend/alembic/versions/20260709_0014_observation_w1_contract.py"
     ).read_text(encoding="utf-8")

@@ -8,10 +8,10 @@
 
 ## Context
 
-Dragonfly has API access to Anthropic (Claude) and Google (Gemini). Two questions need an answer before either gets used:
+Hinterland has API access to Anthropic (Claude) and Google (Gemini). Two questions need an answer before either gets used:
 
 1. **Where do LLMs belong in the architecture?** Candidates include a kid-facing "ask the app anything" chat or species coach, behind-the-scenes features like moderation assist and teacher summaries, and author-time tooling like expedition drafting and species-blurb generation.
-2. **What's the audience trust model?** Dragonfly's users are kids 9–12, some as young as 9 in group settings like classrooms. Any LLM output reaching a kid needs to meet a higher bar than "probably fine" — hallucinations in a science app are not just embarrassing, they're educational malpractice.
+2. **What's the audience trust model?** Hinterland's users are kids 9–12, some as young as 9 in group settings like classrooms. Any LLM output reaching a kid needs to meet a higher bar than "probably fine" — hallucinations in a science app are not just embarrassing, they're educational malpractice.
 
 Two design pressures shape this decision:
 
@@ -62,7 +62,7 @@ Revisit only if the regulatory landscape and model-safety tooling mature substan
 
 ### Use LLMs behind heavy guardrails on the kid path
 
-**Rejected.** "LLM plus classifier plus rule filter plus prompt injection defense" is a plausible design and is how several production consumer apps do it. At Dragonfly's scale and solo-dev constraint, the maintenance burden of the guardrail stack is the entire engineering budget for a year. The author-time pattern gets 80% of the content-quality upside at 5% of the runtime complexity.
+**Rejected.** "LLM plus classifier plus rule filter plus prompt injection defense" is a plausible design and is how several production consumer apps do it. At Hinterland's scale and solo-dev constraint, the maintenance burden of the guardrail stack is the entire engineering budget for a year. The author-time pattern gets 80% of the content-quality upside at 5% of the runtime complexity.
 
 ### Use no LLMs anywhere
 

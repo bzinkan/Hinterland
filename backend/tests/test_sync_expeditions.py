@@ -165,7 +165,7 @@ async def test_main_returns_nonzero_on_unknown_unarchive_id(
     ran -- an explicit operator action silently no-oping is how
     tombstones get "revived" without anyone noticing they typoed."""
     (tmp_path / "backyard_starter.json").write_text(json.dumps(_exp_dict()), encoding="utf-8")
-    monkeypatch.setenv("DRAGONFLY_CONTENT_ROOT", str(tmp_path))
+    monkeypatch.setenv("HINTERLAND_CONTENT_ROOT", str(tmp_path))
 
     archived_row = _content_row("street_starter", archived=True)
     # Selects in sync order: backyard_starter content lookup (miss ->
@@ -269,7 +269,7 @@ async def test_missing_content_root_fails_loud(
     """A nonexistent content root is a packaging regression (bad env var, or
     the image stopped shipping content/expeditions) -- exit 1, never a green
     'nothing to sync' no-op."""
-    monkeypatch.setenv("DRAGONFLY_CONTENT_ROOT", str(tmp_path / "does-not-exist"))
+    monkeypatch.setenv("HINTERLAND_CONTENT_ROOT", str(tmp_path / "does-not-exist"))
     from app.core.config import get_settings
 
     get_settings.cache_clear()

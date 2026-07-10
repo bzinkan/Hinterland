@@ -1,8 +1,8 @@
 import type { ExpoConfig } from "expo/config";
 
 // `play-internal` is the Google Play Internal Testing track build path.
-// Uses the FINAL package name `com.dragonfly.app` (no `.dev` suffix) and
-// surfaces as "Hinterland Internal" so testers can tell pilot installs
+// Uses the FINAL package name `app.thehinterlandguide` (no `.dev` suffix) and
+// surfaces as "The Hinterland Guide Internal" so testers can tell pilot installs
 // apart from a future production install. See
 // docs/google-play-internal-testing.md for the full process.
 type AppEnv =
@@ -42,8 +42,8 @@ const ENTRA_DEV: EntraConfig = {
 const ENV: Record<AppEnv, EnvConfig> = {
   development: {
     apiBaseUrl: "https://api.thehinterlandguide.app",
-    androidPackage: "com.dragonfly.app.dev",
-    iosBundleIdentifier: "com.dragonfly.app.dev",
+    androidPackage: "app.thehinterlandguide.dev",
+    iosBundleIdentifier: "app.thehinterlandguide.dev",
     updatesChannel: "development",
     entra: ENTRA_DEV,
   },
@@ -56,20 +56,20 @@ const ENV: Record<AppEnv, EnvConfig> = {
   },
   production: {
     apiBaseUrl: "https://api.thehinterlandguide.app",
-    androidPackage: "com.dragonfly.app",
-    iosBundleIdentifier: "com.dragonfly.app",
+    androidPackage: "app.thehinterlandguide",
+    iosBundleIdentifier: "app.thehinterlandguide",
     updatesChannel: "production",
     entra: ENTRA_DEV,
   },
-  // play-internal uses the FINAL package name `com.dragonfly.app`
+  // play-internal uses the FINAL package name `app.thehinterlandguide`
   // for the current pilot. First upload of this artifact LOCKS the
   // package name on the Play Console app -- see docs/google-play-
   // internal-testing.md for the warning + recovery path. Points at
   // the dev API since no staging API exists yet.
   "play-internal": {
     apiBaseUrl: "https://api.thehinterlandguide.app",
-    androidPackage: "com.dragonfly.app",
-    iosBundleIdentifier: "com.dragonfly.app",
+    androidPackage: "app.thehinterlandguide",
+    iosBundleIdentifier: "app.thehinterlandguide",
     updatesChannel: "play-internal",
     entra: ENTRA_DEV,
   },
@@ -77,10 +77,7 @@ const ENV: Record<AppEnv, EnvConfig> = {
 
 const env = ENV[APP_ENV];
 const isPlayInternal = APP_ENV === "play-internal";
-const devLoginKey =
-  process.env.HINTERLAND_DEV_AUTH_TOKEN ??
-  process.env.DRAGONFLY_DEV_LOGIN_KEY ??
-  null;
+const devLoginKey = process.env.HINTERLAND_DEV_AUTH_TOKEN ?? null;
 
 // Sanctuary 2.5D diorama build flag (ADR 0011/0012). Build-time default
 // only -- runtime overrides (screen reader, Simple view, renderer crash
@@ -97,21 +94,22 @@ const SANCTUARY_DIORAMA =
 function displayName(appEnv: AppEnv): string {
   switch (appEnv) {
     case "production":
-      return "Hinterland";
+      return "The Hinterland Guide";
     case "play-internal":
-      return "Hinterland Internal";
+      return "The Hinterland Guide Internal";
     default:
-      return `Hinterland (${appEnv})`;
+      return `The Hinterland Guide ${appEnv}`;
   }
 }
 
 const config: ExpoConfig = {
   name: displayName(APP_ENV),
-  slug: "dragonfly",
+  slug: "the-hinterland-guide",
+  owner: "thehinterlandguide",
   version: "0.1.0",
   orientation: "portrait",
   icon: "./assets/images/icon.png",
-  scheme: "dragonfly",
+  scheme: "hinterland",
   userInterfaceStyle: "automatic",
   newArchEnabled: true,
   splash: {
@@ -195,8 +193,7 @@ const config: ExpoConfig = {
     entra: env.entra,
     // Shared key for the silent dev auto-login (POST /v1/auth/dev-login).
     // Baked in ONLY for development/preview builds, and only when the
-    // builder exports HINTERLAND_DEV_AUTH_TOKEN (or legacy
-    // DRAGONFLY_DEV_LOGIN_KEY). Store builds
+    // builder exports HINTERLAND_DEV_AUTH_TOKEN. Store builds
     // (play-internal/production) ALWAYS get null -- enforced by
     // scripts/verify-play-internal-config.mjs in CI.
     devLoginKey:
@@ -204,12 +201,6 @@ const config: ExpoConfig = {
         ? devLoginKey
         : null,
     sanctuaryDiorama: SANCTUARY_DIORAMA,
-    // Links this project to the existing EAS project (account
-    // dragonflybrian) -- same id the sanctuary-3d dev client used, so
-    // cloud builds reuse the established keystore and build history.
-    eas: {
-      projectId: "7dab1a21-6bd3-489d-86b7-59cf336fdb67",
-    },
   },
 };
 

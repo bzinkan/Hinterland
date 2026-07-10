@@ -54,12 +54,12 @@ curl -sS https://api.thehinterlandguide.app/health
 # Expect: {"status":"ok","env":"prod","version":"0.1.0"}
 
 # JWKS endpoint -- proves the Phase 6a kid-JWT path is wired
-curl -sS https://api.thehinterlandguide.app/.well-known/dragonfly-kid-jwks.json | jq .
+curl -sS https://api.thehinterlandguide.app/.well-known/hinterland-kid-jwks.json | jq .
 # Expect: {"keys":[{"kty":"RSA","kid":"k1-2026-06",...}]}
 
 # Azure parent/kid smoke (parent signup -> group -> kid -> handoff flow)
-DRAGONFLY_API_BASE_URL=https://api.thehinterlandguide.app \
-DRAGONFLY_SMOKE_ENTRA_BEARER="<access-token>" \
+HINTERLAND_API_BASE_URL=https://api.thehinterlandguide.app \
+HINTERLAND_SMOKE_ENTRA_BEARER="<access-token>" \
   python scripts/smoke_azure_parent_kid.py
 # Expect: ALL CHECKS PASSED -- Azure parent/kid handoff flow works end-to-end.
 # If any step 4xx/5xxs, stop and read the response body BEFORE
@@ -67,7 +67,7 @@ DRAGONFLY_SMOKE_ENTRA_BEARER="<access-token>" \
 ```
 
 - [ ] `/health` returns 200 with the expected JSON body.
-- [ ] `/.well-known/dragonfly-kid-jwks.json` returns a JWKS with kid
+- [ ] `/.well-known/hinterland-kid-jwks.json` returns a JWKS with kid
   `k1-2026-06`.
 - [ ] `scripts/smoke_azure_parent_kid.py` exits 0 with
   `ALL CHECKS PASSED -- Azure parent/kid handoff flow works end-to-end.`
@@ -94,7 +94,7 @@ DRAGONFLY_SMOKE_ENTRA_BEARER="<access-token>" \
   `INAT_CV_DISCLOSURE_APPROVED=false`,
   `INAT_CV_BENCHMARK_APPROVED=false`, and
   `INAT_SUBMIT_ENABLED=false` under active `HINTERLAND_` and
-  compatibility `DRAGONFLY_` configuration.
+  compatibility `HINTERLAND_` configuration.
 - [ ] Confirm endpoint, producer, consumer, replay, and manual boundaries
   reject work; submit/replay jobs are absent and stale Service Bus work cannot
   be processed. Token absence is not the only control. See
@@ -139,7 +139,7 @@ APP_ENV=play-internal npx eas-cli build \
 
 - [ ] EAS build on the `play-internal` profile completes
   successfully.
-- [ ] AAB package name is `com.dragonfly.app` (NOT `.dev` /
+- [ ] AAB package name is `app.thehinterlandguide` (NOT `.dev` /
   `.staging`).
 - [ ] Display name on a temporary install is `Hinterland Internal`.
 - [ ] AAB `versionCode` is monotonically greater than the last AAB
@@ -252,7 +252,7 @@ identical to the trigger list there so the two docs cannot drift.
 
 These are explicit non-goals for the W1 pilot:
 
-- **No public iNat submissions.** `DRAGONFLY_INAT_OAUTH_TOKEN`
+- **No public iNat submissions.** `HINTERLAND_INAT_OAUTH_TOKEN`
   unset; the iNat client refuses to call. See
   [`docs/risks/0002-async-workers-production-unwired.md`](risks/0002-async-workers-production-unwired.md).
 - **No public Play release.** Internal testing only; no rollout to

@@ -25,7 +25,7 @@ def client(settings: Settings) -> httpx.AsyncClient:
     return build_inat_client(settings)
 
 
-_DRAGONFLY_OBS_ID = "01J0OBSID00000000000000ULID"
+_HINTERLAND_OBS_ID = "01J0OBSID00000000000000ULID"
 _OBSERVED_ON = datetime(2026, 5, 10, 12, 0, 0, tzinfo=UTC)
 
 
@@ -42,7 +42,7 @@ async def test_kill_switch_blocks_before_first_http_call(client: httpx.AsyncClie
     with pytest.raises(InatUnavailable, match="egress is disabled"):
         await _submit_observation_to_inat(
             client,
-            dragonfly_observation_id=_DRAGONFLY_OBS_ID,
+            hinterland_observation_id=_HINTERLAND_OBS_ID,
             photo_bytes=b"jpeg",
             latitude=39.1,
             longitude=-84.5,
@@ -54,7 +54,7 @@ async def test_kill_switch_blocks_before_first_http_call(client: httpx.AsyncClie
 @respx.mock
 async def test_happy_path(client: httpx.AsyncClient) -> None:
     obs_route = respx.post("https://api.inaturalist.org/v1/observations").mock(
-        return_value=httpx.Response(200, json={"id": 9876543, "uuid": _DRAGONFLY_OBS_ID})
+        return_value=httpx.Response(200, json={"id": 9876543, "uuid": _HINTERLAND_OBS_ID})
     )
     photo_route = respx.post("https://api.inaturalist.org/v1/observation_photos").mock(
         return_value=httpx.Response(200, json={"id": 12345})
@@ -62,7 +62,7 @@ async def test_happy_path(client: httpx.AsyncClient) -> None:
 
     result = await submit_observation_to_inat(
         client,
-        dragonfly_observation_id=_DRAGONFLY_OBS_ID,
+        hinterland_observation_id=_HINTERLAND_OBS_ID,
         photo_bytes=b"jpeg",
         latitude=39.1,
         longitude=-84.5,
@@ -71,7 +71,7 @@ async def test_happy_path(client: httpx.AsyncClient) -> None:
         species_guess="Northern Cardinal",
     )
     assert result.inat_observation_id == 9876543
-    assert result.inat_uuid == _DRAGONFLY_OBS_ID
+    assert result.inat_uuid == _HINTERLAND_OBS_ID
     assert obs_route.called
     assert photo_route.called
 
@@ -82,7 +82,7 @@ async def test_payload_rounds_coords_and_sets_geoprivacy(client: httpx.AsyncClie
     rounded to ~1.1 km AND flagged geoprivacy=obscured. Pin the exact
     JSON so neither layer can silently regress."""
     obs_route = respx.post("https://api.inaturalist.org/v1/observations").mock(
-        return_value=httpx.Response(200, json={"id": 1, "uuid": _DRAGONFLY_OBS_ID})
+        return_value=httpx.Response(200, json={"id": 1, "uuid": _HINTERLAND_OBS_ID})
     )
     respx.post("https://api.inaturalist.org/v1/observation_photos").mock(
         return_value=httpx.Response(200, json={"id": 2})
@@ -90,7 +90,7 @@ async def test_payload_rounds_coords_and_sets_geoprivacy(client: httpx.AsyncClie
 
     await submit_observation_to_inat(
         client,
-        dragonfly_observation_id=_DRAGONFLY_OBS_ID,
+        hinterland_observation_id=_HINTERLAND_OBS_ID,
         photo_bytes=b"jpeg",
         latitude=39.123456,
         longitude=-84.567891,
@@ -113,7 +113,7 @@ async def test_handles_results_wrapped_response(client: httpx.AsyncClient) -> No
     respx.post("https://api.inaturalist.org/v1/observations").mock(
         return_value=httpx.Response(
             200,
-            json={"results": [{"id": 4242, "uuid": _DRAGONFLY_OBS_ID}]},
+            json={"results": [{"id": 4242, "uuid": _HINTERLAND_OBS_ID}]},
         )
     )
     respx.post("https://api.inaturalist.org/v1/observation_photos").mock(
@@ -121,7 +121,7 @@ async def test_handles_results_wrapped_response(client: httpx.AsyncClient) -> No
     )
     result = await submit_observation_to_inat(
         client,
-        dragonfly_observation_id=_DRAGONFLY_OBS_ID,
+        hinterland_observation_id=_HINTERLAND_OBS_ID,
         photo_bytes=b"jpeg",
         latitude=39.1,
         longitude=-84.5,
@@ -136,7 +136,7 @@ async def test_observation_create_5xx_raises_unavailable(client: httpx.AsyncClie
     with pytest.raises(InatUnavailable):
         await submit_observation_to_inat(
             client,
-            dragonfly_observation_id=_DRAGONFLY_OBS_ID,
+            hinterland_observation_id=_HINTERLAND_OBS_ID,
             photo_bytes=b"jpeg",
             latitude=39.1,
             longitude=-84.5,
@@ -150,7 +150,7 @@ async def test_observation_create_401_raises_unavailable(client: httpx.AsyncClie
     with pytest.raises(InatUnavailable):
         await submit_observation_to_inat(
             client,
-            dragonfly_observation_id=_DRAGONFLY_OBS_ID,
+            hinterland_observation_id=_HINTERLAND_OBS_ID,
             photo_bytes=b"jpeg",
             latitude=39.1,
             longitude=-84.5,
@@ -168,7 +168,7 @@ async def test_observation_create_4xx_raises_unavailable(client: httpx.AsyncClie
     with pytest.raises(InatUnavailable):
         await submit_observation_to_inat(
             client,
-            dragonfly_observation_id=_DRAGONFLY_OBS_ID,
+            hinterland_observation_id=_HINTERLAND_OBS_ID,
             photo_bytes=b"jpeg",
             latitude=39.1,
             longitude=-84.5,
@@ -184,7 +184,7 @@ async def test_observation_create_transport_error(client: httpx.AsyncClient) -> 
     with pytest.raises(InatUnavailable):
         await submit_observation_to_inat(
             client,
-            dragonfly_observation_id=_DRAGONFLY_OBS_ID,
+            hinterland_observation_id=_HINTERLAND_OBS_ID,
             photo_bytes=b"jpeg",
             latitude=39.1,
             longitude=-84.5,
@@ -203,7 +203,7 @@ async def test_photo_upload_5xx_raises_unavailable(client: httpx.AsyncClient) ->
     with pytest.raises(InatUnavailable):
         await submit_observation_to_inat(
             client,
-            dragonfly_observation_id=_DRAGONFLY_OBS_ID,
+            hinterland_observation_id=_HINTERLAND_OBS_ID,
             photo_bytes=b"jpeg",
             latitude=39.1,
             longitude=-84.5,
@@ -219,7 +219,7 @@ async def test_observation_create_no_id_in_response_raises(client: httpx.AsyncCl
     with pytest.raises(InatUnavailable):
         await submit_observation_to_inat(
             client,
-            dragonfly_observation_id=_DRAGONFLY_OBS_ID,
+            hinterland_observation_id=_HINTERLAND_OBS_ID,
             photo_bytes=b"jpeg",
             latitude=39.1,
             longitude=-84.5,

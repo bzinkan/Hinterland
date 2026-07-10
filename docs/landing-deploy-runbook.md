@@ -100,7 +100,7 @@ Check the pilot CTA opens email:
 1. Open `https://thehinterlandguide.app/`.
 2. Activate `Request pilot access`.
 3. Confirm the link opens an email to `support@thehinterlandguide.app`.
-4. Confirm the subject is `Dragonfly pilot access request`.
+4. Confirm the subject is `Hinterland pilot access request`.
 5. Confirm the body asks for adult contact/logistics only and includes the
    instruction not to include a child's full name.
 

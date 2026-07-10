@@ -424,13 +424,13 @@
       "source": "recipes-sprites"
     },
     {
-      "name": "sanctuary.pond.dragonfly",
+      "name": "sanctuary.pond.damselfly",
       "kind": "sprite",
       "category": "sprite-svg",
       "spriteClass": "element",
-      "iconKey": "sanctuary.pond.dragonfly",
+      "iconKey": "sanctuary.pond.damselfly",
       "zone": "pond",
-      "out": "svg/sprites/elements/pond-dragonfly.svg",
+      "out": "svg/sprites/elements/pond-winged-insect.svg",
       "anchor": null,
       "scale": 0.4,
       "source": "recipes-sprites"

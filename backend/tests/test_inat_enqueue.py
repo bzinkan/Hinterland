@@ -27,7 +27,7 @@ from app.inat.enqueue import InatEnqueueResult, enqueue_inat_submit
 _OBS_ID = "01J0OBSID00000000000000ULID"
 
 
-def _settings_with_sb(*, namespace: str = "dragonfly-sb-test.servicebus.windows.net") -> Settings:
+def _settings_with_sb(*, namespace: str = "hinterland-sb-test.servicebus.windows.net") -> Settings:
     return Settings(env="local", service_bus_namespace=namespace, inat_submit_enabled=True)
 
 
@@ -38,7 +38,7 @@ def _settings_without_sb() -> Settings:
 async def test_returns_disabled_before_service_bus_check() -> None:
     settings = Settings(
         env="local",
-        service_bus_namespace="dragonfly-sb-test.servicebus.windows.net",
+        service_bus_namespace="hinterland-sb-test.servicebus.windows.net",
         inat_submit_enabled=False,
     )
     result = await enqueue_inat_submit(_OBS_ID, settings=settings)

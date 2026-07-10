@@ -160,11 +160,11 @@ These are not aspirational; the app must meet them on a 3-year-old mid-range And
 
 Three build profiles in `eas.json`:
 
-**`development`** — local dev client. Built once per SDK bump, installed on Brian's and testers' devices via EAS internal distribution. Points at `https://api.dev.dragonfly.example`.
+**`development`** — local dev client. Built once per SDK bump, installed on Brian's and testers' devices via EAS internal distribution. Points at `https://api.dev.hinterland.example`.
 
-**`preview`** — beta build for internal testers (TestFlight on iOS, Google Play Internal Testing on Android). Built on every merge to `main`. Points at `https://api.staging.dragonfly.example`. Uses EAS Update channel `preview` so JS-only changes land without a new binary.
+**`preview`** — beta build for internal testers (TestFlight on iOS, Google Play Internal Testing on Android). Built on every merge to `main`. Points at `https://api.staging.hinterland.example`. Uses EAS Update channel `preview` so JS-only changes land without a new binary.
 
-**`production`** — the app-store release. Built manually from a tagged release. Points at `https://api.dragonfly.example`. EAS Update channel `production`.
+**`production`** — the app-store release. Built manually from a tagged release. Points at `https://api.hinterland.example`. EAS Update channel `production`.
 
 **EAS Update policy.**
 
@@ -224,7 +224,7 @@ One config file, environment-switched via `APP_ENV` (dev/staging/prod). Pulls:
 - API base URL
 - Expo project ID
 - Push notification project ID (same as Expo for Phase 1)
-- Bundle identifier / Android package (different per env: `com.dragonfly.app.dev`, `app.thehinterlandguide.staging`, prod)
+- Bundle identifier / Android package (different per env: `app.thehinterlandguide.dev`, `app.thehinterlandguide.staging`, prod)
 - Expo Update channel
 
 Secrets do not live in `app.config.ts`. Build-time secrets (e.g. Sentry DSN) are EAS Secrets; runtime secrets do not exist on the client.

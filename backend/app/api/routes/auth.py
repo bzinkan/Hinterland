@@ -23,10 +23,10 @@ from app.core.auth import (
 )
 from app.core.config import Settings, get_request_settings
 from app.core.kid_jwt import (
-    InvalidDragonflyJwt,
+    InvalidHinterlandJwt,
     mint_session_token,
     public_jwks,
-    verify_dragonfly_jwt,
+    verify_hinterland_jwt,
 )
 from app.db import models
 from app.db.session import DbSessionDep
@@ -110,7 +110,7 @@ async def request_account_deletion(
     bust_user_cache(
         user.id,
         entra_oid=getattr(user, "entra_oid", None),
-        dragonfly_sub=user.id if user.role == "kid" else None,
+        hinterland_sub=user.id if user.role == "kid" else None,
         legacy_uid=user.firebase_uid,
     )
     log.info(
@@ -293,12 +293,12 @@ async def kid_exchange(
     """
     # 1. Verify the JWT signature + claims (issuer, audience, expiry, type).
     try:
-        claims = verify_dragonfly_jwt(
+        claims = verify_hinterland_jwt(
             payload.handoff_token,
             settings=settings,
             expected_token_type="handoff",
         )
-    except InvalidDragonflyJwt as exc:
+    except InvalidHinterlandJwt as exc:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail=f"Invalid handoff token: {exc}",
@@ -365,7 +365,7 @@ async def kid_exchange(
         settings=settings,
     )
     session_expires_at = datetime.now(UTC) + timedelta(
-        seconds=settings.dragonfly_session_ttl_seconds
+        seconds=settings.hinterland_session_ttl_seconds
     )
 
     log.info(
@@ -587,7 +587,7 @@ async def dev_login(
         settings=settings,
     )
     session_expires_at = datetime.now(UTC) + timedelta(
-        seconds=settings.dragonfly_session_ttl_seconds
+        seconds=settings.hinterland_session_ttl_seconds
     )
 
     log.info(
@@ -605,16 +605,12 @@ async def dev_login(
 
 
 # ---------------------------------------------------------------------------
-# GET public JWKS for kid tokens (additive rebrand aliases)
+# GET public JWKS for kid tokens
 # ---------------------------------------------------------------------------
 
 
 @well_known_router.get(
     "/.well-known/hinterland-kid-jwks.json",
-    include_in_schema=False,
-)
-@well_known_router.get(
-    "/.well-known/dragonfly-kid-jwks.json",
     include_in_schema=False,
 )
 def kid_jwks(
@@ -625,7 +621,7 @@ def kid_jwks(
 
     Used by any downstream service (mobile app, future services) to verify
     Hinterland-minted kid handoff / session tokens. The same kid is rotated
-    rarely (manifest constant `dragonfly_jwt_kid`), so this response is
+    rarely (manifest constant `hinterland_jwt_kid`), so this response is
     cacheable for an hour.
     """
     response.headers["Cache-Control"] = "public, max-age=3600"

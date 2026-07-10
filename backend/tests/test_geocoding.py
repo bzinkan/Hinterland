@@ -56,7 +56,7 @@ async def test_nominatim_returns_display_name() -> None:
     )
     geocoder = NominatimGeocoder(
         base_url="https://nominatim.openstreetmap.org",
-        user_agent="DragonflyTest/0.0",
+        user_agent="HinterlandTest/0.0",
         timeout=5.0,
     )
     place = await geocoder.reverse(lat=39.1, lng=-84.5)
@@ -68,7 +68,7 @@ async def test_nominatim_returns_none_on_5xx() -> None:
     respx.get("https://nominatim.openstreetmap.org/reverse").mock(return_value=httpx.Response(503))
     geocoder = NominatimGeocoder(
         base_url="https://nominatim.openstreetmap.org",
-        user_agent="DragonflyTest/0.0",
+        user_agent="HinterlandTest/0.0",
         timeout=5.0,
     )
     assert await geocoder.reverse(lat=39.1, lng=-84.5) is None
@@ -81,7 +81,7 @@ async def test_nominatim_returns_none_on_transport_error() -> None:
     )
     geocoder = NominatimGeocoder(
         base_url="https://nominatim.openstreetmap.org",
-        user_agent="DragonflyTest/0.0",
+        user_agent="HinterlandTest/0.0",
         timeout=5.0,
     )
     assert await geocoder.reverse(lat=39.1, lng=-84.5) is None
@@ -94,7 +94,7 @@ async def test_nominatim_returns_none_when_payload_missing_display() -> None:
     )
     geocoder = NominatimGeocoder(
         base_url="https://nominatim.openstreetmap.org",
-        user_agent="DragonflyTest/0.0",
+        user_agent="HinterlandTest/0.0",
         timeout=5.0,
     )
     assert await geocoder.reverse(lat=39.1, lng=-84.5) is None

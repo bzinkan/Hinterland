@@ -57,7 +57,7 @@ function makeSnapshot(
     zones: SANCTUARY_ZONE_ORDER.map((z) => makeZone(z, 0)),
     elements: [],
     recent_events: [],
-    guide_message: { speaker: "dragonfly", text: "" },
+    guide_message: { speaker: "guide", text: "" },
     mystery_cues: [],
     journal: [],
     identity_reflection: null,

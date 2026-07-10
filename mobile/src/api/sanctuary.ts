@@ -95,7 +95,7 @@ export type SanctuaryEventDto = {
 };
 
 export type SanctuaryGuideMessageDto = {
-  speaker: "dragonfly";
+  speaker: "guide";
   text: string;
 };
 

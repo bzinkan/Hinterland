@@ -445,8 +445,8 @@ function HandoffModal({
             {handoff && (
               <QRCode
                 value={JSON.stringify({
-                  v: 2,
-                  kind: "dragonfly.kid-handoff.v2",
+                  v: 1,
+                  kind: "hinterland.kid-handoff.v1",
                   handoff_token: handoff.handoff_token,
                 })}
                 size={240}

@@ -318,7 +318,7 @@ def test_empty_state_has_starter_guide_message(
     for client in _build_client(fake_session):
         response = client.get("/v1/sanctuary/me", headers={"Authorization": "Bearer fake"})
     body = response.json()
-    assert body["guide_message"]["speaker"] == "dragonfly"
+    assert body["guide_message"]["speaker"] == "guide"
     assert body["guide_message"]["text"]
 
 

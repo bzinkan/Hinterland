@@ -10,7 +10,7 @@ import { Text, View } from "@/components/Themed";
  * @shopify/react-native-skia native module before any diorama work
  * begins, and host the earliest D4 spike experiments. Not linked from
  * any navigator -- reach it by typing the route in the dev client
- * (exp+dragonfly://dev/skia-smoke) or via the router dev menu.
+ * (exp+hinterland://dev/skia-smoke) or via the router dev menu.
  *
  * The Skia import is a guarded require() rather than a top-level
  * import on purpose: expo-router registers every route at bundle time,

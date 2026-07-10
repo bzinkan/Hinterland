@@ -26,8 +26,11 @@ function assert(condition, message) {
   }
 }
 
-assert(config.name === "Hinterland Internal", "play-internal name must be Hinterland Internal");
-assert(android.package === "com.dragonfly.app", "play-internal package must be com.dragonfly.app");
+assert(
+  config.name === "The Hinterland Guide Internal",
+  "play-internal name must be The Hinterland Guide Internal",
+);
+assert(android.package === "app.thehinterlandguide", "play-internal package must be app.thehinterlandguide");
 assert(extra.appEnv === "play-internal", "extra.appEnv must be play-internal");
 assert(
   extra.apiBaseUrl === "https://api.thehinterlandguide.app",

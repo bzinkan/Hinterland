@@ -33,7 +33,7 @@ def fake_session() -> AsyncMock:
     return AsyncMock(spec=AsyncSession)
 
 
-async def test_resolves_real_dragonfly_local_user_id(fake_session: AsyncMock) -> None:
+async def test_resolves_real_hinterland_local_user_id(fake_session: AsyncMock) -> None:
     user = _user(user_id="01J0KIDID0000000000000ULID")
     _wire_user(fake_session, user)
 

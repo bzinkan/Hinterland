@@ -5,9 +5,9 @@ described in the Phase 6a design plan:
 
 * ``mint_handoff_token(*, kid_user_id, parent_id, group_id, settings) -> (str, str)``
 * ``mint_session_token(*, kid_user_id, parent_id, group_id, settings) -> str``
-* ``verify_dragonfly_jwt(token, *, settings, expected_token_type=None) -> dict``
+* ``verify_hinterland_jwt(token, *, settings, expected_token_type=None) -> dict``
 * ``public_jwks(settings) -> dict``
-* ``InvalidDragonflyJwt`` exception
+* ``InvalidHinterlandJwt`` exception
 
 The signing/public PEMs are normally read from Azure Key Vault via the
 ``app.core.key_vault`` helpers; tests monkeypatch those helpers to return
@@ -129,14 +129,14 @@ def test_mint_handoff_token_contains_expected_claims(
     assert decoded["role"] == "kid"
     assert decoded["token_type"] == "handoff"
     assert decoded["jti"] == jti
-    assert decoded["iss"] == settings.dragonfly_jwt_issuer
-    assert decoded["aud"] == settings.dragonfly_jwt_audience
+    assert decoded["iss"] == settings.hinterland_jwt_issuer
+    assert decoded["aud"] == settings.hinterland_jwt_audience
     # 15-minute handoff TTL by default.
-    assert decoded["exp"] - decoded["iat"] == settings.dragonfly_handoff_ttl_seconds
+    assert decoded["exp"] - decoded["iat"] == settings.hinterland_handoff_ttl_seconds
 
     header = pyjwt.get_unverified_header(token)
     assert header["alg"] == "RS256"
-    assert header["kid"] == settings.dragonfly_jwt_kid
+    assert header["kid"] == settings.hinterland_jwt_kid
 
 
 def test_mint_session_token_uses_session_ttl(
@@ -154,7 +154,7 @@ def test_mint_session_token_uses_session_ttl(
     )
     decoded = pyjwt.decode(token, options={"verify_signature": False})
     assert decoded["token_type"] == "session"
-    assert decoded["exp"] - decoded["iat"] == settings.dragonfly_session_ttl_seconds
+    assert decoded["exp"] - decoded["iat"] == settings.hinterland_session_ttl_seconds
 
 
 def test_verify_round_trip_succeeds(
@@ -169,7 +169,7 @@ def test_verify_round_trip_succeeds(
         settings=settings,
     )
 
-    claims = kid_jwt.verify_dragonfly_jwt(
+    claims = kid_jwt.verify_hinterland_jwt(
         token,
         settings=settings,
         expected_token_type="handoff",
@@ -184,11 +184,11 @@ def test_verify_rejects_expired_token(
     settings: Settings,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """An expired handoff JWT must raise InvalidDragonflyJwt."""
+    """An expired handoff JWT must raise InvalidHinterlandJwt."""
     kid_jwt = _kid_jwt_or_skip()
 
     # Force the TTL to a negative value so the minted token is born expired.
-    monkeypatch.setattr(settings, "dragonfly_handoff_ttl_seconds", -10)
+    monkeypatch.setattr(settings, "hinterland_handoff_ttl_seconds", -10)
     token, _ = kid_jwt.mint_handoff_token(
         kid_user_id="01J0KIDID0000000000000ULID",
         parent_id="01J0PARENTID0000000000ULID",
@@ -196,22 +196,22 @@ def test_verify_rejects_expired_token(
         settings=settings,
     )
 
-    with pytest.raises(kid_jwt.InvalidDragonflyJwt):
-        kid_jwt.verify_dragonfly_jwt(token, settings=settings)
+    with pytest.raises(kid_jwt.InvalidHinterlandJwt):
+        kid_jwt.verify_hinterland_jwt(token, settings=settings)
 
 
 def test_verify_rejects_wrong_audience(
     patch_key_vault: tuple[bytes, bytes],
     settings: Settings,
 ) -> None:
-    """A token whose aud claim doesn't match settings.dragonfly_jwt_audience -> reject."""
+    """A token whose aud claim doesn't match settings.hinterland_jwt_audience -> reject."""
     import jwt as pyjwt
 
     kid_jwt = _kid_jwt_or_skip()
     private_pem, _ = patch_key_vault
     now = datetime.now(UTC)
     payload = {
-        "iss": settings.dragonfly_jwt_issuer,
+        "iss": settings.hinterland_jwt_issuer,
         "aud": "some-other-audience",
         "sub": "01J0KIDID0000000000000ULID",
         "jti": "01HANDOFFJTI00000000000000",
@@ -226,11 +226,11 @@ def test_verify_rejects_wrong_audience(
         payload,
         private_pem,
         algorithm="RS256",
-        headers={"kid": settings.dragonfly_jwt_kid, "alg": "RS256", "typ": "JWT"},
+        headers={"kid": settings.hinterland_jwt_kid, "alg": "RS256", "typ": "JWT"},
     )
 
-    with pytest.raises(kid_jwt.InvalidDragonflyJwt):
-        kid_jwt.verify_dragonfly_jwt(token, settings=settings)
+    with pytest.raises(kid_jwt.InvalidHinterlandJwt):
+        kid_jwt.verify_hinterland_jwt(token, settings=settings)
 
 
 def test_verify_rejects_wrong_issuer(
@@ -244,7 +244,7 @@ def test_verify_rejects_wrong_issuer(
     now = datetime.now(UTC)
     payload = {
         "iss": "https://evil.example.com",
-        "aud": settings.dragonfly_jwt_audience,
+        "aud": settings.hinterland_jwt_audience,
         "sub": "01J0KIDID0000000000000ULID",
         "jti": "01HANDOFFJTI00000000000000",
         "iat": int(now.timestamp()),
@@ -258,11 +258,11 @@ def test_verify_rejects_wrong_issuer(
         payload,
         private_pem,
         algorithm="RS256",
-        headers={"kid": settings.dragonfly_jwt_kid, "alg": "RS256", "typ": "JWT"},
+        headers={"kid": settings.hinterland_jwt_kid, "alg": "RS256", "typ": "JWT"},
     )
 
-    with pytest.raises(kid_jwt.InvalidDragonflyJwt):
-        kid_jwt.verify_dragonfly_jwt(token, settings=settings)
+    with pytest.raises(kid_jwt.InvalidHinterlandJwt):
+        kid_jwt.verify_hinterland_jwt(token, settings=settings)
 
 
 def test_verify_rejects_bad_signature(
@@ -282,8 +282,8 @@ def test_verify_rejects_bad_signature(
     header_payload, _signature = token.rsplit(".", 1)
     tampered = header_payload + ".AAAAAAAAAAAAAAAAAAAAAAAAAAAA"
 
-    with pytest.raises(kid_jwt.InvalidDragonflyJwt):
-        kid_jwt.verify_dragonfly_jwt(tampered, settings=settings)
+    with pytest.raises(kid_jwt.InvalidHinterlandJwt):
+        kid_jwt.verify_hinterland_jwt(tampered, settings=settings)
 
 
 def test_verify_rejects_mismatched_token_type(
@@ -299,8 +299,8 @@ def test_verify_rejects_mismatched_token_type(
         settings=settings,
     )
 
-    with pytest.raises(kid_jwt.InvalidDragonflyJwt):
-        kid_jwt.verify_dragonfly_jwt(
+    with pytest.raises(kid_jwt.InvalidHinterlandJwt):
+        kid_jwt.verify_hinterland_jwt(
             session_token,
             settings=settings,
             expected_token_type="handoff",
@@ -319,7 +319,7 @@ def test_public_jwks_returns_rsa_key(
     assert key["kty"] == "RSA"
     assert key["alg"] == "RS256"
     assert key["use"] == "sig"
-    assert key["kid"] == settings.dragonfly_jwt_kid
+    assert key["kid"] == settings.hinterland_jwt_kid
     # Base64url-encoded modulus + exponent (RFC 7518).
     assert isinstance(key["n"], str) and len(key["n"]) > 0
     assert isinstance(key["e"], str) and len(key["e"]) > 0

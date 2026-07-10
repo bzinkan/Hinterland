@@ -1,6 +1,6 @@
 # Hinterland mobile
 
-Expo (React Native) app for Hinterland (formerly Dragonfly). iOS, Android, and a thin web build for the
+Expo (React Native) app for The Hinterland Guide. iOS, Android, and a thin web build for the
 parent-consent / teacher dashboard surface (per `docs/mobile.md`).
 
 Phase 6+ surface: Field Journal tab (route `index`) opens to saved photos
@@ -108,7 +108,7 @@ Run it as follows:
    ```powershell
    adb devices
    $serial = "REPLACE_WITH_ADB_SERIAL"
-   adb -s $serial shell dumpsys package com.dragonfly.app |
+   adb -s $serial shell dumpsys package app.thehinterlandguide |
      Select-String "versionCode|versionName"
    maestro --device=$serial test .\.maestro
    ```
@@ -136,9 +136,9 @@ scenarios on the same exact AAB and device:
 
 | APP_ENV       | API base URL                          | Bundle ID                  | Update channel |
 | ------------- | ------------------------------------- | -------------------------- | -------------- |
-| `development` | `https://api.thehinterlandguide.app`  | `com.dragonfly.app.dev`    | `development`  |
+| `development` | `https://api.thehinterlandguide.app`  | `app.thehinterlandguide.dev`    | `development`  |
 | `preview`     | `https://api.thehinterlandguide.app`  | `app.thehinterlandguide.staging` | `preview`      |
-| `production`  | `https://api.thehinterlandguide.app`  | `com.dragonfly.app`        | `production`   |
+| `production`  | `https://api.thehinterlandguide.app`  | `app.thehinterlandguide`        | `production`   |
 
 All current build profiles point at the development Azure API until separate
 staging/production Container Apps exist.

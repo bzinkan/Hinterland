@@ -99,7 +99,7 @@ def _build_client(
         Settings(
             env="local",
             app_version="test",
-            photos_bucket="dragonfly-photos-test",
+            photos_bucket="hinterland-photos-test",
             inat_oauth_token=inat_token,
         )
     )
@@ -203,7 +203,7 @@ def test_presign_returns_signed_url_and_inserts_photo_row(
 
     assert response.status_code == 201
     body = response.json()
-    assert body["bucket"] == "dragonfly-photos-test"
+    assert body["bucket"] == "hinterland-photos-test"
     assert body["object_name"].startswith("pending/uploads/")
     assert body["object_name"].endswith(".jpg")
     assert body["content_type"] == "image/jpeg"
@@ -219,7 +219,7 @@ def test_presign_returns_signed_url_and_inserts_photo_row(
     # Signer was called with a 15-minute TTL and matching object_name.
     assert len(stub_signer.calls) == 1
     call = stub_signer.calls[0]
-    assert call["bucket"] == "dragonfly-photos-test"
+    assert call["bucket"] == "hinterland-photos-test"
     assert call["object_name"] == body["object_name"]
     assert call["content_type"] == "image/jpeg"
     assert cast(timedelta, call["expires_in"]) == timedelta(minutes=15)
@@ -231,7 +231,7 @@ def test_presign_returns_signed_url_and_inserts_photo_row(
     assert photo.status == "pending"
     assert photo.attachment_status == "reserved"
     assert photo.submission_key is not None
-    assert photo.bucket == "dragonfly-photos-test"
+    assert photo.bucket == "hinterland-photos-test"
     assert photo.object_name == body["object_name"]
     assert photo.user_id == _USER_ID
     assert photo.content_type == "image/jpeg"
@@ -332,7 +332,7 @@ def _photo_row(*, owner: str = _USER_ID, status: str = "clean") -> models.Photo:
     return models.Photo(
         id="01J0PHOTOID00000000000ULID",
         user_id=owner,
-        bucket="dragonfly-photos-test",
+        bucket="hinterland-photos-test",
         object_name="observations/01J0PHOTOID00000000000ULID.jpg",
         status=status,
         content_type="image/jpeg",

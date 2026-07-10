@@ -1,7 +1,7 @@
 """Azure Blob Storage signed-URL generation for photo upload.
 
 Container Apps runs under the User-Assigned Managed Identity granted
-Storage Blob Data Contributor on `dragonflyphotosdev` (provisioned in
+Storage Blob Data Contributor on `hinterlandphotosdev` (provisioned in
 Phase 5). User-delegation SAS URLs are the AAD-credentialed equivalent
 of the old GCS V4 signed URLs.
 

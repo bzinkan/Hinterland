@@ -115,7 +115,7 @@ def _obs_with_photo(
     photo = models.Photo(
         id=_PHOTO_ID,
         user_id=_USER_ID,
-        bucket="dragonfly-photos-test",
+        bucket="hinterland-photos-test",
         object_name=f"observations/{_PHOTO_ID}.jpg",
         status=photo_status,
         content_type="image/jpeg",
@@ -351,7 +351,7 @@ def test_identify_happy_path_returns_top_3(
         assert body["suggestions"][0]["common_name"] == "Northern Cardinal"
         assert body["suggestions"][0]["score"] == 92.5
         # Storage WAS read with the observations photo key.
-        assert storage.fetch_calls == [("dragonfly-photos-test", f"observations/{_PHOTO_ID}.jpg")]
+        assert storage.fetch_calls == [("hinterland-photos-test", f"observations/{_PHOTO_ID}.jpg")]
 
 
 @respx.mock

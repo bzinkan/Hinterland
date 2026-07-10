@@ -36,7 +36,7 @@ For each geohash-4 cell where Hinterland has at least one observation in the las
    | epic       | 0.1–1%                             |
    | legendary  | < 0.1% (but appears at least once) |
 
-   These thresholds are a starting point. Tune once we have at least 30 days of live kid observations and can see how the distribution looks for our actual users' regions. Thresholds live in SSM at `/dragonfly/{env}/rarity/tier_thresholds`.
+   These thresholds are a starting point. Tune once we have at least 30 days of live kid observations and can see how the distribution looks for our actual users' regions. Thresholds live in SSM at `/hinterland/{env}/rarity/tier_thresholds`.
 
 3. If `N < 50`, the cell is data-sparse. Write `REGION#<gh>/META.low_data = true` and *do not* compute a per-species tier at the geohash-4 level. `RarityHandler` will fall back to the geohash-3 parent cell for tier decisions in this region.
 

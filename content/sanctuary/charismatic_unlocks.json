@@ -1,13 +1,13 @@
 {
   "charismatic_unlocks": [
     {
-      "id": "pond_charismatic_dragonfly",
+      "id": "pond_charismatic_damselfly",
       "zone": "pond",
       "taxon_id": 47792,
-      "common_name": "Dragonfly",
-      "title": "A dragonfly hovers over the pond.",
+      "common_name": "Damselfly",
+      "title": "A damselfly hovers over the pond.",
       "detail": "Four clear wings, eyes like beads, and a path that zigzags above the water.",
-      "icon": "sanctuary.pond.dragonfly",
+      "icon": "sanctuary.pond.damselfly",
       "taxon_id_verified": false
     },
     {

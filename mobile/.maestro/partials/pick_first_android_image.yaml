@@ -1,4 +1,4 @@
-appId: com.dragonfly.app
+appId: app.thehinterlandguide
 ---
 - tapOn:
     text: "Allow.*"

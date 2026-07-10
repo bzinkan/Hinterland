@@ -1,9 +1,9 @@
-# Hinterland
+# The Hinterland Guide
 
 [![CI](https://github.com/bzinkan/Hinterland/actions/workflows/ci.yml/badge.svg)](https://github.com/bzinkan/Hinterland/actions/workflows/ci.yml)
 
-Hinterland (formerly Dragonfly; full title "The Hinterland Guide") is a
-citizen-science field app for curious explorers of all ages. People log real
+The Hinterland Guide is a citizen-science field app for curious explorers of
+all ages. People log real
 outdoor observations, fill a personal Dex, complete expeditions, and may
 eventually contribute approved observations to iNaturalist through a reviewed
 contribution flow. Kid accounts remain adult-managed.
@@ -14,11 +14,11 @@ contribution flow. Kid accounts remain adult-managed.
   <tr>
     <td align="center">
       <a href="https://thehinterlandguide.app">
-        <img src="web/public/social-card.png" alt="Dragonfly - Real nature. Real science. A field app for curious kids and adult-managed pilot groups." width="520">
+        <img src="web/public/social-card.png" alt="The Hinterland Guide - Real nature. Real science. A field app for curious kids and adult-managed pilot groups." width="520">
       </a>
     </td>
     <td align="center">
-      <img src="web/public/apple-touch-icon.png" alt="Dragonfly app icon" width="130">
+      <img src="web/public/apple-touch-icon.png" alt="The Hinterland Guide app icon" width="130">
     </td>
   </tr>
 </table>
@@ -31,9 +31,7 @@ mobile/       Expo app for Android, iOS, and parents web.
 web/          Public landing page static site (thehinterlandguide.app).
 content/      Expedition and Sanctuary JSON. Source of truth for authored content.
 scripts/      Smoke tests, content validation/sync, schema generation, helper tools.
-infra-azure/  Azure setup/decommission scripts and manifest.
-infra-gcp/    Legacy GCP Terraform kept for historical reference only.
-infra/        Legacy AWS CDK reference path.
+infra-azure/  Active Azure environment contracts and lifecycle policy.
 docs/         Architecture, data model, ADRs, risks, runbooks, pilot checklists.
 internal/     Internal-only tooling. Never import into kid-facing backend code.
 AGENTS.md     Guardrails and current risk closure plan for coding agents.
@@ -43,9 +41,7 @@ AGENTS.md     Guardrails and current risk closure plan for coding agents.
 
 The active runtime target is **Azure**, per
 [`docs/adr/0010-azure-target-architecture.md`](docs/adr/0010-azure-target-architecture.md)
-and [`docs/adr/0014-firebase-gcp-decommission.md`](docs/adr/0014-firebase-gcp-decommission.md).
-ADR 0010 supersedes the earlier GCP target ADRs 0005, 0008, and 0009; ADR
-0014 removes the old Firebase/GCP rollback path.
+and [`docs/adr/0013-hinterland-rename.md`](docs/adr/0013-hinterland-rename.md).
 
 Active Azure shape:
 
@@ -57,10 +53,9 @@ Active Azure shape:
 - Moderation provider: Azure AI Content Safety, still async and off the hot path.
 - Frontend: parents web, apex, and www on Azure Static Web Apps.
 
-Residual GCP/Firebase resources are historical until externally deleted. Do not
-add new Cloud Run, Cloud SQL, Cloud Tasks, Eventarc, Cloud Vision, Cloud DNS,
-Firebase Hosting, or Firebase Auth implementation unless a new ADR explicitly
-reopens the platform decision.
+Do not add an alternate cloud runtime, authentication provider, hosting path,
+or compatibility configuration layer unless a new ADR explicitly reopens the
+platform decision.
 
 ## Getting Started
 
@@ -80,7 +75,7 @@ Docker smoke:
 
 ```bash
 docker build -f backend/Dockerfile -t hinterland-api .
-docker run --rm -p 8080:8080 -e DRAGONFLY_ENV=local hinterland-api
+docker run --rm -p 8080:8080 -e HINTERLAND_ENV=local hinterland-api
 curl localhost:8080/health
 ```
 
@@ -98,10 +93,10 @@ Azure smoke:
 ```bash
 curl -fsS https://api.thehinterlandguide.app/health
 curl -fsS https://api.thehinterlandguide.app/ready
-curl -fsS https://api.thehinterlandguide.app/.well-known/dragonfly-kid-jwks.json
+curl -fsS https://api.thehinterlandguide.app/.well-known/hinterland-kid-jwks.json
 
 # Authenticated parent/kid smoke requires an operator-provided Entra token.
-DRAGONFLY_SMOKE_ENTRA_BEARER="<access-token>" \
+HINTERLAND_SMOKE_ENTRA_BEARER="<access-token>" \
   python scripts/smoke_azure_parent_kid.py
 ```
 

@@ -25,7 +25,7 @@ The non-negotiable invariants in AGENTS.md §"Non-Negotiable Invariants" are clo
 
 ## Decision
 
-Use the following GCP services for the Phase 1 target architecture, in GCP project `dragonflyapp-495423`:
+Use the following GCP services for the Phase 1 target architecture, in GCP project `hinterlandapp-495423`:
 
 ### 1. Auth: Firebase Authentication
 
@@ -54,9 +54,9 @@ Rejected: Firestore (single-table prefix patterns from ADR 0001 do not translate
 
 One bucket, three prefixes, mirroring the existing S3 design:
 
-- `gs://dragonfly-photos-<env>/pending/` — fresh uploads, awaiting moderation
-- `gs://dragonfly-photos-<env>/observations/` — clean photos, served to clients
-- `gs://dragonfly-photos-<env>/quarantine/` — moderation-flagged photos, accessible only to teacher-review pathways
+- `gs://hinterland-photos-<env>/pending/` — fresh uploads, awaiting moderation
+- `gs://hinterland-photos-<env>/observations/` — clean photos, served to clients
+- `gs://hinterland-photos-<env>/quarantine/` — moderation-flagged photos, accessible only to teacher-review pathways
 
 Settings:
 
@@ -89,7 +89,7 @@ Access:
 
 - The Cloud Run service account is granted `roles/secretmanager.secretAccessor` **on specific secrets only**, not at project scope.
 - Secrets are loaded at Cloud Run cold start by `pydantic-settings` via the Secret Manager API, never injected as plaintext environment variables.
-- `DRAGONFLY_*` env vars on the Cloud Run service hold *secret names*, not secret values.
+- `HINTERLAND_*` env vars on the Cloud Run service hold *secret names*, not secret values.
 
 Rotation is per-secret, manual in Phase 1, scheduled in Phase 2.
 

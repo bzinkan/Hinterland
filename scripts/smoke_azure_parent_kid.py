@@ -1,16 +1,16 @@
 #!/usr/bin/env python3
 """Azure-era parent -> group -> kid handoff smoke test.
 
-This replaces the legacy Firebase-only ``smoke_phase4.py`` for the active
-ADR 0010 runtime. The parent token is supplied by the operator or GitHub
+This is the authenticated parent/kid smoke for the active Azure runtime. The
+parent token is supplied by the operator or GitHub
 Actions secret because Entra CIAM interactive sign-in is intentionally not
 automated in repo code.
 
 Environment:
-    DRAGONFLY_API_BASE_URL        default: https://api.thehinterlandguide.app
-    DRAGONFLY_SMOKE_ENTRA_BEARER  required: Entra access token for a parent
-    DRAGONFLY_SMOKE_PARENT_NAME   default: Smoke Test Parent
-    DRAGONFLY_SMOKE_KID_NAME      default: Sparrow
+    HINTERLAND_API_BASE_URL        default: https://api.thehinterlandguide.app
+    HINTERLAND_SMOKE_ENTRA_BEARER  required: Entra access token for a parent
+    HINTERLAND_SMOKE_PARENT_NAME   default: Smoke Test Parent
+    HINTERLAND_SMOKE_KID_NAME      default: Sparrow
 """
 
 from __future__ import annotations
@@ -25,11 +25,11 @@ import urllib.request
 from typing import Any
 
 API_BASE = os.environ.get(
-    "DRAGONFLY_API_BASE_URL", "https://api.thehinterlandguide.app"
+    "HINTERLAND_API_BASE_URL", "https://api.thehinterlandguide.app"
 ).rstrip("/")
-PARENT_BEARER = os.environ.get("DRAGONFLY_SMOKE_ENTRA_BEARER", "").strip()
-PARENT_NAME = os.environ.get("DRAGONFLY_SMOKE_PARENT_NAME", "Smoke Test Parent")
-KID_NAME = os.environ.get("DRAGONFLY_SMOKE_KID_NAME", "Sparrow")
+PARENT_BEARER = os.environ.get("HINTERLAND_SMOKE_ENTRA_BEARER", "").strip()
+PARENT_NAME = os.environ.get("HINTERLAND_SMOKE_PARENT_NAME", "Smoke Test Parent")
+KID_NAME = os.environ.get("HINTERLAND_SMOKE_KID_NAME", "Sparrow")
 
 
 def _decode_jwt_payload(token: str) -> dict[str, Any]:
@@ -49,7 +49,7 @@ def _smoke_email() -> str:
     email = claims.get("preferred_username") or claims.get("email")
     if isinstance(email, str) and "@" in email:
         return email
-    return f"smoke+{int(time.time())}@dragonfly-test.invalid"
+    return f"smoke+{int(time.time())}@hinterland-test.invalid"
 
 
 def request(
@@ -98,7 +98,7 @@ def expect(
 
 def main() -> int:
     if not PARENT_BEARER:
-        print("DRAGONFLY_SMOKE_ENTRA_BEARER is required.", file=sys.stderr)
+        print("HINTERLAND_SMOKE_ENTRA_BEARER is required.", file=sys.stderr)
         return 2
 
     parent_email = _smoke_email()

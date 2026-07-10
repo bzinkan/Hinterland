@@ -7,7 +7,7 @@
 
 ## Context
 
-Dragonfly has more ingest than the hot observation endpoint: photo upload
+Hinterland has more ingest than the hot observation endpoint: photo upload
 events, expedition content sync, iNaturalist taxa data, rarity snapshots,
 geocoding cache fills, moderation results, and operational telemetry. If each
 one becomes an ad hoc script or worker, retries and partial failures will be

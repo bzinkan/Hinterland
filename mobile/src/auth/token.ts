@@ -13,7 +13,7 @@ import { Platform } from "react-native";
 
 import { rotateImperativeRequestBoundary } from "@/src/auth/requestBoundary";
 
-const KEY = "dragonfly.bearer_token";
+const KEY = "hinterland.bearer_token";
 
 export type BearerTokenChange = "set" | "cleared";
 

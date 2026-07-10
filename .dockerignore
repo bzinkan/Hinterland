@@ -1,4 +1,4 @@
-# Ignore rules for the dragonfly-api image build, whose context is the
+# Ignore rules for the hinterland-api image build, whose context is the
 # REPO ROOT (az acr build ... --file backend/Dockerfile .). Docker reads
 # only <context>/.dockerignore, so backend/.dockerignore does NOT apply
 # here -- without this file `az acr build` would upload the entire repo

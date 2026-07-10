@@ -1,7 +1,7 @@
 {
-  "name": "Dragonfly",
-  "short_name": "Dragonfly",
-  "description": "Dragonfly is a field app for real outdoor observations, a personal Dex, nature expeditions, and a growing Sanctuary.",
+  "name": "The Hinterland Guide",
+  "short_name": "Hinterland Guide",
+  "description": "The Hinterland Guide is a field app for real outdoor observations, a personal Dex, nature expeditions, and a growing Sanctuary.",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",

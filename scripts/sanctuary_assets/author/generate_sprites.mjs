@@ -203,7 +203,7 @@ function drawFrog(doc, rng, params) {
   }
 }
 
-function drawDragonfly(doc, rng) {
+function drawDamselfly(doc, rng) {
   shadow(doc, 8, 0.12);
   // Reed perch.
   stem(doc, CX - 8, GY, CX - 4, 58, 1.5);
@@ -797,7 +797,7 @@ const MOTIFS = {
   pollination: drawPollination,
   fish: drawFish,
   frog: drawFrog,
-  dragonfly: drawDragonfly,
+  damselfly: drawDamselfly,
   "frog-in-water": drawFrogInWater,
   snail: drawSnail,
   "bird-soar": drawBirdSoar,

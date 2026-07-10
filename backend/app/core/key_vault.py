@@ -5,7 +5,7 @@ The backend reads four named secrets from the Hinterland Key Vault:
 * ``kid-jwt-signing-key``  -- RSA private PEM used to mint Hinterland RS256
   handoff + session JWTs for kids.
 * ``kid-jwt-public-key``   -- RSA public PEM used to verify the same and to
-  build the public JWKS at ``/.well-known/dragonfly-kid-jwks.json``.
+  build the public JWKS at ``/.well-known/hinterland-kid-jwks.json``.
 * ``entra-tenant-id``      -- Microsoft Entra External ID tenant GUID. Falls
   back to ``Settings.entra_tenant_id`` when absent.
 * ``entra-api-app-id``     -- The API app registration's audience claim. Falls
@@ -72,7 +72,7 @@ def _get_secret_value(vault_url: str, secret_name: str) -> str:
 def get_kid_signing_pem(settings: Settings) -> bytes:
     """Return the PEM-encoded RSA private key used to mint Hinterland JWTs.
 
-    Local override (``DRAGONFLY_KID_JWT_SIGNING_PEM``) wins so tests can
+    Local override (``HINTERLAND_KID_JWT_SIGNING_PEM``) wins so tests can
     supply a freshly generated key without reaching AKV.
     """
     if settings.kid_jwt_signing_pem:
