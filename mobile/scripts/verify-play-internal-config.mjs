@@ -43,6 +43,10 @@ assert(
   "play-internal must block ACCESS_FINE_LOCATION",
 );
 assert(
+  blocked.has("android.permission.RECORD_AUDIO"),
+  "play-internal must block RECORD_AUDIO",
+);
+assert(
   permissions.has("android.permission.ACCESS_COARSE_LOCATION"),
   "play-internal must explicitly request ACCESS_COARSE_LOCATION",
 );

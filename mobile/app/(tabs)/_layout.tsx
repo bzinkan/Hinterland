@@ -37,6 +37,7 @@ export default function TabLayout() {
           // Header says the full name; the tab bar keeps the short one.
           title: "Field Journal",
           tabBarLabel: "Journal",
+          tabBarButtonTestID: "tab-journal",
           tabBarIcon: ({ color }) => <TabBarIcon name="sticky-note" color={color} />,
         }}
       />

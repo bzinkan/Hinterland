@@ -259,7 +259,11 @@ export default function ObservationDetailScreen() {
   }
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+    <ScrollView
+      testID="observation-detail-screen"
+      style={styles.container}
+      contentContainerStyle={styles.content}
+    >
       <Stack.Screen options={{ title: journalCaption(effectiveSpecies) }} />
 
       {presentation.mode === "image" ? (
@@ -269,6 +273,11 @@ export default function ObservationDetailScreen() {
         />
       ) : (
         <View
+          testID={
+            presentation.status === "pilot_private"
+              ? "observation-detail-private-status"
+              : undefined
+          }
           accessible
           accessibilityRole="text"
           accessibilityLabel={presentation.message ?? "Photo unavailable"}
@@ -372,6 +381,7 @@ function DetailPhoto({
 
   return (
     <Image
+      testID="observation-detail-photo-image"
       accessible
       accessibilityLabel={description}
       source={{ uri: urlQuery.data.url }}
@@ -624,6 +634,7 @@ function IdentifySection({
 
       {photoHelperEnabled ? (
         <Pressable
+          testID="observation-photo-helper-button"
           accessibilityRole="button"
           accessibilityLabel="Ask the photo helper"
           accessibilityHint="Gets optional suggestions from the approved photo helper"

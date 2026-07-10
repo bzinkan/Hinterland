@@ -20,10 +20,15 @@ Safety, CV/photo-helper egress, and public iNaturalist submission remain off.
 ## Protected GitHub environment
 
 Create a GitHub environment named `w1-promotion` and configure at least one
-required adult reviewer. Store these environment secrets there:
+required adult reviewer. The existing repository-scoped Azure OIDC secrets
+remain available to ordinary deployments and are inherited by this protected
+environment:
 
 - `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, and `AZURE_SUBSCRIPTION_ID` for the
-  federated deployment identity;
+  federated deployment identity.
+
+Store only the promotion-specific values as environment secrets:
+
 - `HINTERLAND_SMOKE_ENTRA_BEARER`, a current token for the isolated test parent;
 - `HINTERLAND_ALERT_EMAIL`, a monitored operational address.
 

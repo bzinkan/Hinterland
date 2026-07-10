@@ -451,6 +451,7 @@ const JournalCard = memo(function JournalCard({ item }: { item: ObservationListI
 
   return (
     <Pressable
+      testID="field-journal-observation-card"
       accessibilityRole="button"
       accessibilityLabel={`${caption}. ${formatDate(ts)}${item.place_name ? `. ${item.place_name}` : ""}${presentation.message ? `. ${presentation.message}` : ""}`}
       accessibilityHint="Opens this Field Journal entry"
@@ -460,7 +461,15 @@ const JournalCard = memo(function JournalCard({ item }: { item: ObservationListI
       {presentation.mode === "image" ? (
         <JournalThumb photoId={item.photo_id} description={`Photo of ${caption}`} />
       ) : (
-        <UnavailableThumb status={presentation.status} message={presentation.message} />
+        <UnavailableThumb
+          status={presentation.status}
+          message={presentation.message}
+          testID={
+            presentation.status === "pilot_private"
+              ? "field-journal-private-status"
+              : undefined
+          }
+        />
       )}
       <Text style={styles.cardTitle}>{caption}</Text>
       <Text style={styles.cardMeta}>
@@ -559,6 +568,7 @@ function JournalThumb({
   return (
     <View style={styles.thumbWrap}>
       <Image
+        testID="field-journal-photo-image"
         accessible
         accessibilityLabel={description}
         source={{ uri: urlQuery.data.url }}
@@ -582,12 +592,15 @@ function JournalThumb({
 function UnavailableThumb({
   status,
   message,
+  testID,
 }: {
   status: string;
   message: string | null;
+  testID?: string;
 }) {
   return (
     <View
+      testID={testID}
       accessible
       accessibilityRole="text"
       accessibilityLabel={message ?? "Photo unavailable"}

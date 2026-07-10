@@ -80,6 +80,18 @@ describe("Observation detail presentation", () => {
     let tree!: renderer.ReactTestRenderer;
     act(() => { tree = renderer.create(<ObservationDetailScreen />); });
     const rendered = JSON.stringify(tree.toJSON());
+    expect(
+      tree.root.findAllByProps({ testID: "observation-detail-screen" }).length,
+    ).toBeGreaterThan(0);
+    expect(
+      tree.root.findAllByProps({ testID: "observation-detail-private-status" }).length,
+    ).toBeGreaterThan(0);
+    expect(
+      tree.root.findAllByProps({ testID: "observation-detail-photo-image" }),
+    ).toHaveLength(0);
+    expect(
+      tree.root.findAllByProps({ testID: "observation-photo-helper-button" }),
+    ).toHaveLength(0);
     expect(rendered).toContain("This photo is private during the pilot.");
     expect(rendered).toContain("Improve identification");
     expect(rendered).toContain("Manual identification correction");
@@ -93,6 +105,9 @@ describe("Observation detail presentation", () => {
     mockPhotoHelperEnabled = true;
     let tree!: renderer.ReactTestRenderer;
     act(() => { tree = renderer.create(<ObservationDetailScreen />); });
+    expect(
+      tree.root.findAllByProps({ testID: "observation-photo-helper-button" }).length,
+    ).toBeGreaterThan(0);
     expect(JSON.stringify(tree.toJSON())).toContain("Ask the photo helper");
     act(() => tree.unmount());
   });

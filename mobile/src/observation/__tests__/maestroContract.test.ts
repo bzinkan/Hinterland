@@ -21,8 +21,10 @@ describe("Play Internal Maestro contract", () => {
     const observe = readFileSync(join(root, "app", "(tabs)", "observe.tsx"), "utf8");
     const submit = readFileSync(join(root, "app", "observe-submit.tsx"), "utf8");
     const journal = readFileSync(join(root, "app", "(tabs)", "index.tsx"), "utf8");
+    const detail = readFileSync(join(root, "app", "observation", "[id].tsx"), "utf8");
     const tabs = readFileSync(join(root, "app", "(tabs)", "_layout.tsx"), "utf8");
     const contracts = [
+      ["tab-journal", tabs],
       ["tab-observe", tabs],
       ["observe-screen", observe],
       ["observation-library-button", observe],
@@ -36,11 +38,23 @@ describe("Play Internal Maestro contract", () => {
       ["observation-stage-complete", submit],
       ["observation-done-button", submit],
       ["field-journal-screen", journal],
+      ["field-journal-observation-card", journal],
+      ["field-journal-private-status", journal],
+      ["field-journal-photo-image", journal],
+      ["observation-detail-screen", detail],
+      ["observation-detail-private-status", detail],
+      ["observation-detail-photo-image", detail],
+      ["observation-photo-helper-button", detail],
     ] as const;
 
     for (const [id, source] of contracts) {
       expect(flow).toContain(`id: "${id}"`);
       expect(source).toContain(`"${id}"`);
     }
+
+    expect(flow).toContain("Your Field Journal is empty");
+    expect(flow).toContain("This photo is private during the pilot.");
+    expect(flow).toContain("assertNotVisible");
+    expect(flow).toContain('takeScreenshot: "w1-pilot-private-observation"');
   });
 });

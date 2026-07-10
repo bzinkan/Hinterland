@@ -8,6 +8,15 @@ tags:
     - "../../assets/images/icon.png"
 - launchApp:
     clearState: false
+- tapOn:
+    id: "tab-journal"
+- extendedWaitUntil:
+    visible:
+      id: "field-journal-screen"
+    timeout: 30000
+- extendedWaitUntil:
+    visible: "Your Field Journal is empty"
+    timeout: 30000
 - extendedWaitUntil:
     visible:
       id: "tab-observe"
@@ -47,3 +56,26 @@ tags:
     visible:
       id: "field-journal-screen"
     timeout: 30000
+- extendedWaitUntil:
+    visible:
+      id: "field-journal-private-status"
+    timeout: 30000
+- assertVisible:
+    id: "field-journal-observation-card"
+- assertVisible: "This photo is private during the pilot."
+- assertNotVisible:
+    id: "field-journal-photo-image"
+- tapOn:
+    id: "field-journal-observation-card"
+- extendedWaitUntil:
+    visible:
+      id: "observation-detail-screen"
+    timeout: 30000
+- assertVisible:
+    id: "observation-detail-private-status"
+- assertVisible: "This photo is private during the pilot."
+- assertNotVisible:
+    id: "observation-detail-photo-image"
+- assertNotVisible:
+    id: "observation-photo-helper-button"
+- takeScreenshot: "w1-pilot-private-observation"

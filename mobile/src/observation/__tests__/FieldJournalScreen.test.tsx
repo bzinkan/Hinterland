@@ -158,6 +158,15 @@ describe("Field Journal screen", () => {
     let tree!: renderer.ReactTestRenderer;
     act(() => { tree = renderer.create(<FieldJournalScreen />); });
     const rendered = JSON.stringify(tree.toJSON());
+    expect(
+      tree.root.findAllByProps({ testID: "field-journal-observation-card" }).length,
+    ).toBeGreaterThan(0);
+    expect(
+      tree.root.findAllByProps({ testID: "field-journal-private-status" }).length,
+    ).toBeGreaterThan(0);
+    expect(
+      tree.root.findAllByProps({ testID: "field-journal-photo-image" }),
+    ).toHaveLength(0);
     expect(rendered).toContain("This photo is private during the pilot.");
     expect(rendered).toContain("This photo is being checked.");
     expect(rendered).toContain("An adult is reviewing this photo.");
@@ -191,11 +200,17 @@ describe("Field Journal screen", () => {
     mockObservations.push(observation("changing", "clean"));
     let tree!: renderer.ReactTestRenderer;
     act(() => { tree = renderer.create(<FieldJournalScreen />); });
+    expect(
+      tree.root.findAllByProps({ testID: "field-journal-photo-image" }).length,
+    ).toBeGreaterThan(0);
     expect(JSON.stringify(tree.toJSON())).toContain("short-sas");
 
     mockObservations[0] = observation("changing", "adult_review");
     act(() => tree.update(<FieldJournalScreen />));
     const rendered = JSON.stringify(tree.toJSON());
+    expect(
+      tree.root.findAllByProps({ testID: "field-journal-photo-image" }),
+    ).toHaveLength(0);
     expect(rendered).not.toContain("short-sas");
     expect(rendered).toContain("An adult is reviewing this photo.");
     act(() => tree.unmount());
