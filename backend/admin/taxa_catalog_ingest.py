@@ -54,6 +54,19 @@ def load_pack(path: Path) -> tuple[TaxonPack, str]:
     return pack, hashlib.sha256(raw).hexdigest()
 
 
+def _default_pack_path(*, cwd: Path | None = None, module_file: Path | None = None) -> Path:
+    """Resolve the core pack in both the source tree and the API image."""
+    working_directory = cwd or Path.cwd()
+    module_path = (module_file or Path(__file__)).resolve()
+    relative_pack = Path("content") / "taxa" / "core.json"
+    candidates = (
+        working_directory / relative_pack,
+        module_path.parents[1] / relative_pack,
+        module_path.parents[2] / relative_pack,
+    )
+    return next((candidate for candidate in candidates if candidate.is_file()), candidates[0])
+
+
 async def ingest(
     session: AsyncSession,
     *,
@@ -214,20 +227,20 @@ async def ingest(
     return True
 
 
-def _parse_args() -> argparse.Namespace:
+def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "pack",
         nargs="?",
         type=Path,
-        default=Path(__file__).parents[2] / "content" / "taxa" / "core.json",
+        default=_default_pack_path(),
     )
     parser.add_argument(
         "--database-only",
         action="store_true",
         help="Import search rows but leave the download manifest inactive.",
     )
-    return parser.parse_args()
+    return parser.parse_args(argv)
 
 
 async def main() -> None:
