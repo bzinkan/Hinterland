@@ -14,6 +14,7 @@ import io
 import json
 import math
 import os
+from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from time import perf_counter
@@ -22,6 +23,7 @@ from unittest.mock import MagicMock
 
 import pytest
 from fastapi import HTTPException
+from httpx import ASGITransport, AsyncClient
 from PIL import Image
 from sqlalchemy import func, select, text, update
 from sqlalchemy.engine import make_url
@@ -43,6 +45,7 @@ from app.api.routes.review_queue import _load_review_for_resolution
 from app.core.config import Settings
 from app.core.storage import StorageObjectProperties
 from app.db import models
+from app.db.session import get_db_session
 from app.derived_state.rebuild import (
     acquire_user_lock,
     enqueue_rebuild,
@@ -52,9 +55,12 @@ from app.derived_state.rebuild import (
 from app.dispatcher.core import dispatch
 from app.dispatcher.handlers.dex import DexHandler
 from app.dispatcher.handlers.expedition import ExpeditionHandler
+from app.dispatcher.registry import HANDLERS
 from app.dispatcher.types import Context, HandlerResult, Reward
+from app.main import create_app
 from app.moderation.review_service import ReviewResolutionConflict, reject_review_item
 from app.moderation.revocation import PhotoRevocationPending, revoke_and_reject_review_item
+from tests.helpers.auth import stub_token_verifier
 
 pytestmark = [pytest.mark.integration, pytest.mark.postgres]
 
@@ -137,6 +143,54 @@ class RevocationStorage:
         existing = self.objects.get(dst_object)
         assert existing is None or existing == value
         self.objects[dst_object] = value
+
+    def delete_object(self, *, bucket: str, object_name: str) -> None:
+        del bucket
+        self.objects.pop(object_name, None)
+
+
+class FinalizationStorage:
+    """In-memory JPEG store for the real-PostgreSQL create route."""
+
+    def __init__(self, *, object_name: str, image_bytes: bytes) -> None:
+        self.objects = {object_name: image_bytes}
+
+    def get_object_properties(
+        self,
+        *,
+        bucket: str,
+        object_name: str,
+    ) -> StorageObjectProperties:
+        del bucket
+        try:
+            value = self.objects[object_name]
+        except KeyError as exc:
+            raise FileNotFoundError(object_name) from exc
+        return StorageObjectProperties(len(value), "image/jpeg", hashlib.sha256(value).hexdigest())
+
+    def fetch_object_bytes(self, *, bucket: str, object_name: str) -> bytes:
+        del bucket
+        try:
+            return self.objects[object_name]
+        except KeyError as exc:
+            raise FileNotFoundError(object_name) from exc
+
+    def put_object_bytes(
+        self,
+        *,
+        bucket: str,
+        object_name: str,
+        data: bytes,
+        content_type: str,
+        metadata: dict[str, str],
+        overwrite: bool,
+        expected_sha256: str | None = None,
+    ) -> None:
+        del bucket, content_type, metadata
+        assert not overwrite
+        assert object_name not in self.objects
+        assert expected_sha256 is None or hashlib.sha256(data).hexdigest() == expected_sha256
+        self.objects[object_name] = data
 
     def delete_object(self, *, bucket: str, object_name: str) -> None:
         del bucket
@@ -512,6 +566,99 @@ async def test_observation_health_probe_compiles_against_current_schema(
     async with pg_harness.sessions() as session:
         health = await probe_observation_health(session)
     assert health.healthy
+
+
+async def test_create_route_flushes_observation_before_fk_ledgers(
+    pg_harness: PgHarness,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The real create route commits Observation before its scalar-FK work rows."""
+
+    photo_id = _new_id()
+    submission_key = _new_id()
+    raw_object = f"pending/uploads/{photo_id}.jpg"
+    image_buffer = io.BytesIO()
+    Image.new("RGB", (80, 60), (20, 90, 40)).save(image_buffer, format="JPEG")
+    storage = FinalizationStorage(object_name=raw_object, image_bytes=image_buffer.getvalue())
+
+    async with pg_harness.sessions() as session:
+        identity = await _seed_identity(session)
+        session.add(
+            models.Photo(
+                id=photo_id,
+                user_id=identity.user_id,
+                bucket="observation-verification",
+                object_name=raw_object,
+                status="pending",
+                attachment_status="reserved",
+                submission_key=submission_key,
+                content_type="image/jpeg",
+            )
+        )
+        await session.commit()
+
+    app = create_app(
+        Settings(
+            env="local",
+            app_version="test",
+            observation_idempotency_required=True,
+        )
+    )
+    app.state.signed_url_generator = storage
+
+    async def override_session() -> AsyncIterator[AsyncSession]:
+        async with pg_harness.sessions() as session:
+            yield session
+
+    app.dependency_overrides[get_db_session] = override_session
+    stub_token_verifier(
+        monkeypatch,
+        uid=identity.user_id,
+        role="kid",
+        group_id=identity.group_id,
+    )
+
+    async def no_dispatch(_ctx: Context, _handlers: object) -> list[Reward]:
+        return []
+
+    monkeypatch.setattr("app.api.routes.observations.dispatch", no_dispatch)
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://observation.test",
+    ) as client:
+        response = await client.post(
+            "/v1/observations",
+            headers={
+                "Authorization": "Bearer test-kid",
+                "Idempotency-Key": submission_key,
+            },
+            json={
+                "photo_id": photo_id,
+                "location_source": "none",
+                "identification_source": "unknown",
+            },
+        )
+
+    assert response.status_code == 201, response.text
+    observation_id = response.json()["id"]
+    async with pg_harness.sessions() as session:
+        observation = await session.get(models.Observation, observation_id)
+        outbox = await session.get(models.ModerationOutbox, observation_id)
+        photo = await session.get(models.Photo, photo_id)
+        membership = await session.get(models.Membership, identity.membership_id)
+        handler_count = await session.scalar(
+            select(func.count())
+            .select_from(models.ObservationHandlerRun)
+            .where(models.ObservationHandlerRun.observation_id == observation_id)
+        )
+
+    assert observation is not None
+    assert outbox is not None and outbox.status == "pending"
+    assert photo is not None and photo.attachment_status == "attached"
+    assert membership is not None and membership.observation_count == 1
+    assert handler_count == len(HANDLERS)
+    assert raw_object not in storage.objects
+    assert f"pending/finalized/{photo_id}.jpg" in storage.objects
 
 
 async def test_legacy_cutover_new_user_adoption_queues_rebuild_before_replay(

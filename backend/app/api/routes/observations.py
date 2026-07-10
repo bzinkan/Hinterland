@@ -427,6 +427,9 @@ async def create_observation(
     idempotency_key: IdempotencyKeyHeader = None,
 ) -> ObservationResponse:
     user_row = await resolve_current_user_row(session, current_user)
+    # Rollback expires ORM instances even when expire_on_commit is disabled.
+    # Keep the stable identity scalar for idempotency recovery and logging.
+    user_id = user_row.id
 
     if idempotency_key is None and settings.observation_idempotency_required:
         raise HTTPException(
@@ -452,7 +455,7 @@ async def create_observation(
     if idempotency_key is not None:
         replay = await _create_replay(
             session,
-            user_id=user_row.id,
+            user_id=user_id,
             key=idempotency_key,
             request_hash=request_hash,
         )
@@ -465,7 +468,7 @@ async def create_observation(
         await session.execute(
             select(models.Photo).where(
                 models.Photo.id == payload.photo_id,
-                models.Photo.user_id == user_row.id,
+                models.Photo.user_id == user_id,
             )
         )
     ).scalar_one_or_none()
@@ -485,7 +488,7 @@ async def create_observation(
     if idempotency_key is None:
         replay = await _create_replay(
             session,
-            user_id=user_row.id,
+            user_id=user_id,
             key=key,
             request_hash=request_hash,
         )
@@ -526,7 +529,7 @@ async def create_observation(
 
     await session.execute(
         text("SELECT pg_advisory_xact_lock(hashtextextended(:user_id, 0))"),
-        {"user_id": user_row.id},
+        {"user_id": user_id},
     )
 
     # A concurrent finalize with the same key may have completed while this
@@ -534,7 +537,7 @@ async def create_observation(
     # counters or derived state are changed.
     replay = await _create_replay(
         session,
-        user_id=user_row.id,
+        user_id=user_id,
         key=key,
         request_hash=request_hash,
     )
@@ -548,7 +551,7 @@ async def create_observation(
             select(models.Photo)
             .where(
                 models.Photo.id == payload.photo_id,
-                models.Photo.user_id == user_row.id,
+                models.Photo.user_id == user_id,
             )
             .with_for_update()
         )
@@ -569,7 +572,7 @@ async def create_observation(
     membership_update = await session.execute(
         update(models.Membership)
         .where(
-            models.Membership.user_id == user_row.id,
+            models.Membership.user_id == user_id,
             models.Membership.group_id == group_id,
         )
         .values(
@@ -590,7 +593,7 @@ async def create_observation(
     obs_id = str(ULID())
     observation = models.Observation(
         id=obs_id,
-        user_id=user_row.id,
+        user_id=user_id,
         group_id=group_id,
         photo_id=payload.photo_id,
         submission_key=key,
@@ -622,41 +625,45 @@ async def create_observation(
     photo.sha256 = canonical_photo.sha256
     photo.verified_at = canonical_photo.verified_at
     session.add(observation)
-    session.add(
-        models.ObservationIdempotency(
-            user_id=user_row.id,
-            idempotency_key=key,
-            operation="observation_create",
-            request_hash=request_hash,
-            resource_id=obs_id,
-        )
-    )
-    session.add(
-        models.ModerationOutbox(
-            observation_id=obs_id,
-            photo_id=photo.id,
-            status="pending",
-        )
-    )
-    for handler in HANDLERS:
+    try:
+        # The dependent ledgers carry scalar foreign keys rather than ORM
+        # relationships. Flush the parent Observation first so PostgreSQL can
+        # enforce every dependent FK while preserving one atomic transaction.
+        await session.flush()
         session.add(
-            models.ObservationHandlerRun(
-                observation_id=obs_id,
-                handler_name=handler.name,
-                handler_version=str(getattr(handler, "version", "1")),
-                status="pending",
-                state={},
-                rewards=[],
-                attempt_count=0,
+            models.ObservationIdempotency(
+                user_id=user_id,
+                idempotency_key=key,
+                operation="observation_create",
+                request_hash=request_hash,
+                resource_id=obs_id,
             )
         )
-    try:
+        session.add(
+            models.ModerationOutbox(
+                observation_id=obs_id,
+                photo_id=photo.id,
+                status="pending",
+            )
+        )
+        for handler in HANDLERS:
+            session.add(
+                models.ObservationHandlerRun(
+                    observation_id=obs_id,
+                    handler_name=handler.name,
+                    handler_version=str(getattr(handler, "version", "1")),
+                    status="pending",
+                    state={},
+                    rewards=[],
+                    attempt_count=0,
+                )
+            )
         await session.commit()
     except IntegrityError:
         await session.rollback()
         replay = await _create_replay(
             session,
-            user_id=user_row.id,
+            user_id=user_id,
             key=key,
             request_hash=request_hash,
         )
@@ -691,7 +698,7 @@ async def create_observation(
     log.info(
         "observations.created",
         observation_id=obs_id,
-        user_id=user_row.id,
+        user_id=user_id,
         group_id=group_id,
         photo_id=payload.photo_id,
         taxon_id=payload.taxon_id,

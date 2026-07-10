@@ -5,8 +5,10 @@ from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from fastapi import Response
 from fastapi.testclient import TestClient
 from PIL import Image
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.routes.observations import (
@@ -15,8 +17,10 @@ from app.api.routes.observations import (
     _decode_observed_cursor,
     _encode_observed_cursor,
     _normalized_location,
+    create_observation,
     derive_child_presentation_status,
 )
+from app.core.auth import CurrentUser
 from app.core.config import Settings
 from app.core.storage import StorageObjectProperties
 from app.db import models
@@ -394,7 +398,82 @@ def test_create_happy_path(
     assert photo.height_px == 240
     assert photo.sha256 is not None and len(photo.sha256) == 64
     assert photo.verified_at is not None
+    fake_session.flush.assert_awaited_once_with()
     fake_session.commit.assert_awaited_once()
+
+
+async def test_create_integrity_recovery_uses_cached_user_id_after_rollback(
+    fake_session: AsyncMock,
+) -> None:
+    class RollbackSensitiveUser:
+        disabled_at = None
+        role = "kid"
+        expired = False
+        id_reads = 0
+
+        @property
+        def id(self) -> str:
+            self.id_reads += 1
+            if self.expired:
+                raise AssertionError("expired ORM user identity was accessed after rollback")
+            return _USER_ID
+
+    user = RollbackSensitiveUser()
+    photo = _photo_row()
+
+    def scalar_result(value: object) -> MagicMock:
+        result = MagicMock()
+        result.scalar_one_or_none = MagicMock(return_value=value)
+        return result
+
+    no_replay = scalar_result(None)
+    fake_session.execute = AsyncMock(
+        side_effect=[
+            scalar_result(user),
+            no_replay,
+            scalar_result(photo),
+            MagicMock(),
+            no_replay,
+            scalar_result(photo),
+            scalar_result("01J0MEMBERID0000000000ULID"),
+            no_replay,
+        ]
+    )
+    fake_session.add = MagicMock()
+    expected_error = IntegrityError("insert observation", {}, RuntimeError("conflict"))
+    fake_session.flush = AsyncMock(side_effect=expected_error)
+
+    async def expire_on_rollback() -> None:
+        user.expired = True
+
+    fake_session.rollback = AsyncMock(side_effect=expire_on_rollback)
+
+    with pytest.raises(IntegrityError) as raised:
+        await create_observation(
+            payload=ObservationCreateRequest(
+                photo_id=_PHOTO_ID,
+                location_source="none",
+                identification_source="unknown",
+            ),
+            current_user=CurrentUser(
+                uid=_USER_ID,
+                role="kid",
+                group_id=_GROUP_ID,
+            ),
+            session=fake_session,
+            settings=Settings(
+                env="local",
+                observation_idempotency_required=True,
+            ),
+            response=Response(),
+            storage=_StubObservationStorage(),
+            idempotency_key=_IDEMPOTENCY_KEY,
+        )
+
+    assert raised.value is expected_error
+    assert user.id_reads == 1
+    fake_session.rollback.assert_awaited_once()
+    fake_session.commit.assert_not_awaited()
 
 
 def test_create_with_selected_taxon_returns_dispatcher_rewards(
