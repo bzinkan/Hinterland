@@ -49,6 +49,18 @@ def test_w1_promotion_order_and_containment_are_explicit() -> None:
     assert '"user.access" not in scopes.split()' in workflow
     assert workflow.count('HINTERLAND_ENTRA_API_AUDIENCE="${ENTRA_API_AUDIENCE}"') >= 7
     assert "HINTERLAND_OBSERVATION_IDEMPOTENCY_REQUIRED=true" in workflow
+    for explicit_setting in (
+        "HINTERLAND_MODERATION_PROVIDER",
+        "HINTERLAND_INAT_CV_ENABLED",
+        "HINTERLAND_INAT_CV_DISCLOSURE_APPROVED",
+        "HINTERLAND_INAT_CV_BENCHMARK_APPROVED",
+        "HINTERLAND_INAT_SUBMIT_ENABLED",
+        "HINTERLAND_ENTRA_API_AUDIENCE",
+        "HINTERLAND_OBSERVATION_IDEMPOTENCY_REQUIRED",
+        "HINTERLAND_DATABASE_PASSWORD",
+        "HINTERLAND_APP_VERSION",
+    ):
+        assert workflow.count(f'select(.name != "{explicit_setting}")') >= 2
     assert "Microsoft.Storage.BlobCreated" in workflow
     assert "--query '[].[name,resourceGroup]'" in workflow
     assert 'resource-group "$topic_resource_group"' in workflow
