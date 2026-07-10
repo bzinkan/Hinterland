@@ -58,7 +58,16 @@ def test_active_workflow_migrates_before_api_and_removes_retired_aliases() -> No
     smoke = workflow.index("Smoke public API surfaces")
     verify = workflow.index("Verify deployed naming and image")
 
-    assert retire_jobs < pin_jobs < remove_aliases < required_jobs < deploy_api < rebuild < smoke < verify
+    assert (
+        retire_jobs
+        < pin_jobs
+        < remove_aliases
+        < required_jobs
+        < deploy_api
+        < rebuild
+        < smoke
+        < verify
+    )
     assert "HINTERLAND_KID_JWKS_PATH" in workflow
     assert "HINTERLAND_SMOKE_ENTRA_BEARER" in workflow
     assert "--remove-env-vars" in workflow
