@@ -33,9 +33,22 @@ def test_w1_promotion_order_and_containment_are_explicit() -> None:
     expeditions = workflow.index("run_job hinterland-sync-expeditions")
     rebuild = workflow.index("run_job hinterland-state-rebuild")
     deploy = workflow.index("Deploy the API only after migrations and rebuild")
+    rollout = workflow.index("Require the exact API revision to be healthy and serving")
+    public_readiness = workflow.index("Smoke public readiness surfaces")
     authenticated = workflow.index("Non-skipped authenticated handoff and Observation canary")
 
-    assert preflight < migrate < pin_all < catalog < expeditions < rebuild < deploy < authenticated
+    assert (
+        preflight
+        < migrate
+        < pin_all
+        < catalog
+        < expeditions
+        < rebuild
+        < deploy
+        < rollout
+        < public_readiness
+        < authenticated
+    )
     assert "HINTERLAND_MODERATION_PROVIDER=noop" in workflow
     assert "HINTERLAND_INAT_CV_ENABLED=false" in workflow
     assert "HINTERLAND_INAT_CV_DISCLOSURE_APPROVED=false" in workflow
@@ -73,6 +86,16 @@ def test_w1_promotion_order_and_containment_are_explicit() -> None:
     assert "verify_observation_postgres.ps1" in workflow
     assert "HINTERLAND_DERIVED_REBUILD_STRICT_DRAIN=true" in workflow
     assert "gordi-pilot-rg" in workflow
+    assert "properties.latestRevisionName" in workflow
+    assert "properties.latestReadyRevisionName" in workflow
+    assert "activeRevisionsMode" in workflow
+    assert "any(.latestRevision == true and .weight == 100)" in workflow
+    assert "HINTERLAND_APP_VERSION" in workflow
+    assert '"$revision_image" == "$IMAGE"' in workflow
+    assert '"$app_version" == "$GITHUB_SHA"' in workflow
+    assert '"${W1_API_READY_REVISION:-}"' in workflow
+    assert '.status == "ok" and .version == $version' in workflow
+    assert '.status == "ready" and .version == $version' in workflow
 
 
 def test_parent_smoke_passes_throwaway_kid_session_in_memory() -> None:

@@ -639,6 +639,68 @@ jobs:
               HINTERLAND_OBSERVATION_IDEMPOTENCY_REQUIRED=true \
             --output none
 
+      - name: Require the exact API revision to be healthy and serving
+        run: |
+          set -euo pipefail
+
+          # ``az containerapp update`` returns when Azure accepts the revision,
+          # not when the new container is healthy or ingress has switched to it.
+          # A 2xx health check alone can therefore still come from the previous
+          # revision.  Do not let a promotion reach its authenticated canary
+          # until the control plane and both ingress surfaces prove the exact
+          # requested digest and application version are live.
+          deadline=$((SECONDS + 600))
+          ready_revision=""
+          while (( SECONDS < deadline )); do
+            app_json="$(az containerapp show \
+              --name "${AZURE_CONTAINER_APP}" \
+              --resource-group "${AZURE_RESOURCE_GROUP}" --output json)"
+            latest_revision="$(jq -r '.properties.latestRevisionName // empty' <<<"$app_json")"
+            latest_ready_revision="$(jq -r '.properties.latestReadyRevisionName // empty' <<<"$app_json")"
+            active_revision_mode="$(jq -r '.properties.configuration.activeRevisionsMode // empty' <<<"$app_json")"
+            traffic_ok="$(jq -r '
+              if .properties.configuration.ingress.traffic
+                 | any(.latestRevision == true and .weight == 100)
+              then "true" else "false" end
+            ' <<<"$app_json")"
+
+            if [[ -n "$latest_revision" && "$latest_revision" == "$latest_ready_revision" \
+              && "$active_revision_mode" == "Single" && "$traffic_ok" == "true" ]]; then
+              revision_json="$(az containerapp revision show \
+                --name "${AZURE_CONTAINER_APP}" \
+                --resource-group "${AZURE_RESOURCE_GROUP}" \
+                --revision "$latest_revision" --output json)"
+              revision_image="$(jq -r '.properties.template.containers[0].image // empty' <<<"$revision_json")"
+              provisioning_state="$(jq -r '.properties.provisioningState // empty' <<<"$revision_json")"
+              health_state="$(jq -r '.properties.healthState // empty' <<<"$revision_json")"
+              running_state="$(jq -r '.properties.runningState // empty' <<<"$revision_json")"
+              app_version="$(jq -r '
+                [.properties.template.containers[0].env[]?
+                  | select(.name == "HINTERLAND_APP_VERSION") | .value][0] // empty
+              ' <<<"$revision_json")"
+              if [[ "$revision_image" == "$IMAGE" && "$provisioning_state" == "Provisioned" \
+                && "$health_state" == "Healthy" && "$running_state" == Running* \
+                && "$app_version" == "$GITHUB_SHA" ]]; then
+                ready_revision="$latest_revision"
+                break
+              fi
+            fi
+            sleep 10
+          done
+
+          test -n "$ready_revision"
+          fqdn="$(az containerapp show \
+            --name "${AZURE_CONTAINER_APP}" \
+            --resource-group "${AZURE_RESOURCE_GROUP}" \
+            --query properties.configuration.ingress.fqdn --output tsv)"
+          echo "HINTERLAND_API_BASE_URL=https://${fqdn}" >> "$GITHUB_ENV"
+          echo "W1_API_READY_REVISION=${ready_revision}" >> "$GITHUB_ENV"
+          jq --arg revision "$ready_revision" --arg version "$GITHUB_SHA" \
+            --arg image "$IMAGE" \
+            '.api_rollout={revision:$revision, version:$version, image:$image}' \
+            promotion-artifact/promotion.json > promotion-artifact/promotion.tmp
+          mv promotion-artifact/promotion.tmp promotion-artifact/promotion.json
+
       - name: Apply and verify the W1 storage lifecycle
         run: |
           set -euo pipefail
@@ -663,14 +725,14 @@ jobs:
       - name: Smoke public readiness surfaces
         run: |
           set -euo pipefail
-          fqdn="$(az containerapp show \
-            --name "${AZURE_CONTAINER_APP}" \
-            --resource-group "${AZURE_RESOURCE_GROUP}" \
-            --query properties.configuration.ingress.fqdn --output tsv)"
-          echo "HINTERLAND_API_BASE_URL=https://${fqdn}" >> "$GITHUB_ENV"
-          for base_url in "https://${fqdn}" "https://api.thehinterlandguide.app"; do
-            curl --fail --silent --show-error "${base_url}/health" >/dev/null
-            curl --fail --silent --show-error "${base_url}/ready" >/dev/null
+          test -n "${W1_API_READY_REVISION:-}"
+          for base_url in "${HINTERLAND_API_BASE_URL}" "https://api.thehinterlandguide.app"; do
+            health="$(curl --fail --silent --show-error "${base_url}/health")"
+            ready="$(curl --fail --silent --show-error "${base_url}/ready")"
+            jq -e --arg version "${GITHUB_SHA}" \
+              '.status == "ok" and .version == $version' <<<"$health" >/dev/null
+            jq -e --arg version "${GITHUB_SHA}" \
+              '.status == "ready" and .version == $version' <<<"$ready" >/dev/null
             curl --fail --silent --show-error \
               "${base_url}${HINTERLAND_KID_JWKS_PATH}" >/dev/null
           done
