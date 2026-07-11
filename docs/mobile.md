@@ -170,6 +170,12 @@ Three build profiles in `eas.json`:
 
 OTA updates are for JS bug fixes and content-only changes. Native changes (new Expo SDK, new native module, new permission, new app icon) require a new binary and a new store review.
 
+The W1 `play-internal` profile is deliberately frozen to its embedded bundle:
+it has a real EAS channel and runtime identity, but automatic update checks are
+`NEVER`, no `play-internal` update is published, and the app must not manually
+fetch one. This preserves the exact-AAB device evidence. Enabling W1 OTA later
+requires a separately reviewed promotion contract.
+
 Every EAS Update publish must be paired with a server-side expedition content version check. If the app's bundled expedition schema version doesn't match the server's, the app prompts the user to update — not silently fails.
 
 **Code signing.** iOS certs and provisioning profiles are managed by EAS (no Xcode keychain rituals for the solo builder). Android keystore is managed by EAS, backed up in 1Password, and never lives on a laptop.
@@ -210,6 +216,11 @@ Both stores have stricter rules for apps aimed at under-13 users. We are deliber
 ## Development environment
 
 - **Expo SDK version:** pinned in `package.json`; update via dedicated PR.
+  Expo dependency validation intentionally excludes
+  `@shopify/flash-list`: the Field Journal uses tested 2.3.x behavior and its
+  React Native peer range includes SDK 54, while Expo's bundled recommendation
+  remains 2.0.2. Remove the exception only with a dedicated list-performance
+  compatibility run.
 - **TypeScript:** strict mode. No `any` without a `// TODO:` comment explaining why.
 - **State management:** Zustand for client state, TanStack Query for server state. No Redux — the complexity doesn't earn its place at this scale.
 - **Navigation:** Expo Router (file-based). Routes under `app/` map to screens.

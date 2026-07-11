@@ -301,15 +301,6 @@ export default function ObserveScreen() {
     const initiatingOwnerUserId = ownerUserId;
     let marker: PickerRequestMarker | null = null;
     try {
-      const perm = await ImagePicker.requestMediaLibraryPermissionsAsync(false);
-      if (!perm.granted) {
-        Alert.alert(
-          "Photo library not available",
-          "Hinterland needs either a camera photo or a library photo to make an observation.",
-        );
-        return;
-      }
-
       marker = await beginPickerRequest(initiatingOwnerUserId);
       if (!ownerIsActive(initiatingOwnerUserId)) {
         await clearPickerRequest(marker);

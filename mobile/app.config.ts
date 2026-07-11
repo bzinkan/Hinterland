@@ -82,6 +82,7 @@ const ENV: Record<AppEnv, EnvConfig> = {
 
 const env = ENV[APP_ENV];
 const isPlayInternal = APP_ENV === "play-internal";
+const isStoreBuild = isPlayInternal || APP_ENV === "production";
 const devLoginKey = process.env.HINTERLAND_DEV_AUTH_TOKEN ?? null;
 
 // Sanctuary 2.5D diorama build flag (ADR 0011/0012). Build-time default
@@ -112,6 +113,18 @@ const config: ExpoConfig = {
   slug: "hinterland",
   owner: "thehinterlandguides-team",
   version: "0.1.0",
+  runtimeVersion: {
+    policy: "appVersion",
+  },
+  updates: {
+    enabled: true,
+    url: `https://u.expo.dev/${EAS_PROJECT_ID}`,
+    // W1 must always execute the embedded bundle proven by the exact AAB.
+    // The real EAS channel is retained for identity/evidence, but no remote
+    // update is fetched automatically during the pilot.
+    checkAutomatically: isPlayInternal ? "NEVER" : "ON_LOAD",
+    fallbackToCacheTimeout: 0,
+  },
   orientation: "portrait",
   icon: "./assets/images/icon.png",
   scheme: "hinterland",
@@ -128,15 +141,30 @@ const config: ExpoConfig = {
   },
   android: {
     package: env.androidPackage,
-    permissions: isPlayInternal
+    permissions: isStoreBuild
       ? ["android.permission.ACCESS_COARSE_LOCATION"]
       : undefined,
-    blockedPermissions: isPlayInternal
+    blockedPermissions: isStoreBuild
       ? [
           "android.permission.ACCESS_FINE_LOCATION",
           // expo-audio is playback-only here (Sanctuary soundscapes,
           // ADR 0012); a kids app must never carry a mic permission.
           "android.permission.RECORD_AUDIO",
+          // Expo's generated Android base manifest includes optional overlay
+          // and legacy broad-storage permissions. Store builds use the system
+          // picker and must not request any of them.
+          "android.permission.SYSTEM_ALERT_WINDOW",
+          "android.permission.READ_EXTERNAL_STORAGE",
+          "android.permission.WRITE_EXTERNAL_STORAGE",
+          // W1 ships with Sanctuary/audio disabled. Avoid Play foreground-
+          // service declarations until playback is separately qualified.
+          ...(isPlayInternal
+            ? [
+                "android.permission.FOREGROUND_SERVICE",
+                "android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK",
+                "android.permission.MODIFY_AUDIO_SETTINGS",
+              ]
+            : []),
         ]
       : ["android.permission.RECORD_AUDIO"],
     adaptiveIcon: {

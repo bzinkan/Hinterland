@@ -156,6 +156,16 @@ Working directory: `mobile/`.
    - [ ] `extra.entra` is populated and no Firebase config is present.
    - [ ] `ACCESS_FINE_LOCATION` is blocked and only coarse foreground
      location is requested.
+   - [ ] `SYSTEM_ALERT_WINDOW`, `READ_EXTERNAL_STORAGE`, and
+     `WRITE_EXTERNAL_STORAGE` are blocked; the store build uses the system
+     photo picker and never requests overlay or broad-storage access.
+   - [ ] W1 also blocks generic/media foreground-service and audio-settings
+     permissions because Sanctuary audio is disabled in this profile.
+   - [ ] Native EAS Updates is enabled for project
+     `278f4a33-e1b1-4468-8d02-a51defe03267`, runtime compatibility follows
+     `appVersion`, and automatic update checks are `NEVER`. Do not publish or
+     manually fetch a `play-internal` OTA during W1; the installed app must run
+     the embedded bundle proven by the recorded AAB hash.
 
    If `android.package` is anything other than `app.thehinterlandguide`:
    STOP. You are in the wrong `APP_ENV`. Re-run with

@@ -29,6 +29,22 @@ for (const [profile, packageName] of Object.entries(profiles)) {
   if (!String(config.name ?? "").startsWith("The Hinterland Guide")) {
     errors.push(`name=${config.name}`);
   }
+  if (profile === "production" || profile === "play-internal") {
+    const blocked = new Set(config.android?.blockedPermissions ?? []);
+    const permissions = new Set(config.android?.permissions ?? []);
+    for (const permission of [
+      "android.permission.ACCESS_FINE_LOCATION",
+      "android.permission.RECORD_AUDIO",
+      "android.permission.SYSTEM_ALERT_WINDOW",
+      "android.permission.READ_EXTERNAL_STORAGE",
+      "android.permission.WRITE_EXTERNAL_STORAGE",
+    ]) {
+      if (!blocked.has(permission)) errors.push(`not-blocked=${permission}`);
+    }
+    if (!permissions.has("android.permission.ACCESS_COARSE_LOCATION")) {
+      errors.push("missing=android.permission.ACCESS_COARSE_LOCATION");
+    }
+  }
 
   if (errors.length > 0) {
     throw new Error(`${profile} mobile identity check failed: ${errors.join(", ")}`);

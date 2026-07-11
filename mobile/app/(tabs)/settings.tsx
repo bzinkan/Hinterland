@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { router } from "expo-router";
+import * as Updates from "expo-updates";
 import { useEffect, useState } from "react";
 import {
   Alert,
@@ -212,7 +213,17 @@ export default function SettingsScreen() {
         <Text style={styles.label}>Build</Text>
         <Text style={styles.value}>env: {env.appEnv}</Text>
         <Text style={styles.value}>API: {env.apiBaseUrl}</Text>
-        <Text style={styles.value}>updates channel: {env.updatesChannel}</Text>
+        <Text style={styles.value}>build channel: {env.updatesChannel}</Text>
+        <Text style={styles.value} testID="settings-updates-channel">
+          updates channel: {Updates.channel ?? "not configured"}
+        </Text>
+        <Text style={styles.value} testID="settings-updates-enabled">
+          updates enabled: {Updates.isEnabled ? "yes" : "no"}
+        </Text>
+        <Text style={styles.value} testID="settings-updates-source">
+          updates source: {Updates.isEmbeddedLaunch ? "embedded" : "remote"}
+        </Text>
+        <Text style={styles.value}>updates runtime: {Updates.runtimeVersion ?? "none"}</Text>
 
         <View
           style={styles.separator}

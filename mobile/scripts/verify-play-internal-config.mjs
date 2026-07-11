@@ -1,4 +1,5 @@
 import { execFileSync } from "node:child_process";
+import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { join } from "node:path";
 
@@ -19,6 +20,8 @@ const extra = config.extra ?? {};
 const blocked = new Set(android.blockedPermissions ?? []);
 const permissions = new Set(android.permissions ?? []);
 const expectedProjectId = "278f4a33-e1b1-4468-8d02-a51defe03267";
+const packageJson = JSON.parse(readFileSync(join(projectRoot, "package.json"), "utf8"));
+const easJson = JSON.parse(readFileSync(join(projectRoot, "eas.json"), "utf8"));
 
 function assert(condition, message) {
   if (!condition) {
@@ -46,6 +49,30 @@ assert(
   "play-internal API base URL must be https://api.thehinterlandguide.app",
 );
 assert(extra.updatesChannel === "play-internal", "updatesChannel must be play-internal");
+assert(
+  packageJson.dependencies?.["expo-updates"] === "~29.0.18",
+  "play-internal must include the Expo SDK 54 updates runtime",
+);
+assert(
+  config.updates?.enabled === true,
+  "play-internal must enable the native updates runtime",
+);
+assert(
+  config.updates?.url === `https://u.expo.dev/${expectedProjectId}`,
+  "play-internal must target the linked EAS update project",
+);
+assert(
+  config.updates?.checkAutomatically === "NEVER",
+  "W1 must never fetch an OTA update automatically",
+);
+assert(
+  config.runtimeVersion?.policy === "appVersion",
+  "play-internal runtime compatibility must follow appVersion",
+);
+assert(
+  easJson.build?.["play-internal"]?.channel === "play-internal",
+  "the EAS play-internal profile must inject the play-internal channel",
+);
 assert(!("firebase" in extra), "play-internal must not include Firebase config");
 assert(
   blocked.has("android.permission.ACCESS_FINE_LOCATION"),
@@ -54,6 +81,30 @@ assert(
 assert(
   blocked.has("android.permission.RECORD_AUDIO"),
   "play-internal must block RECORD_AUDIO",
+);
+assert(
+  blocked.has("android.permission.SYSTEM_ALERT_WINDOW"),
+  "play-internal must block SYSTEM_ALERT_WINDOW",
+);
+assert(
+  blocked.has("android.permission.READ_EXTERNAL_STORAGE"),
+  "play-internal must block READ_EXTERNAL_STORAGE",
+);
+assert(
+  blocked.has("android.permission.WRITE_EXTERNAL_STORAGE"),
+  "play-internal must block WRITE_EXTERNAL_STORAGE",
+);
+assert(
+  blocked.has("android.permission.FOREGROUND_SERVICE"),
+  "play-internal must block FOREGROUND_SERVICE while W1 audio is disabled",
+);
+assert(
+  blocked.has("android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK"),
+  "play-internal must block FOREGROUND_SERVICE_MEDIA_PLAYBACK while W1 audio is disabled",
+);
+assert(
+  blocked.has("android.permission.MODIFY_AUDIO_SETTINGS"),
+  "play-internal must block MODIFY_AUDIO_SETTINGS while W1 audio is disabled",
 );
 assert(
   permissions.has("android.permission.ACCESS_COARSE_LOCATION"),

@@ -57,4 +57,21 @@ describe("Play Internal Maestro contract", () => {
     expect(flow).toContain("assertNotVisible");
     expect(flow).toContain('takeScreenshot: "w1-pilot-private-observation"');
   });
+
+  it("launches the system photo picker without broad-storage permission preflight", () => {
+    const observe = readFileSync(join(root, "app", "(tabs)", "observe.tsx"), "utf8");
+
+    expect(observe).toContain("ImagePicker.launchImageLibraryAsync");
+    expect(observe).not.toContain("requestMediaLibraryPermissionsAsync");
+  });
+
+  it("exposes native embedded-update evidence in Settings", () => {
+    const settings = readFileSync(join(root, "app", "(tabs)", "settings.tsx"), "utf8");
+
+    expect(settings).toContain("Updates.channel");
+    expect(settings).toContain("Updates.isEnabled");
+    expect(settings).toContain("Updates.isEmbeddedLaunch");
+    expect(settings).toContain('testID="settings-updates-channel"');
+    expect(settings).toContain('testID="settings-updates-source"');
+  });
 });

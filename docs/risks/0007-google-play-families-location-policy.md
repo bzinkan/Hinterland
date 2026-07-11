@@ -28,7 +28,10 @@ Radius-based Expedition rules decline when only coarse/no location is present.
 - `APP_ENV=play-internal` uses package `app.thehinterlandguide` and display name
   `The Hinterland Guide Internal`.
 - `android.blockedPermissions` includes
-  `android.permission.ACCESS_FINE_LOCATION`.
+  `android.permission.ACCESS_FINE_LOCATION`, microphone, overlay, and legacy
+  broad-storage permissions for both store profiles. W1 additionally removes
+  foreground media-service and audio-settings permissions while Sanctuary
+  audio is disabled.
 - `android.permissions` includes
   `android.permission.ACCESS_COARSE_LOCATION`.
 - CI runs `APP_ENV=play-internal npm run config:play-internal` to verify the

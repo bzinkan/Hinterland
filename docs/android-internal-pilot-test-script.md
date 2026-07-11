@@ -46,11 +46,12 @@ Internal testing track. No classroom rollout. No public release.
     device; `play-internal` is the discriminator for the Play
     Internal track build).
   - `API: https://api.thehinterlandguide.app`.
-  - `updates channel: play-internal`. The `updates channel` row is
-    the most reliable discriminator — it is sourced verbatim from
-    the `play-internal` branch of `app.config.ts`. Use this row as
-    the source-of-truth if the `env:` row collapses to a different
-    string at runtime.
+  - `build channel: play-internal`.
+  - `updates channel: play-internal` and `updates enabled: yes`; these rows
+    come from the native EAS Updates runtime, not display-only app config.
+  - `updates source: embedded` and `updates runtime: 0.1.0`. Stop if the
+    source is `remote`: W1 must execute the JavaScript/assets embedded in the
+    exact AAB whose hash is in the release record.
 
   If the device cannot reach the app at all, cross-check the API
   health from a desktop terminal:
