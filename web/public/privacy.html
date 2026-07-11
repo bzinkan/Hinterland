@@ -443,8 +443,8 @@
       <section class="card" aria-labelledby="kid-data-title">
         <h2 id="kid-data-title">What kid accounts may provide</h2>
         <ul>
-          <li>Organism photos, such as plants, insects, birds, mushrooms, or other living things.</li>
-          <li>Observation location when a field observation is recorded. The Android Internal Testing build is designed around approximate/coarse foreground location.</li>
+          <li>Organism photos, such as plants, insects, birds, mushrooms, or other living things. Once uploaded and saved, server-hosted W1 private-pilot photo bytes are purged after seven days. Unsynced work stays on the original device until it syncs or an adult discards it.</li>
+          <li>An optional four-character coarse-area geohash computed on the device. No location is valid, and precise coordinates are not stored.</li>
           <li>Species selection, taxon, or a kid-entered description of what they found.</li>
           <li>Observation timestamp.</li>
           <li>Kid display name or nickname selected for the supervised group.</li>
@@ -460,6 +460,7 @@
           <li>Display name.</li>
           <li>Group information, such as family or classroom group setup.</li>
           <li>Consent and account-management records needed to run a supervised pilot.</li>
+          <li>Consent setup keeps a random proof in the submitting browser tab through adult sign-in. The API stores only its SHA-256 digest; it is not used for tracking.</li>
           <li>Basic service logs used for debugging, safety, and security.</li>
         </ul>
       </section>
@@ -495,22 +496,20 @@
     <section aria-labelledby="inat-title">
       <h2 id="inat-title">iNaturalist status</h2>
       <p>
-        iNaturalist public submission is pilot-limited and is not enabled by
-        default for the W1 Android Internal Testing pilot. The Hinterland Guide may use
-        iNaturalist to help suggest possible species. Future contribution flows
-        may submit approved observations through a Hinterland Guide-managed project
-        account or another reviewed adult-mediated process, but the public page
-        should not be read as saying every observation is submitted.
+        iNaturalist public submission and photo-identification suggestions are
+        disabled for the W1 Android Internal Testing pilot. W1 photos are not
+        sent to iNaturalist. Any future contribution or photo-helper flow requires
+        a separate reviewed disclosure, consent, accuracy, and geoprivacy decision.
       </p>
     </section>
 
     <section aria-labelledby="moderation-title">
       <h2 id="moderation-title">Photo review and moderation status</h2>
       <p>
-        Moderation is designed to happen asynchronously, after the kid's
-        observation submit flow. During pilot work, review may include adult
-        supervision, operator review, and flagged-photo workflows. The Hinterland Guide does
-        not claim real-time review of every photo.
+        W1 uses a NoOp moderation provider. That records the photo as private
+        pilot data; it is not a safety approval and no photo bytes are shown to
+        kids. Real Azure Content Safety remains disabled until the closed-beta
+        safety, review, retention, and recovery gates pass.
       </p>
     </section>
 
@@ -522,7 +521,7 @@
         For general help, email
         <a href="mailto:support@thehinterlandguide.app">support@thehinterlandguide.app</a>.
       </p>
-      <p>Last updated: June 10, 2026.</p>
+      <p>Last updated: July 11, 2026.</p>
     </section>
   </main>
 

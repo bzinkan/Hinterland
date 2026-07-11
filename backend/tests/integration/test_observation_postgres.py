@@ -22,7 +22,7 @@ from typing import ClassVar
 from unittest.mock import MagicMock
 
 import pytest
-from fastapi import HTTPException
+from fastapi import HTTPException, Response
 from httpx import ASGITransport, AsyncClient
 from PIL import Image
 from sqlalchemy import func, select, text, update
@@ -36,13 +36,25 @@ from sqlalchemy.ext.asyncio import (
 )
 from ulid import ULID
 
+import app.api.routes.auth as auth_routes
 from admin.dispatcher_replay import replay as replay_dispatcher
 from admin.moderation_consumer import process_one as process_moderation_message
 from admin.observation_health_probe import probe as probe_observation_health
 from admin.observation_legacy_reconcile import reconcile_legacy_pending
 from admin.sweep_stale_reviews import sweep
+from app.api.routes.auth import (
+    ConsentRequest,
+    ParentSignupRequest,
+    parent_signup,
+    record_consent,
+)
 from app.api.routes.review_queue import _load_review_for_resolution
+from app.core.auth import CurrentUser
 from app.core.config import Settings
+from app.core.parent_consent import (
+    CURRENT_PARENT_CONSENT_POLICY_VERSION,
+    hash_browser_consent_nonce,
+)
 from app.core.storage import StorageObjectProperties
 from app.db import models
 from app.db.session import get_db_session
@@ -65,7 +77,7 @@ from tests.helpers.auth import stub_token_verifier
 pytestmark = [pytest.mark.integration, pytest.mark.postgres]
 
 _DATABASE_ENV = "OBSERVATION_TEST_DATABASE_URL"
-_EXPECTED_ALEMBIC_HEAD = "20260710_0017"
+_EXPECTED_ALEMBIC_HEAD = "20260711_0018"
 _CANONICAL_BYTES = b"x" * 1024
 
 
@@ -497,6 +509,7 @@ async def test_migrations_reach_head_with_observation_constraints(pg_harness: Pg
                             "ck_photo_revocations_state",
                             "ck_photo_revocations_attempt_count",
                             "uq_photo_revocations_review_id",
+                            "uq_parent_consent_browser_nonce_sha256",
                         ]
                     },
                 )
@@ -549,6 +562,7 @@ async def test_migrations_reach_head_with_observation_constraints(pg_harness: Pg
         "ck_photo_revocations_state",
         "ck_photo_revocations_attempt_count",
         "uq_photo_revocations_review_id",
+        "uq_parent_consent_browser_nonce_sha256",
     }
     assert journal_indexes == {
         "ix_dex_entries_user_first_seen",
@@ -558,6 +572,154 @@ async def test_migrations_reach_head_with_observation_constraints(pg_harness: Pg
     # nullable for the one-release compatibility window so the old API can
     # continue inserting rows between migration and rollout.
     assert submission_key_nullability == {"photos": "YES", "observations": "YES"}
+
+
+async def test_concurrent_consent_retry_returns_one_browser_bound_receipt(
+    pg_harness: PgHarness,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    nonce = "a" * 64
+    payload = ConsentRequest(
+        email="Parent@Example.com",
+        kid_display_name="Sparrow",
+        policy_version=CURRENT_PARENT_CONSENT_POLICY_VERSION,
+        consent_nonce=nonce,
+    )
+    original_load = auth_routes._load_consent_by_nonce_hash
+    gate = asyncio.Event()
+    count_lock = asyncio.Lock()
+    arrived = 0
+
+    async def load_after_shared_miss(
+        session: AsyncSession,
+        nonce_hash: str,
+    ) -> models.ParentConsentRecord | None:
+        nonlocal arrived
+        result = await original_load(session, nonce_hash)
+        if result is None and not session.info.get("consent_initial_miss"):
+            session.info["consent_initial_miss"] = True
+            async with count_lock:
+                arrived += 1
+                if arrived == 2:
+                    gate.set()
+            await asyncio.wait_for(gate.wait(), timeout=5)
+        return result
+
+    monkeypatch.setattr(auth_routes, "_load_consent_by_nonce_hash", load_after_shared_miss)
+    http_responses = [Response(), Response()]
+
+    async def submit(response: Response) -> auth_routes.ConsentResponse:
+        async with pg_harness.sessions() as session:
+            return await record_consent(payload=payload, response=response, session=session)
+
+    receipts = await asyncio.gather(*(submit(response) for response in http_responses))
+
+    assert receipts[0].id == receipts[1].id
+    assert {response.headers.get("idempotency-replayed") for response in http_responses} == {
+        None,
+        "true",
+    }
+    async with pg_harness.sessions() as session:
+        rows = (
+            (
+                await session.execute(
+                    select(models.ParentConsentRecord).where(
+                        models.ParentConsentRecord.browser_nonce_sha256
+                        == hash_browser_consent_nonce(nonce)
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+    assert len(rows) == 1
+    assert rows[0].parent_email == "parent@example.com"
+
+
+async def test_concurrent_parent_signup_returns_one_user_and_revalidates_exact_proof(
+    pg_harness: PgHarness,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    consent_id = _new_id()
+    nonce = "b" * 64
+    email = "parent@example.com"
+    entra_oid = "00000000-0000-4000-8000-000000000123"
+    async with pg_harness.sessions() as session:
+        session.add(
+            models.ParentConsentRecord(
+                id=consent_id,
+                parent_email=email,
+                kid_display_name="Sparrow",
+                policy_version=CURRENT_PARENT_CONSENT_POLICY_VERSION,
+                source="web_consent",
+                recorded_at=datetime.now(UTC),
+                browser_nonce_sha256=hash_browser_consent_nonce(nonce),
+            )
+        )
+        await session.commit()
+
+    request = ParentSignupRequest(
+        display_name="Test Parent",
+        consent_id=consent_id,
+        consent_nonce=nonce,
+    )
+    current_user = CurrentUser(
+        uid=entra_oid,
+        email=email,
+        role="parent",
+        entra_oid=entra_oid,
+    )
+    settings = Settings(env="local", app_version="test")
+    original_load = auth_routes._load_parent_by_identity
+    gate = asyncio.Event()
+    count_lock = asyncio.Lock()
+    arrived = 0
+
+    async def load_after_shared_miss(
+        session: AsyncSession,
+        *,
+        entra_oid: str | None,
+        legacy_uid: str,
+    ) -> models.User | None:
+        nonlocal arrived
+        result = await original_load(
+            session,
+            entra_oid=entra_oid,
+            legacy_uid=legacy_uid,
+        )
+        if result is None and not session.info.get("parent_initial_miss"):
+            session.info["parent_initial_miss"] = True
+            async with count_lock:
+                arrived += 1
+                if arrived == 2:
+                    gate.set()
+            await asyncio.wait_for(gate.wait(), timeout=5)
+        return result
+
+    monkeypatch.setattr(auth_routes, "_load_parent_by_identity", load_after_shared_miss)
+
+    async def signup() -> auth_routes.UserResponse:
+        async with pg_harness.sessions() as session:
+            return await parent_signup(
+                request_body=request,
+                current_user=current_user,
+                session=session,
+                settings=settings,
+            )
+
+    users = await asyncio.gather(signup(), signup())
+
+    assert users[0].id == users[1].id
+    async with pg_harness.sessions() as session:
+        stored_users = (
+            (await session.execute(select(models.User).where(models.User.entra_oid == entra_oid)))
+            .scalars()
+            .all()
+        )
+        receipt = await session.get(models.ParentConsentRecord, consent_id)
+    assert len(stored_users) == 1
+    assert receipt is not None
+    assert receipt.linked_parent_user_id == stored_users[0].id
 
 
 async def test_observation_health_probe_compiles_against_current_schema(

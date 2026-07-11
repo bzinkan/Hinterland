@@ -18,12 +18,16 @@ surface.
 | Active public domain | `https://thehinterlandguide.app/` and `https://www.thehinterlandguide.app/` |
 | Hosting provider | Azure Static Web Apps site `hinterland-landing-swa` |
 | Workflow | `.github/workflows/deploy-landing-swa.yml` |
-| Required secret | `AZURE_LANDING_SWA_TOKEN` |
+| Required secret | `HINTERLAND_LANDING_SWA_TOKEN` |
 | GitHub token | `GITHUB_TOKEN` is supplied automatically by GitHub Actions |
 
 The parents web deploy is separate. `.github/workflows/deploy-parents-swa.yml`
-watches `mobile/**` and deploys the Expo web bundle to
-`hinterland-parents-swa`.
+uses `HINTERLAND_PARENTS_SWA_TOKEN` and deploys the Expo web bundle to
+`hinterland-parents-swa`. Both Static Web Apps workflows run on every `main`
+commit and stamp `/.well-known/hinterland-build.json`; their final checks fail
+unless the current Azure hostname and public custom domains serve that exact
+commit. This prevents a stale deployment token from producing a false-green
+run against a retired Static Web Apps resource.
 
 ## Public URLs
 

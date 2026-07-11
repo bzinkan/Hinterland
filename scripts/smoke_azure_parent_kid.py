@@ -20,6 +20,7 @@ import base64
 import json
 import os
 import re
+import secrets
 import sys
 import time
 import urllib.error
@@ -144,6 +145,7 @@ def _write_evidence(
                 "generated_at": datetime.now(UTC).isoformat(),
                 "result": "passed",
                 "parent_kid_handoff": "passed",
+                "current_parent_consent_enforced": True,
                 "starter_expedition_visible": True,
                 "request_ids": request_ids,
                 "observation_canary": observation.to_public_dict(),
@@ -172,38 +174,64 @@ def run_parent_kid_smoke(
         raise RuntimeError("HINTERLAND_SMOKE_ENTRA_BEARER is required")
 
     parent_email = _smoke_email(parent_bearer)
+    consent_nonce = secrets.token_hex(32)
     request_ids: list[str] = []
     print(f"API base: {base_url}")
 
-    print("[1/9] GET /health...")
+    print("[1/10] GET /health...")
     status, payload, headers = request(base_url, "GET", "/health")
     _record_request_id(headers, request_ids)
     expect("/health", status, payload, headers=headers)
 
-    print("[2/9] POST /v1/auth/consent...")
+    print("[2/10] POST /v1/auth/consent...")
     status, payload, headers = request(
         base_url,
         "POST",
         "/v1/auth/consent",
-        body={"email": parent_email, "kid_display_name": kid_name},
+        body={
+            "email": parent_email,
+            "kid_display_name": kid_name,
+            "policy_version": "2026-07-11-W1-INTERNAL",
+            "consent_nonce": consent_nonce,
+        },
     )
     _record_request_id(headers, request_ids)
     expect("/v1/auth/consent", status, payload, headers=headers)
+    consent_id = payload.get("id")
+    if not isinstance(consent_id, str) or len(consent_id) != 26:
+        raise RuntimeError("consent response omitted the receipt id")
 
-    print("[3/9] POST /v1/auth/parent-signup...")
+    print("[3/10] POST /v1/auth/parent-signup...")
     status, payload, headers = request(
         base_url,
         "POST",
         "/v1/auth/parent-signup",
         token=parent_bearer,
-        body={"display_name": parent_name},
+        body={
+            "display_name": parent_name,
+            "consent_id": consent_id,
+            "consent_nonce": consent_nonce,
+        },
     )
     _record_request_id(headers, request_ids)
     expect("/v1/auth/parent-signup", status, payload, headers=headers)
     if payload.get("role") != "parent":
         raise RuntimeError("parent signup returned an unexpected role")
+    parent_user_id = payload["id"]
 
-    print("[4/9] POST /v1/groups...")
+    print("[4/10] GET /v1/me as parent...")
+    status, payload, headers = request(base_url, "GET", "/v1/me", token=parent_bearer)
+    _record_request_id(headers, request_ids)
+    expect("/v1/me", status, payload, headers=headers)
+    if (
+        payload.get("uid") != parent_user_id
+        or payload.get("id") != parent_user_id
+        or payload.get("display_name") != parent_name
+        or payload.get("role") != "parent"
+    ):
+        raise RuntimeError("parent /v1/me omitted the canonical mobile identity")
+
+    print("[5/10] POST /v1/groups...")
     status, payload, headers = request(
         base_url,
         "POST",
@@ -213,9 +241,12 @@ def run_parent_kid_smoke(
     )
     _record_request_id(headers, request_ids)
     expect("/v1/groups", status, payload, headers=headers, expected_status=201)
+    # Group creation is server-gated on a receipt linked to this canonical
+    # parent for the exact active W1 policy.  A 201 therefore proves the
+    # consent recorded in step 2 was linked, not merely stored.
     group_id = payload["id"]
 
-    print("[5/9] POST /v1/groups/{group_id}/kids...")
+    print("[6/10] POST /v1/groups/{group_id}/kids...")
     status, payload, headers = request(
         base_url,
         "POST",
@@ -234,7 +265,7 @@ def run_parent_kid_smoke(
     kid_user_id = payload["id"]
     handoff_token = payload["handoff_token"]
 
-    print("[6/9] POST /v1/auth/kid-exchange...")
+    print("[7/10] POST /v1/auth/kid-exchange...")
     status, payload, headers = request(
         base_url,
         "POST",
@@ -245,18 +276,20 @@ def run_parent_kid_smoke(
     expect("/v1/auth/kid-exchange", status, payload, headers=headers)
     kid_session_token = payload["session_token"]
 
-    print("[7/9] GET /v1/me as kid...")
+    print("[8/10] GET /v1/me as kid...")
     status, payload, headers = request(base_url, "GET", "/v1/me", token=kid_session_token)
     _record_request_id(headers, request_ids)
     expect("/v1/me", status, payload, headers=headers)
     if (
         payload.get("uid") != kid_user_id
+        or payload.get("id") != kid_user_id
+        or payload.get("display_name") != kid_name
         or payload.get("role") != "kid"
         or payload.get("group_id") != group_id
     ):
         raise RuntimeError("kid /v1/me did not match the throwaway handoff")
 
-    print("[8/9] GET /v1/expeditions/available as kid...")
+    print("[9/10] GET /v1/expeditions/available as kid...")
     deadline = time.time() + 90
     last_status: int | None = None
     last_payload: Any = None
@@ -286,7 +319,7 @@ def run_parent_kid_smoke(
         )
         raise RuntimeError("backyard_starter not visible")
 
-    print("[9/9] Observation W1 canary with in-memory kid session...")
+    print("[10/10] Observation W1 canary with in-memory kid session...")
     observation = run_canary(base_url=base_url, bearer=kid_session_token)
     if evidence_path:
         _write_evidence(

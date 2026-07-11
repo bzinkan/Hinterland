@@ -178,14 +178,15 @@ expectIncludes("public/index.html", 'href="/contact"');
 expectIncludes("public/privacy.html", "This page is written for the Hinterland Guide pilot and will be updated before broader release.");
 expectIncludes("public/privacy.html", "curious explorers of all ages");
 expectIncludes("public/privacy.html", "Organism photos");
-expectIncludes("public/privacy.html", "Observation location");
+expectIncludes("public/privacy.html", "optional four-character coarse-area geohash");
 expectIncludes("public/privacy.html", "Species selection");
 expectIncludes("public/privacy.html", "Kid display name or nickname");
+expectIncludes("public/privacy.html", "Consent setup keeps a random proof");
 expectIncludes("public/privacy.html", "No ads.");
 expectIncludes("public/privacy.html", "No selling or renting personal data.");
-expectIncludes("public/privacy.html", "iNaturalist public submission is pilot-limited");
+expectIncludes("public/privacy.html", "iNaturalist public submission and photo-identification suggestions are");
 expectIncludes("public/privacy.html", "privacy@thehinterlandguide.app");
-expectIncludes("public/privacy.html", "Last updated: June 10, 2026.");
+expectIncludes("public/privacy.html", "Last updated: July 11, 2026.");
 
 expectIncludes("public/terms.html", "The Hinterland Guide is a beta/pilot product");
 expectIncludes("public/terms.html", "Kids should use The Hinterland Guide only with adult permission");

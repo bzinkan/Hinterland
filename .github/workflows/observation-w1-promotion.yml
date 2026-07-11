@@ -621,6 +621,41 @@ jobs:
           run_job hinterland-sync-expeditions
           run_job hinterland-state-rebuild
 
+      - name: Verify exact W1 web deployments
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          import time
+          from urllib.request import urlopen
+
+          expected = os.environ["GITHUB_SHA"]
+          targets = [
+              ("parents", "https://parents.thehinterlandguide.app"),
+              ("landing", "https://thehinterlandguide.app"),
+              ("landing", "https://www.thehinterlandguide.app"),
+          ]
+          for surface, base_url in targets:
+              last_error = "no response"
+              for _ in range(36):
+                  try:
+                      with urlopen(
+                          f"{base_url}/.well-known/hinterland-build.json?sha={expected}",
+                          timeout=15,
+                      ) as response:
+                          payload = json.load(response)
+                      if payload == {"surface": surface, "commit_sha": expected}:
+                          break
+                      last_error = f"unexpected marker: {payload!r}"
+                  except Exception as exc:  # noqa: BLE001 - bounded promotion probe
+                      last_error = str(exc)
+                  time.sleep(5)
+              else:
+                  raise SystemExit(
+                      f"{base_url} does not match the promotion SHA: {last_error}"
+                  )
+          PY
+
       - name: Deploy the API only after migrations and rebuild
         run: |
           set -euo pipefail
@@ -947,6 +982,41 @@ jobs:
             HINTERLAND_DERIVED_REBUILD_STRICT_DRAIN
           remove_if_present hinterland-state-rebuild \
             HINTERLAND_DERIVED_REBUILD_MAX_PASSES
+
+      - name: Recheck exact W1 web deployments before final evidence
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          import time
+          from urllib.request import urlopen
+
+          expected = os.environ["GITHUB_SHA"]
+          targets = [
+              ("parents", "https://parents.thehinterlandguide.app"),
+              ("landing", "https://thehinterlandguide.app"),
+              ("landing", "https://www.thehinterlandguide.app"),
+          ]
+          for surface, base_url in targets:
+              last_error = "no response"
+              for _ in range(6):
+                  try:
+                      with urlopen(
+                          f"{base_url}/.well-known/hinterland-build.json?sha={expected}",
+                          timeout=15,
+                      ) as response:
+                          payload = json.load(response)
+                      if payload == {"surface": surface, "commit_sha": expected}:
+                          break
+                      last_error = f"unexpected marker: {payload!r}"
+                  except Exception as exc:  # noqa: BLE001 - bounded promotion probe
+                      last_error = str(exc)
+                  time.sleep(5)
+              else:
+                  raise SystemExit(
+                      f"{base_url} changed during promotion: {last_error}"
+                  )
+          PY
 
       - name: Finalize sanitized evidence
         if: always()

@@ -36,9 +36,12 @@ The parent token must be a v2 access token for the `user.access` scope. Its
 `aud` claim is the API client ID
 `7dd9da3c-b7d6-45d4-955b-d7561c43f209`, not the scope URI. The workflow rejects
 a missing, wrong-tenant, wrong-audience, wrong-scope, or nearly expired token. It creates a
-throwaway kid through the real consent/group/handoff path and passes that kid's
-session to the Observation canary in memory. Do not create a persistent kid
-bearer secret.
+throwaway kid through the real exact-policy, browser-bound consent proof,
+canonical parent, server-enforced group/kid, and handoff path, then passes that
+kid's session to the Observation canary in memory. An email-only,
+stored-but-unlinked, missing-proof, or stale-policy consent must fail the
+promotion. Do not create a persistent kid bearer secret or persist the consent
+nonce.
 
 ## Dedicated server promotion
 
@@ -67,8 +70,10 @@ The promotion job performs this order:
    bounded strict/drained derived-state rebuild;
 7. applies and verifies the 24-hour upload, seven-day pilot-private, and 90-day
    held/rejected lifecycle rules;
-8. runs public health/readiness/JWKS probes and the non-skipped parent, kid,
-   Expedition, idempotent Observation, Field Journal, `pilot_private`, DTO, and
+8. requires the parent, landing apex, and landing `www` build markers to match
+   the promotion SHA before API rollout, then runs public
+   health/readiness/JWKS probes and the non-skipped parent, kid, Expedition,
+   idempotent Observation, Field Journal, `pilot_private`, DTO, and
    signed-photo-denial canaries;
 9. runs the database health job in strict mode, requires empty moderation
    active/DLQ counts, provisions/verifies alerts, and sends an action-group test;

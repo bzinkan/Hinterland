@@ -685,9 +685,11 @@ class ParentConsentRecord(TimestampMixin, Base):
 
     Captured at the pre-signup `/consent` page. Today the page logs a
     structured event AND inserts a row here; the row is the audit-of-
-    record (logs roll over at 30d). A parent's signup flow joins back to
-    the newest row that matches the verified-email claim, populating
-    ``linked_parent_user_id``. The kid-create flow joins similarly via
+    record (logs roll over at 30d). A parent's signup flow must present this
+    exact row ID plus the raw browser nonce whose SHA-256 digest is stored on
+    the row. The verified Entra email and active policy are additional
+    cross-checks before ``linked_parent_user_id`` is populated. Email alone
+    never claims a receipt. The kid-create flow joins similarly via
     ``linked_kid_user_id`` once the kid row is provisioned (post-pilot
     follow-up).
 
@@ -706,6 +708,10 @@ class ParentConsentRecord(TimestampMixin, Base):
         Index("ix_parent_consent_records_policy_version", "policy_version"),
         Index("ix_parent_consent_records_recorded_at", "recorded_at"),
         Index("ix_parent_consent_records_linked_parent_user_id", "linked_parent_user_id"),
+        UniqueConstraint(
+            "browser_nonce_sha256",
+            name="uq_parent_consent_browser_nonce_sha256",
+        ),
     )
 
     id: Mapped[str] = mapped_column(String(26), primary_key=True)
@@ -726,6 +732,11 @@ class ParentConsentRecord(TimestampMixin, Base):
     # /consent endpoint doesn't yet have a configured hashing salt.
     ip_hash: Mapped[str | None] = mapped_column(String(64))
     user_agent_hash: Mapped[str | None] = mapped_column(String(64))
+    # SHA-256 of the 256-bit nonce generated and retained by the consenting
+    # browser. Historical receipts remain nullable; every receipt created by
+    # the current API writes a hash and therefore cannot be claimed later using
+    # an email address alone.
+    browser_nonce_sha256: Mapped[str | None] = mapped_column(String(64))
     linked_parent_user_id: Mapped[str | None] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"),
     )

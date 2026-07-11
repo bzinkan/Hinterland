@@ -35,7 +35,13 @@ def test_w1_promotion_order_and_containment_are_explicit() -> None:
     deploy = workflow.index("Deploy the API only after migrations and rebuild")
     rollout = workflow.index("Require the exact API revision to be healthy and serving")
     public_readiness = workflow.index("Smoke public readiness surfaces")
+    web_readiness = workflow.index("Verify exact W1 web deployments")
     authenticated = workflow.index("Non-skipped authenticated handoff and Observation canary")
+    final_runtime = workflow.index("Assert final W1 runtime, queue, and digest state")
+    restore_strict_modes = workflow.index("Restore temporary strict job modes")
+    final_web_recheck = workflow.index("Recheck exact W1 web deployments before final evidence")
+    finalize_evidence = workflow.index("Finalize sanitized evidence")
+    publish_evidence = workflow.index("Publish promotion evidence")
 
     assert (
         preflight
@@ -44,10 +50,16 @@ def test_w1_promotion_order_and_containment_are_explicit() -> None:
         < catalog
         < expeditions
         < rebuild
+        < web_readiness
         < deploy
         < rollout
         < public_readiness
         < authenticated
+        < final_runtime
+        < restore_strict_modes
+        < final_web_recheck
+        < finalize_evidence
+        < publish_evidence
     )
     assert "HINTERLAND_MODERATION_PROVIDER=noop" in workflow
     assert "HINTERLAND_INAT_CV_ENABLED=false" in workflow
@@ -96,6 +108,70 @@ def test_w1_promotion_order_and_containment_are_explicit() -> None:
     assert '"${W1_API_READY_REVISION:-}"' in workflow
     assert '.status == "ok" and .version == $version' in workflow
     assert '.status == "ready" and .version == $version' in workflow
+    assert workflow.count("/.well-known/hinterland-build.json?sha={expected}") == 2
+    assert workflow.count('("parents", "https://parents.thehinterlandguide.app")') == 2
+    assert workflow.count('("landing", "https://thehinterlandguide.app")') == 2
+    assert workflow.count('("landing", "https://www.thehinterlandguide.app")') == 2
+
+
+def test_static_web_deployments_are_bound_to_current_resources() -> None:
+    parents = (_ROOT / ".github/workflows/deploy-parents-swa.yml").read_text(encoding="utf-8")
+    landing = (_ROOT / ".github/workflows/deploy-landing-swa.yml").read_text(encoding="utf-8")
+
+    assert "HINTERLAND_PARENTS_SWA_TOKEN" in parents
+    assert "AZURE_PARENTS_SWA_TOKEN" not in parents
+    assert "purple-coast-088e6b30f.7.azurestaticapps.net" in parents
+    assert "https://parents.thehinterlandguide.app" in parents
+    assert '"surface": "parents"' in parents
+
+    assert "HINTERLAND_LANDING_SWA_TOKEN" in landing
+    assert "AZURE_LANDING_SWA_TOKEN" not in landing
+    assert "polite-grass-042f5da0f.7.azurestaticapps.net" in landing
+    assert "https://thehinterlandguide.app" in landing
+    assert "https://www.thehinterlandguide.app" in landing
+    assert '"surface": "landing"' in landing
+
+
+def test_w1_parent_disclosures_are_private_and_truthful() -> None:
+    consent = (_ROOT / "mobile/app/consent.tsx").read_text(encoding="utf-8")
+    privacy = (_ROOT / "web/public/privacy.html").read_text(encoding="utf-8")
+    normalized_consent = " ".join(consent.split())
+
+    for stale_claim in (
+        "Photos and species IDs become public scientific observations",
+        "automatic suggester",
+        "rounded to ~city block",
+    ):
+        assert stale_claim not in normalized_consent
+
+    for required in (
+        "server-hosted W1 private-pilot photo bytes",
+        "purged after seven days",
+        "Unsynced work",
+        "send photos to iNaturalist",
+        "publish observations",
+        "random temporary setup proof",
+        "stores only its SHA-256 digest",
+        "Receipt: {phase.receiptId}",
+    ):
+        assert required in normalized_consent
+
+    assert "iNaturalist public submission and photo-identification suggestions are" in privacy
+    assert "disabled for the W1 Android Internal Testing pilot" in privacy
+    assert "W1 uses a NoOp moderation provider" in privacy
+    assert "it is not a safety approval" in privacy
+
+    consent_policy = (_ROOT / "backend/app/core/parent_consent.py").read_text(encoding="utf-8")
+    consent_proof = (_ROOT / "mobile/src/auth/consentProof.ts").read_text(encoding="utf-8")
+    assert '"2026-07-11-W1-INTERNAL"' in consent_policy
+    assert '"2026-07-11-W1-INTERNAL"' in consent_proof
+    assert "globalThis.sessionStorage" in consent_proof
+    assert "globalThis.crypto" in consent_proof
+
+    msal = (_ROOT / "mobile/src/auth/msal.ts").read_text(encoding="utf-8")
+    assert 'prompt: "select_account"' in msal
+    assert "await ms.logoutRedirect();" in msal
+    assert "logoutRedirect({ account" not in msal
 
 
 def test_parent_smoke_passes_throwaway_kid_session_in_memory() -> None:
@@ -103,6 +179,10 @@ def test_parent_smoke_passes_throwaway_kid_session_in_memory() -> None:
     observation_smoke = (_ROOT / "scripts/smoke_observation_w1.py").read_text(encoding="utf-8")
 
     assert "run_canary(base_url=base_url, bearer=kid_session_token)" in parent_smoke
+    assert 'payload.get("id") != parent_user_id' in parent_smoke
+    assert 'payload.get("display_name") != parent_name' in parent_smoke
+    assert 'payload.get("id") != kid_user_id' in parent_smoke
+    assert 'payload.get("display_name") != kid_name' in parent_smoke
     assert "HINTERLAND_SMOKE_KID_BEARER" not in parent_smoke
     assert 'bearer=_required("HINTERLAND_SMOKE_BEARER")' in observation_smoke
     assert (

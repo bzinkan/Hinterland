@@ -38,9 +38,13 @@ HINTERLAND_SMOKE_ENTRA_BEARER="<access-token>" \
 python scripts/smoke_azure_parent_kid.py
 ```
 
-It records consent, resolves parent signup, creates a group/kid, exchanges the
-kid handoff, calls `/v1/me`, verifies starter Expedition visibility, and passes
-the throwaway kid session in memory to the Observation W1 canary. The optional
+It records the exact current consent version with an in-memory 256-bit nonce,
+then requires parent signup to present that exact receipt/proof and link it to
+the canonical adult. The raw nonce is never written to logs or evidence. A
+successful family-group and kid creation proves the server gate. The smoke then
+exchanges the kid handoff, calls
+`/v1/me`, verifies starter Expedition visibility, and passes the throwaway kid
+session in memory to the Observation W1 canary. The optional
 `HINTERLAND_SMOKE_EVIDENCE_PATH` receives sanitized request IDs and pass facts.
 Do not store a long-lived kid smoke token.
 

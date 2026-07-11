@@ -10,6 +10,15 @@ decides whether a kid ever comes back.
 
 Related reading: `architecture.md` (auth model, role attributes), `data-model.md` (User / Group / Membership rows), `mobile.md` (platform-specific permission and offline behavior the flows depend on), `expedition-authoring.md` (voice and tone rules that also apply to onboarding copy).
 
+> **W1 implementation boundary.** The promoted W1 path is narrower than the
+> product flows below: a parent records the exact current consent version on
+> the parents web app, signs in through Entra, completes canonical parent
+> signup with the exact browser-bound consent proof, creates a family group and
+> kid, then shows the short-lived QR handoff to the native app. The invite-code,
+> username/PIN, teacher welcome-sheet, and
+> teacher-created-kid flows remain future product designs and are not evidence
+> for W1 promotion.
+
 ## The product position
 
 Hinterland is invite-only during Phase 1 closed beta. Every account is created either by a parent, a teacher, or automatically through a parent/teacher. Kids never self-register — not because they can't, but because COPPA requires verifiable parental consent and because the "kid self-service signup" flows of other apps are exactly the sloppy pattern we're trying to avoid in an app for 9–12-year-olds.
@@ -105,17 +114,27 @@ unless chosen, email, profile photo, or friend list in Phase 1.
 
 **From teachers:** email, password, display name, school name. Same shape as parents.
 
-**Parental consent is one of two forms:**
+**W1 parental-consent gate.** Consent is explicit; creating a kid is not itself
+the consent event. `POST /v1/auth/consent` accepts only the policy version built
+into the exact deployed parents web bundle. The browser generates a 256-bit
+nonce, sends it while recording consent, and keeps it only in that tab across
+the Microsoft redirect; the API stores only its SHA-256 digest. After Entra
+verifies the same adult email, `POST /v1/auth/parent-signup` must present the
+exact receipt id and nonce before the API links that receipt to the canonical
+parent user. Email matching by itself never authorizes setup. Parent signup,
+family-group creation, and kid provisioning fail closed when no browser-bound
+receipt for the current policy is linked. The kid is linked to the parent
+through `parent_user_id`. The teacher-created/email-plus design above is not
+enabled by the W1 promotion path.
 
-1. **Parent-created kid:** consent is implicit in the parent creating the
-   account under their own logged-in session. The API enforces that only an
-   authenticated parent, resolved from an Entra token plus Postgres role lookup,
-   can call the kid-create endpoint; the kid's account is linked to the parent
-   via `parent_user_id`. The parent's creation action is the consent event.
-
-2. **Teacher-created kid:** consent is explicit via the "email plus" method. Email 1 delivers the consent URL; parent clicks and approves; email 2 arrives 24 hours later confirming the consent and reminding the parent they can revoke at any time. Both emails are logged with timestamps in the `USER#<kidId>/CONSENT` row (see `data-model.md` — this entity needs to be added in the same PR as this doc lands).
-
-**Audit-of-record (Phase 1).** Every consent click hits `POST /v1/auth/consent`, which writes a row to the `parent_consent_records` Postgres table and returns its ULID `id`. The columns capture exactly what the audit trail needs and nothing more: `parent_email`, optional `kid_display_name`, `policy_version` (e.g. `2026-05-10-DRAFT`, bumped any time the policy text changes materially), `recorded_at` (server time, tz-aware), `source` (currently always `web_consent`), and nullable `linked_parent_user_id` / `linked_kid_user_id` foreign keys to `users.id` filled in by the parent-signup flow once an Entra-verified token arrives. We deliberately do NOT store raw IP or User-Agent in Phase 1 — the `ip_hash` / `user_agent_hash` columns exist for a future operator-managed-salt scheme but stay NULL today. Structured logging continues to emit `auth.consent.recorded` carrying the same row id so existing log-based ops dashboards keep working; the row, not the log, is the long-term source of truth.
+**Audit-of-record (W1).** Every consent click writes a row to
+`parent_consent_records` and returns its ULID `id`. The ledger stores exactly
+what the audit trail needs: `parent_email`, optional `kid_display_name`, the
+exact `policy_version`, server `recorded_at`, `source`, the high-entropy browser
+nonce digest, and nullable canonical parent/kid links. The raw nonce, IP, and
+User-Agent are not stored. Structured logging emits `auth.consent.recorded`
+with the receipt id, policy version, and timestamp, but not the parent email,
+kid text, nonce, or digest; the database row is the source of truth.
 
 **Revocation is one click.** The parent dashboard's delete action immediately
 disables the Azure-backed user/session and queues the reviewed erasure workflow

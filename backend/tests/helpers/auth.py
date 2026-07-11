@@ -30,6 +30,7 @@ def stub_token_verifier(
     role: str | None = None,
     group_id: str | None = None,
     email: str | None = "parent@example.com",
+    display_name: str | None = None,
     parent_id: str | None = None,
     kid_id: str | None = None,
     teacher_id: str | None = None,
@@ -60,6 +61,8 @@ def stub_token_verifier(
     claims: dict[str, Any] = {"uid": uid}
     if email is not None:
         claims["email"] = email
+    if display_name is not None:
+        claims["display_name"] = display_name
     if role is not None:
         claims["role"] = role
     if group_id is not None:

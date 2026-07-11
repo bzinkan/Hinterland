@@ -61,14 +61,14 @@ Internal testing track. No classroom rollout. No public release.
   # Expect: {"status":"ok","env":"prod","version":"0.1.0"}
   ```
 
-- [ ] Create or sign in to the parent account from the parents web app
-  at `https://parents.thehinterlandguide.app`. The native `play-internal`
-  build does not use native adult password sign-in.
-- [ ] Record consent. Open the public `/consent` page (the
+- [ ] Record consent first. Open the public `/consent` page in the same browser
+  tab that will continue through Microsoft sign-in (the
   parents-facing web host — verify the host returns 200 first via
   `curl -I` if the URL has changed since
   [`docs/one-week-kid-pilot-checklist.md`](one-week-kid-pilot-checklist.md)
-  was last updated). Submit the form, then capture the consent
+  was last updated). Submit the form. The tab keeps a random 256-bit proof
+  through the redirect while the API stores only its digest; never copy or
+  record the raw proof. Capture only the consent
   receipt returned by `POST /v1/auth/consent`:
   - `id` — the 26-char ULID. **Write this down in the session
     journal now**; it is the per-family receipt the audit trail joins
@@ -76,6 +76,9 @@ Internal testing track. No classroom rollout. No public release.
   - `recorded_at` — server timestamp.
   - `policy_version` — must match the policy version currently
     served at `/consent`.
+- [ ] Continue with Microsoft in that same tab and complete parent signup. A
+  fresh setup must fail closed if the tab-scoped proof is missing. The native
+  `play-internal` build does not use native adult password sign-in.
 - [ ] Create the group from the parent account in the parents web app. The
   parent-account group-create flow returns a 6-character join code
   (same flow exercised by `scripts/smoke_azure_parent_kid.py`).

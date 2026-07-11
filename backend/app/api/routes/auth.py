@@ -28,6 +28,13 @@ from app.core.kid_jwt import (
     public_jwks,
     verify_hinterland_jwt,
 )
+from app.core.parent_consent import (
+    CURRENT_PARENT_CONSENT_POLICY_VERSION,
+    CURRENT_PARENT_CONSENT_REQUIRED_MESSAGE,
+    CurrentParentConsentRequiredError,
+    acquire_current_parent_consent,
+    hash_browser_consent_nonce,
+)
 from app.db import models
 from app.db.session import DbSessionDep
 
@@ -41,11 +48,13 @@ log = structlog.get_logger()
 
 # Bumped any time the privacy policy text changes materially. Recorded
 # alongside each consent so we know which version each parent agreed to.
-_CURRENT_POLICY_VERSION = "2026-05-10-DRAFT"
+_CURRENT_POLICY_VERSION = CURRENT_PARENT_CONSENT_POLICY_VERSION
 
 
 class ParentSignupRequest(BaseModel):
     display_name: str = Field(..., min_length=1, max_length=80)
+    consent_id: str = Field(..., min_length=26, max_length=26)
+    consent_nonce: str = Field(..., pattern=r"^[0-9a-f]{64}$")
 
 
 class UserResponse(BaseModel):
@@ -72,6 +81,47 @@ class AccountDeletionResponse(BaseModel):
     status: str
     user_id: str
     requested_at: datetime
+
+
+async def _load_parent_by_identity(
+    session: AsyncSession,
+    *,
+    entra_oid: str | None,
+    legacy_uid: str,
+) -> models.User | None:
+    """Load the canonical adult row using the verified token identity."""
+    if entra_oid is not None:
+        statement = select(models.User).where(models.User.entra_oid == entra_oid)
+    else:
+        statement = select(models.User).where(models.User.firebase_uid == legacy_uid)
+    result = await session.execute(statement)
+    return result.scalar_one_or_none()
+
+
+def _integrity_constraint_name(exc: IntegrityError) -> str | None:
+    """Read a driver constraint name without parsing database error text."""
+    current: object | None = exc.orig
+    seen: set[int] = set()
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        constraint_name = getattr(current, "constraint_name", None)
+        if isinstance(constraint_name, str):
+            return constraint_name
+        diag = getattr(current, "diag", None)
+        diagnostic_name = getattr(diag, "constraint_name", None)
+        if isinstance(diagnostic_name, str):
+            return diagnostic_name
+        current = getattr(current, "__cause__", None)
+    return None
+
+
+def _is_expected_parent_identity_conflict(
+    exc: IntegrityError,
+    *,
+    entra_oid: str | None,
+) -> bool:
+    expected = "uq_users_entra_oid" if entra_oid is not None else "uq_users_firebase_uid"
+    return _integrity_constraint_name(exc) == expected
 
 
 @router.get("/me", response_model=CurrentUser)
@@ -159,27 +209,40 @@ async def parent_signup(
     # current_user.uid with entra_oid=None.
     entra_oid = current_user.entra_oid
 
-    if entra_oid is not None:
-        result = await session.execute(
-            select(models.User).where(models.User.entra_oid == entra_oid)
-        )
-    else:
-        # Back-compat: legacy stub-token path.
-        result = await session.execute(
-            select(models.User).where(models.User.firebase_uid == current_user.uid)
-        )
-    existing = result.scalar_one_or_none()
+    existing = await _load_parent_by_identity(
+        session,
+        entra_oid=entra_oid,
+        legacy_uid=current_user.uid,
+    )
 
     if existing is not None:
         # Backfill entra_oid on legacy rows whose first sign-in is via Entra.
+        identity_updated = False
         if entra_oid is not None and getattr(existing, "entra_oid", None) is None:
             existing.entra_oid = entra_oid
+            identity_updated = True
+        try:
+            consent = await acquire_current_parent_consent(
+                session,
+                parent_user_id=existing.id,
+                verified_email=current_user.email,
+                consent_id=request_body.consent_id,
+                consent_nonce=request_body.consent_nonce,
+            )
+        except CurrentParentConsentRequiredError as exc:
+            await session.rollback()
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=CURRENT_PARENT_CONSENT_REQUIRED_MESSAGE,
+            ) from exc
+        if identity_updated or consent.newly_linked:
             await session.commit()
         log.info(
             "auth.parent_signup.idempotent",
             user_id=existing.id,
             entra_oid=entra_oid,
             firebase_uid=existing.firebase_uid,
+            linked_consent_id=consent.record.id,
         )
         return UserResponse.from_model(existing)
 
@@ -197,63 +260,79 @@ async def parent_signup(
         # test assertions that read `added_user.firebase_uid` still see a
         # value. Real Entra signups land in the branch above.
         new_user.firebase_uid = current_user.uid
+
+    # Flush the canonical user first so the consent ledger's FK update can
+    # only follow a valid users.id INSERT.  This remains one transaction: a
+    # missing receipt rolls the provisional user back below.
     session.add(new_user)
+    try:
+        await session.flush()
+    except IntegrityError as exc:
+        # Two first-time requests for the same verified identity can both
+        # miss the initial read. Only the expected identity uniqueness race
+        # is recoverable; every other constraint failure is re-raised after
+        # restoring the session. The winning user must still present and
+        # revalidate this exact browser-bound consent proof.
+        await session.rollback()
+        if not _is_expected_parent_identity_conflict(exc, entra_oid=entra_oid):
+            raise
+
+        winner = await _load_parent_by_identity(
+            session,
+            entra_oid=entra_oid,
+            legacy_uid=current_user.uid,
+        )
+        if winner is None:
+            raise
+        try:
+            consent = await acquire_current_parent_consent(
+                session,
+                parent_user_id=winner.id,
+                verified_email=current_user.email,
+                consent_id=request_body.consent_id,
+                consent_nonce=request_body.consent_nonce,
+            )
+        except CurrentParentConsentRequiredError as proof_exc:
+            await session.rollback()
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=CURRENT_PARENT_CONSENT_REQUIRED_MESSAGE,
+            ) from proof_exc
+        if consent.newly_linked:
+            await session.commit()
+        log.info(
+            "auth.parent_signup.concurrent_replay",
+            user_id=winner.id,
+            entra_oid=entra_oid,
+            linked_consent_id=consent.record.id,
+        )
+        return UserResponse.from_model(winner)
+    try:
+        consent = await acquire_current_parent_consent(
+            session,
+            parent_user_id=new_user.id,
+            verified_email=current_user.email,
+            consent_id=request_body.consent_id,
+            consent_nonce=request_body.consent_nonce,
+        )
+    except CurrentParentConsentRequiredError as exc:
+        await session.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=CURRENT_PARENT_CONSENT_REQUIRED_MESSAGE,
+        ) from exc
+
+    # The already-flushed user INSERT and consent-link UPDATE commit together.
     await session.commit()
     await session.refresh(new_user)
-
-    # Best-effort: thread the audit trail by linking the most recent
-    # unlinked consent record for this verified email back to the new
-    # parent row. Failure here must NOT break signup -- consent rows
-    # remain durable in their own table even if this UPDATE no-ops.
-    # TODO(PR-4): require a consent record at signup time once the
-    # client passes the consent_id back explicitly.
-    linked_consent_id: str | None = None
-    if current_user.email:
-        linked_consent_id = await _link_latest_consent_to_parent(
-            session,
-            parent_email=current_user.email,
-            parent_user_id=new_user.id,
-        )
 
     log.info(
         "auth.parent_signup.created",
         user_id=new_user.id,
         entra_oid=entra_oid,
-        linked_consent_id=linked_consent_id,
+        linked_consent_id=consent.record.id,
     )
     return UserResponse.from_model(new_user)
-
-
-async def _link_latest_consent_to_parent(
-    session: AsyncSession,
-    *,
-    parent_email: str,
-    parent_user_id: str,
-) -> str | None:
-    """Stamp the newest unlinked consent row for ``parent_email`` with
-    ``parent_user_id``. Returns the consent row id, or ``None`` if no
-    matching unlinked row exists.
-
-    The "newest unlinked" rule keeps the join stable when a parent
-    re-consents (e.g. after a policy bump): an already-linked older row
-    stays put; the fresh one threads through. Email matching is
-    case-insensitive because Entra normalises but historical identity rows may
-    not.
-    """
-    stmt = (
-        select(models.ParentConsentRecord)
-        .where(
-            models.ParentConsentRecord.linked_parent_user_id.is_(None),
-        )
-        .order_by(models.ParentConsentRecord.recorded_at.desc())
-    )
-    result = await session.execute(stmt)
-    for row in result.scalars():
-        if row.parent_email.lower() == parent_email.lower():
-            row.linked_parent_user_id = parent_user_id
-            await session.commit()
-            return row.id
-    return None
 
 
 # ---------------------------------------------------------------------------
@@ -642,9 +721,9 @@ class ConsentRequest(BaseModel):
     so existing log-based audits still work. The row is the long-term
     source of truth; the log is the operational signal.
 
-    When the parent later signs up via `parent_signup`, that flow
-    links back to the newest record matching the verified email so
-    the audit ledger threads parent -> consent -> users.id.
+    When the parent later signs up, the client must return both this exact
+    receipt ID and the original browser nonce. The server cross-checks the
+    authenticated Entra email and current policy before linking the receipt.
     """
 
     # Lightweight regex check -- avoids pulling in email-validator just
@@ -652,13 +731,52 @@ class ConsentRequest(BaseModel):
     # signup time.
     email: str = Field(..., pattern=r"^[^@\s]+@[^@\s]+\.[^@\s]+$", max_length=320)
     kid_display_name: str | None = Field(default=None, max_length=80)
-    policy_version: str | None = None
+    policy_version: str = Field(..., min_length=1, max_length=64)
+    consent_nonce: str = Field(..., pattern=r"^[0-9a-f]{64}$")
 
 
 class ConsentResponse(BaseModel):
     id: str
     recorded_at: datetime
     policy_version: str
+
+
+def _consent_replay_matches(
+    record: models.ParentConsentRecord,
+    *,
+    normalized_email: str,
+) -> bool:
+    return (
+        record.parent_email.strip().lower() == normalized_email
+        and record.policy_version == _CURRENT_POLICY_VERSION
+    )
+
+
+def _consent_response(record: models.ParentConsentRecord) -> ConsentResponse:
+    return ConsentResponse(
+        id=record.id,
+        recorded_at=record.recorded_at,
+        policy_version=record.policy_version,
+    )
+
+
+async def _load_consent_by_nonce_hash(
+    session: AsyncSession,
+    nonce_hash: str,
+) -> models.ParentConsentRecord | None:
+    result = await session.execute(
+        select(models.ParentConsentRecord).where(
+            models.ParentConsentRecord.browser_nonce_sha256 == nonce_hash
+        )
+    )
+    return result.scalar_one_or_none()
+
+
+def _raise_consent_replay_conflict() -> None:
+    raise HTTPException(
+        status_code=status.HTTP_409_CONFLICT,
+        detail="Consent nonce was already used with different details",
+    )
 
 
 @router.post(
@@ -668,28 +786,48 @@ class ConsentResponse(BaseModel):
 )
 async def record_consent(
     payload: ConsentRequest,
+    response: Response,
     session: DbSessionDep,
 ) -> ConsentResponse:
     """Record COPPA parental consent. Public, unauthenticated.
 
     Storage shape today:
       1. INSERTs a `parent_consent_records` row -- the durable audit
-         ledger. Indexed by email + policy_version + recorded_at so
-         the parent-signup flow can locate the newest matching record.
+         ledger -- with only the SHA-256 digest of the 256-bit browser
+         nonce. The raw nonce remains in browser memory/storage for signup.
       2. Emits `auth.consent.recorded` to structured logs with the
          new row id so the existing log-based ops dashboards keep
          working.
 
-    The response carries the row id so the frontend can pass it back
-    on parent_signup (a future improvement; today the join is via
-    email + recency).
+    A retry using the same nonce, normalized email, and current policy returns
+    HTTP 200 with the original response and `Idempotency-Replayed: true`.
+    Reusing the nonce with a different email or policy fails with 409. Parent
+    signup must present the exact response ID and raw nonce; email alone can
+    never claim a receipt.
     """
-    version = payload.policy_version or _CURRENT_POLICY_VERSION
+    if payload.policy_version != _CURRENT_POLICY_VERSION:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Consent policy version is not current",
+        )
+    version = _CURRENT_POLICY_VERSION
+    normalized_email = payload.email.strip().lower()
+    nonce_hash = hash_browser_consent_nonce(payload.consent_nonce)
+    existing = await _load_consent_by_nonce_hash(session, nonce_hash)
+    if existing is not None:
+        if not _consent_replay_matches(
+            existing,
+            normalized_email=normalized_email,
+        ):
+            _raise_consent_replay_conflict()
+        response.headers["Idempotency-Replayed"] = "true"
+        return _consent_response(existing)
+
     now = datetime.now(UTC)
     record_id = str(ULID())
     record = models.ParentConsentRecord(
         id=record_id,
-        parent_email=payload.email,
+        parent_email=normalized_email,
         kid_display_name=payload.kid_display_name,
         policy_version=version,
         # `consent_text_version` is intentionally not collected from the
@@ -699,16 +837,31 @@ async def record_consent(
         # populate this.
         source="web_consent",
         recorded_at=now,
+        browser_nonce_sha256=nonce_hash,
     )
     session.add(record)
-    await session.commit()
+    try:
+        await session.flush()
+        await session.commit()
+    except IntegrityError as exc:
+        await session.rollback()
+        if _integrity_constraint_name(exc) != "uq_parent_consent_browser_nonce_sha256":
+            raise
+        winner = await _load_consent_by_nonce_hash(session, nonce_hash)
+        if winner is None:
+            raise
+        if not _consent_replay_matches(
+            winner,
+            normalized_email=normalized_email,
+        ):
+            _raise_consent_replay_conflict()
+        response.headers["Idempotency-Replayed"] = "true"
+        return _consent_response(winner)
 
     log.info(
         "auth.consent.recorded",
         consent_id=record_id,
-        email=payload.email,
-        kid_display_name=payload.kid_display_name,
         policy_version=version,
         recorded_at=now.isoformat(),
     )
-    return ConsentResponse(id=record_id, recorded_at=now, policy_version=version)
+    return _consent_response(record)

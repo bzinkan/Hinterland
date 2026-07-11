@@ -7,9 +7,6 @@ on:
   push:
     branches:
       - main
-    paths:
-      - "web/**"
-      - ".github/workflows/deploy-landing-swa.yml"
   workflow_dispatch:
 
 concurrency:
@@ -27,12 +24,60 @@ jobs:
         with:
           submodules: false
 
+      - name: Stamp exact landing build identity
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          target = Path("web/public/.well-known/hinterland-build.json")
+          target.parent.mkdir(parents=True, exist_ok=True)
+          target.write_text(
+              json.dumps({"surface": "landing", "commit_sha": os.environ["GITHUB_SHA"]}),
+              encoding="utf-8",
+          )
+          PY
+
       - name: Deploy to hinterland-landing-swa
         uses: Azure/static-web-apps-deploy@v1
         with:
-          azure_static_web_apps_api_token: ${{ secrets.AZURE_LANDING_SWA_TOKEN }}
+          azure_static_web_apps_api_token: ${{ secrets.HINTERLAND_LANDING_SWA_TOKEN }}
           repo_token: ${{ secrets.GITHUB_TOKEN }}
           action: upload
           app_location: "web/public"
           output_location: ""
           skip_app_build: true
+
+      - name: Verify current landing resource and public domains
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          import time
+          from urllib.request import urlopen
+
+          expected = os.environ["GITHUB_SHA"]
+          targets = {
+              "current Azure resource": "https://polite-grass-042f5da0f.7.azurestaticapps.net",
+              "public apex domain": "https://thehinterlandguide.app",
+              "public www domain": "https://www.thehinterlandguide.app",
+          }
+          for label, base_url in targets.items():
+              last_error = "no response"
+              for _ in range(18):
+                  try:
+                      with urlopen(
+                          f"{base_url}/.well-known/hinterland-build.json?sha={expected}",
+                          timeout=15,
+                      ) as response:
+                          payload = json.load(response)
+                      if payload == {"surface": "landing", "commit_sha": expected}:
+                          break
+                      last_error = f"unexpected marker: {payload!r}"
+                  except Exception as exc:  # noqa: BLE001 - bounded deployment probe
+                      last_error = str(exc)
+                  time.sleep(5)
+              else:
+                  raise SystemExit(f"{label} did not serve the exact landing build: {last_error}")
+          PY

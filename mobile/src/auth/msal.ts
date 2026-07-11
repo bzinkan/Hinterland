@@ -18,7 +18,12 @@
  */
 import { Platform } from "react-native";
 
-import { clearBearerToken, setBearerToken } from "@/src/auth/token";
+import {
+  clearBearerToken,
+  getBearerToken,
+  setBearerToken,
+} from "@/src/auth/token";
+import { MsalSessionController } from "@/src/auth/msalSession";
 import { env } from "@/src/config/env";
 
 // metro.config.js's resolveRequest shim fixes the @azure/msal-common/
@@ -26,13 +31,17 @@ import { env } from "@/src/config/env";
 // inside getMsal() without bundle-time failures.
 type MsalModule = typeof import("@azure/msal-browser");
 type PublicClientApplicationType = InstanceType<MsalModule["PublicClientApplication"]>;
-type AccountInfo = import("@azure/msal-browser").AccountInfo;
 
 let msalApp: PublicClientApplicationType | null = null;
 let initPromise: Promise<PublicClientApplicationType | null> | null = null;
 let listenerAttached = false;
+let sessionController: MsalSessionController | null = null;
 
 const ENTRA_SCOPES = ["api://hinterland-api/user.access"];
+
+export type SignedInAdultProfile = {
+  suggestedDisplayName: string;
+};
 
 function isWeb(): boolean {
   return Platform.OS === "web";
@@ -64,25 +73,21 @@ export async function getMsal(): Promise<PublicClientApplicationType | null> {
   return initPromise;
 }
 
-async function syncToken(account: AccountInfo | null): Promise<void> {
-  const ms = await getMsal();
-  if (!ms) return;
-  if (!account) {
-    await clearBearerToken();
-    return;
+function getSessionController(
+  ms: PublicClientApplicationType,
+): MsalSessionController {
+  if (!sessionController) {
+    sessionController = new MsalSessionController(
+      ms,
+      {
+        get: getBearerToken,
+        set: setBearerToken,
+        clear: clearBearerToken,
+      },
+      ENTRA_SCOPES,
+    );
   }
-  try {
-    const result = await ms.acquireTokenSilent({
-      account,
-      scopes: ENTRA_SCOPES,
-    });
-    await setBearerToken(result.accessToken);
-  } catch {
-    // Silent acquisition failed -- user needs to re-sign-in. Clear the
-    // bearer so protected calls 401 cleanly instead of using a stale
-    // token.
-    await clearBearerToken();
-  }
+  return sessionController;
 }
 
 /**
@@ -96,34 +101,77 @@ export function ensureTokenSync(): void {
   void (async () => {
     const ms = await getMsal();
     if (!ms) return;
+    const session = getSessionController(ms);
 
-    // Replay any pending redirect from a sign-in round-trip first.
+    // Replay any pending redirect from a sign-in round-trip first and make its
+    // exact account authoritative before looking at the broader MSAL cache.
     try {
       const redirectResult = await ms.handleRedirectPromise();
       if (redirectResult?.account) {
-        await syncToken(redirectResult.account);
+        session.activateAccount(redirectResult.account);
       }
     } catch {
       // Ignore -- the next acquireTokenSilent attempt will surface real issues.
     }
 
-    const initial = ms.getAllAccounts()[0] ?? null;
-    await syncToken(initial);
-
+    const { EventType } = await import("@azure/msal-browser");
     ms.addEventCallback((evt) => {
-      // LOGIN_SUCCESS + ACQUIRE_TOKEN_SUCCESS + LOGOUT_SUCCESS, etc.
-      // We don't switch on the literal event type -- any change to the
-      // active account triggers a token sync.
-      const account = ms.getAllAccounts()[0] ?? null;
-      void syncToken(account);
+      // Token-acquisition events are deliberately ignored: reacting to an
+      // ACQUIRE_TOKEN_SUCCESS by acquiring again creates a feedback loop.
+      if (
+        evt.eventType !== EventType.LOGIN_SUCCESS &&
+        evt.eventType !== EventType.ACTIVE_ACCOUNT_CHANGED &&
+        evt.eventType !== EventType.LOGOUT_SUCCESS
+      ) {
+        return;
+      }
+      void session.handleEvent(evt.eventType, evt.payload, EventType);
     });
+
+    // Attach the listener before acquisition so an account switch during a
+    // slow silent token request cannot be missed. syncCachedAccount() starts
+    // from MSAL's explicit active account, including the redirect selection.
+    await session.syncCachedAccount();
   })();
+}
+
+/**
+ * Return the signed-in adult's editable display-name suggestion after an API
+ * token is safely available. The email/username is intentionally not exposed
+ * to the component or used as a display name.
+ */
+export async function getSignedInAdultProfile(): Promise<SignedInAdultProfile | null> {
+  const ms = await getMsal();
+  if (!ms) return null;
+  const account = await getSessionController(ms).acquireCurrentAccount(false);
+  if (!account) return null;
+  return { suggestedDisplayName: suggestAdultDisplayName(account.name) };
+}
+
+/**
+ * Republish a freshly acquired token after parent-signup. This intentional
+ * token-change signal makes AuthSessionCoordinator rerun canonical /v1/me;
+ * callers never receive or render the token itself.
+ */
+export async function refreshCurrentAdultSession(): Promise<void> {
+  const ms = await getMsal();
+  if (!ms) throw new Error("Microsoft sign-in is no longer available.");
+  const account = await getSessionController(ms).acquireCurrentAccount(true);
+  if (!account) throw new Error("Microsoft sign-in is no longer available.");
+}
+
+export function suggestAdultDisplayName(name: string | undefined): string {
+  const compact = (name ?? "").trim().replace(/\s+/g, " ");
+  return Array.from(compact).slice(0, 80).join("");
 }
 
 export async function signIn(): Promise<void> {
   const ms = await getMsal();
   if (!ms) return;
-  await ms.loginRedirect({ scopes: ENTRA_SCOPES });
+  // A parents web browser may be shared by several adults. Always require an
+  // explicit interactive account choice instead of allowing Entra/MSAL to
+  // reuse a different cached adult silently.
+  await ms.loginRedirect({ scopes: ENTRA_SCOPES, prompt: "select_account" });
 }
 
 export async function signOut(): Promise<void> {
@@ -132,10 +180,9 @@ export async function signOut(): Promise<void> {
     await clearBearerToken();
     return;
   }
-  const account = ms.getAllAccounts()[0];
-  if (account) {
-    await ms.logoutRedirect({ account });
-  } else {
-    await clearBearerToken();
-  }
+  await getSessionController(ms).beginLogout();
+  // With no account argument MSAL clears every cached account. Passing only
+  // the active account would leave another adult cached and eligible for an
+  // unintended automatic session after the redirect.
+  await ms.logoutRedirect();
 }

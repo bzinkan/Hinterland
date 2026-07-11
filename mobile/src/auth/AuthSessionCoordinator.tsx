@@ -3,7 +3,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { AppState, Platform } from "react-native";
 import { useEffect, useRef } from "react";
 
-import { getMe } from "@/src/api/auth";
+import { CurrentUserContractError, getMe } from "@/src/api/auth";
 import { ApiError } from "@/src/api/client";
 import { getBearerToken, subscribeBearerTokenChanges } from "@/src/auth/token";
 import { rotateImperativeRequestBoundary } from "@/src/auth/requestBoundary";
@@ -65,8 +65,10 @@ export function AuthSessionCoordinator() {
         if (controller.signal.aborted) return;
         const authRejected =
           error instanceof ApiError && (error.status === 401 || error.status === 403);
+        const contractRejected = error instanceof CurrentUserContractError;
+        const retryableOfflineFailure = canRestoreOfflineIdentity(error);
         const cached =
-          allowOfflineSnapshot && !authRejected
+          allowOfflineSnapshot && retryableOfflineFailure
             ? await getPersistedSessionUser(token)
             : null;
         if (generation === refreshGeneration.current) {
@@ -75,7 +77,9 @@ export function AuthSessionCoordinator() {
             setAuthenticated(cached);
           }
           else {
-            if (authRejected) await clearPersistedSessionUser();
+            if (authRejected || contractRejected || !retryableOfflineFailure) {
+              await clearPersistedSessionUser();
+            }
             if (generation === refreshGeneration.current) setAnonymous();
           }
         }
@@ -97,6 +101,15 @@ export function AuthSessionCoordinator() {
   }, [queryClient, setAnonymous, setAuthenticated, setInitializing]);
 
   return null;
+}
+
+/** Only genuine transport/server outages may reuse a token-bound offline snapshot. */
+export function canRestoreOfflineIdentity(error: unknown): boolean {
+  if (error instanceof CurrentUserContractError) return false;
+  if (error instanceof ApiError) {
+    return error.status === 408 || error.status === 429 || error.status >= 500;
+  }
+  return error instanceof TypeError;
 }
 
 /** Foreground-only W1 recovery for submissions whose payload is frozen. */

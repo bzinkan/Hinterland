@@ -191,9 +191,10 @@ proven on a real account.
   per-account receipt for the dry run.
 - [ ] After the throwaway parent hits `POST /v1/auth/parent-signup`,
   the matching consent row's `linked_parent_user_id` is populated
-  with the new `users.id`. This proves the parent → consent → users
-  threading works end-to-end on a real device, not just from the
-  smoke script.
+  with the new `users.id`, and `browser_nonce_sha256` is non-null. Never place
+  the raw browser proof in the session journal. This proves the exact
+  browser-bound parent → consent → users threading works end-to-end on a real
+  device, not just from the smoke script.
 - [ ] Review queue (parent account, on Brian's phone) renders
   without 500s. Empty state is fine.
 - [ ] Brian confirms the Sanctuary reveal modal appears after a

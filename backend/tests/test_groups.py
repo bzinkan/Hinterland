@@ -1,4 +1,5 @@
 from collections.abc import AsyncIterator, Iterator
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -8,6 +9,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 import app.api.routes.groups as groups_routes_module
 from app.api.routes.groups import _JOIN_CODE_ALPHABET, generate_join_code
 from app.core.config import Settings
+from app.core.parent_consent import (
+    CURRENT_PARENT_CONSENT_POLICY_VERSION,
+    CurrentParentConsentRequiredError,
+)
 from app.db import models
 from app.db.session import get_db_session
 from app.main import create_app
@@ -44,8 +49,27 @@ def fake_session() -> AsyncMock:
     return AsyncMock(spec=AsyncSession)
 
 
+def _current_consent_record() -> models.ParentConsentRecord:
+    return models.ParentConsentRecord(
+        id="01J0CURRENTCONSENT00000000",
+        parent_email="parent@example.com",
+        policy_version=CURRENT_PARENT_CONSENT_POLICY_VERSION,
+        source="web_consent",
+        recorded_at=datetime.now(UTC),
+        linked_parent_user_id=_USER_ID,
+    )
+
+
 @pytest.fixture
-def groups_client(fake_session: AsyncMock) -> Iterator[TestClient]:
+def groups_client(
+    fake_session: AsyncMock,
+    monkeypatch: pytest.MonkeyPatch,
+) -> Iterator[TestClient]:
+    monkeypatch.setattr(
+        groups_routes_module,
+        "require_linked_current_parent_consent",
+        AsyncMock(return_value=_current_consent_record()),
+    )
     yield from _build_client_with_session(fake_session)
 
 
@@ -167,6 +191,56 @@ def test_create_group_rejects_kid_role(
     assert response.status_code == 403
     assert "'kid'" in response.json()["error"]["message"]
     fake_session.add.assert_not_called()
+
+
+def test_create_group_parent_requires_linked_current_consent(
+    groups_client: TestClient,
+    fake_session: AsyncMock,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _stub_token_verifier(monkeypatch)
+    _set_session_lookups(fake_session, user=_user_row(role="parent"))
+    require_consent = AsyncMock(side_effect=CurrentParentConsentRequiredError)
+    monkeypatch.setattr(
+        groups_routes_module,
+        "require_linked_current_parent_consent",
+        require_consent,
+    )
+
+    response = groups_client.post(
+        "/v1/groups",
+        headers={"Authorization": "Bearer valid"},
+        json={"name": "Family"},
+    )
+
+    assert response.status_code == 409
+    require_consent.assert_awaited_once_with(fake_session, parent_user_id=_USER_ID)
+    fake_session.add.assert_not_called()
+    fake_session.commit.assert_not_awaited()
+
+
+def test_create_group_teacher_can_create_empty_classroom_without_parent_consent(
+    groups_client: TestClient,
+    fake_session: AsyncMock,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _stub_token_verifier(monkeypatch)
+    _set_session_lookups(fake_session, user=_user_row(role="teacher"))
+    require_consent = AsyncMock(side_effect=CurrentParentConsentRequiredError)
+    monkeypatch.setattr(
+        groups_routes_module,
+        "require_linked_current_parent_consent",
+        require_consent,
+    )
+
+    response = groups_client.post(
+        "/v1/groups",
+        headers={"Authorization": "Bearer valid"},
+        json={"name": "Classroom"},
+    )
+
+    assert response.status_code == 201
+    require_consent.assert_not_awaited()
 
 
 @pytest.mark.parametrize("role", ["parent", "teacher"])
@@ -384,6 +458,69 @@ def test_create_kid_rejects_kid_caller_role(
     # No auth artifact provisioned -- legacy Firebase path or new mint path.
     assert fb_calls["create_user"] == []
     assert fb_calls["mint_handoff"] == []
+
+
+def test_create_kid_parent_requires_linked_current_consent(
+    groups_client: TestClient,
+    fake_session: AsyncMock,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _stub_token_verifier(monkeypatch)
+    fb_calls = _stub_firebase_admin(monkeypatch)
+    _set_kid_session_lookups(
+        fake_session,
+        caller=_user_row(role="parent"),
+        group=_group_row(),
+    )
+    require_consent = AsyncMock(side_effect=CurrentParentConsentRequiredError)
+    monkeypatch.setattr(
+        groups_routes_module,
+        "require_linked_current_parent_consent",
+        require_consent,
+    )
+
+    response = groups_client.post(
+        f"/v1/groups/{_GROUP_ID}/kids",
+        headers={"Authorization": "Bearer valid"},
+        json={"display_name": "Sparrow", "age_band": "9-10"},
+    )
+
+    assert response.status_code == 409
+    require_consent.assert_awaited_once_with(fake_session, parent_user_id=_USER_ID)
+    assert fb_calls["mint_handoff"] == []
+    fake_session.add.assert_not_called()
+
+
+def test_create_kid_teacher_cannot_bypass_parent_guardian_consent(
+    groups_client: TestClient,
+    fake_session: AsyncMock,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _stub_token_verifier(monkeypatch)
+    fb_calls = _stub_firebase_admin(monkeypatch)
+    _set_kid_session_lookups(
+        fake_session,
+        caller=_user_row(role="teacher"),
+        group=_group_row(),
+    )
+    require_consent = AsyncMock(return_value=_current_consent_record())
+    monkeypatch.setattr(
+        groups_routes_module,
+        "require_linked_current_parent_consent",
+        require_consent,
+    )
+
+    response = groups_client.post(
+        f"/v1/groups/{_GROUP_ID}/kids",
+        headers={"Authorization": "Bearer valid"},
+        json={"display_name": "Sparrow", "age_band": "9-10"},
+    )
+
+    assert response.status_code == 409
+    assert "parent or guardian" in response.json()["error"]["message"]
+    require_consent.assert_not_awaited()
+    assert fb_calls["mint_handoff"] == []
+    fake_session.add.assert_not_called()
 
 
 def test_create_kid_returns_404_when_group_missing(

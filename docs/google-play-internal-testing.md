@@ -283,8 +283,8 @@ app's onboarding suggests:
    photo never silently inherits current device location.
 5. **Each pilot family has signed parental consent** captured via the
    in-app `/consent` page (the public unauthenticated endpoint). Brian
-   confirms the consent log row exists before the kid account is
-   provisioned.
+   confirms the exact browser-bound receipt is linked to the canonical parent
+   before the kid account is provisioned; email matching alone is not enough.
 6. **No iNaturalist CV or public submission.** Independent gates are false,
    endpoint/producer/consumer/replay/manual boundaries reject work, and old
    worker jobs remain absent. A configured token is not permission for egress.

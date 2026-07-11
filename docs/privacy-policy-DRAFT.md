@@ -3,7 +3,7 @@
 > **STATUS: DRAFT, NOT FOR PUBLICATION.** This captures the Azure-era product
 > facts. Counsel must review the final text before closed/public store release.
 
-Last updated: 2026-07-09 (draft)
+Last updated: 2026-07-11 (draft)
 
 ## What Hinterland is
 
@@ -58,7 +58,9 @@ are served from Azure Static Web Apps.
   the kid's general area using the coarse on-device location cell.
 - **Moderation.** Photos are reviewed asynchronously. The closed-beta target is
   Azure AI Content Safety. W1 NoOp records `pilot_private`, is not a safety
-  approval, grants no signed-photo access, and purges after seven days.
+  approval, grants no signed-photo access, and purges server-hosted photo bytes
+  after seven days. Unsynced queue work stays on the original device until it
+  syncs or an adult explicitly discards it.
 - **Scientific contribution.** iNaturalist public submission is off for W1 and
   closed beta. Optional post-clean CV also stays off until reviewed disclosure,
   consent, and accuracy gates pass.
@@ -89,7 +91,9 @@ until legal copy and retention policy are finalized.
 
 Consent events are persisted in `parent_consent_records` with a receipt id,
 parent email, policy version, and server timestamp. Raw IP and User-Agent are
-not stored as consent fields.
+not stored as consent fields. The consent browser generates a high-entropy
+tab-scoped proof; only its SHA-256 digest is stored so an email address alone
+cannot claim a receipt. The raw proof is never logged or retained by the API.
 
 ## Contact
 

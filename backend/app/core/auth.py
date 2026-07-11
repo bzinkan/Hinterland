@@ -66,6 +66,11 @@ class CurrentUser(BaseModel):
     * ``uid``       -- the local ``users.id`` (ULID) for resolved Entra /
                        Hinterland tokens. For legacy stub tokens used in
                        tests, this stays the raw stub uid.
+    * ``id``        -- the canonical local ``users.id`` exposed to clients.
+                       ``None`` only for a first-time Entra identity that has
+                       not completed ``parent-signup`` yet.
+    * ``display_name`` -- the local, adult-managed display name. ``None`` for
+                          the same pre-signup Entra bootstrap state.
     * ``email``     -- present for Entra adults; ``None`` for kids.
     * ``role``      -- ``parent`` / ``teacher`` / ``kid`` / ``admin``.
     * ``group_id``  -- the kid's deterministic primary group, or the
@@ -77,6 +82,8 @@ class CurrentUser(BaseModel):
     """
 
     uid: str
+    id: str | None = None
+    display_name: str | None = None
     email: str | None = None
     role: UserRole | None = None
     group_id: str | None = None
@@ -118,6 +125,8 @@ def current_user_from_claims(claims: dict[str, object]) -> CurrentUser:
 
     return CurrentUser(
         uid=uid,
+        id=_claim_str(claims, "id") or uid,
+        display_name=_claim_str(claims, "display_name"),
         email=_claim_str(claims, "email") or _claim_str(claims, "preferred_username"),
         role=_claim_role(claims),
         group_id=_claim_str(claims, "group_id"),
@@ -267,6 +276,7 @@ class CachedUserClaims:
     """
 
     user_id: str
+    display_name: str
     role: str
     group_id: str | None
     disabled: bool
@@ -337,6 +347,7 @@ async def _query_user_with_claims(
 
     return CachedUserClaims(
         user_id=user_row.id,
+        display_name=user_row.display_name,
         role=user_row.role,
         group_id=primary_group_id,
         disabled=user_row.disabled_at is not None,
@@ -431,6 +442,8 @@ def _overlay_claims(cached: CachedUserClaims, raw: dict[str, object]) -> Current
     role: UserRole | None = cast(UserRole, cached.role) if cached.role in _USER_ROLES else None
     return CurrentUser(
         uid=cached.user_id,
+        id=cached.user_id,
+        display_name=cached.display_name,
         email=_claim_str(raw, "preferred_username") or _claim_str(raw, "email"),
         role=role,
         group_id=cached.group_id,
@@ -453,6 +466,8 @@ def _bootstrap_entra_current_user(raw: dict[str, object]) -> CurrentUser:
         raise InvalidAuthToken("Entra token missing oid claim")
     return CurrentUser(
         uid=entra_oid,
+        id=None,
+        display_name=_claim_str(raw, "name"),
         email=_claim_str(raw, "preferred_username") or _claim_str(raw, "email"),
         role=None,
         group_id=None,

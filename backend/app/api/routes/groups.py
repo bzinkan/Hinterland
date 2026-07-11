@@ -15,6 +15,11 @@ from ulid import ULID
 from app.core.auth import CurrentUserDep, resolve_current_user_row
 from app.core.config import Settings, get_request_settings
 from app.core.kid_jwt import mint_handoff_token
+from app.core.parent_consent import (
+    CURRENT_PARENT_CONSENT_REQUIRED_MESSAGE,
+    CurrentParentConsentRequiredError,
+    require_linked_current_parent_consent,
+)
 from app.db import models
 from app.db.session import DbSessionDep
 
@@ -75,7 +80,10 @@ async def create_group(
 
     Authorization is gated on the canonical `users.role` from Postgres rather
     than a cached token claim, so a parent who just signed up can create a
-    group without waiting for a token refresh.
+    group without waiting for a token refresh. Parents must also have a
+    receipt linked for the exact active consent policy. Teachers may create an
+    empty classroom without parental consent; kid provisioning remains
+    separately fail-closed below.
 
     Returns the new group with its 6-char join code. The code uses Crockford
     base32 (no I/L/O/U) so it's unambiguous when read aloud or typed by hand.
@@ -97,6 +105,18 @@ async def create_group(
             status_code=status.HTTP_403_FORBIDDEN,
             detail=f"Role '{user.role}' cannot create groups.",
         )
+
+    if user.role == "parent":
+        try:
+            await require_linked_current_parent_consent(
+                session,
+                parent_user_id=user.id,
+            )
+        except CurrentParentConsentRequiredError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=CURRENT_PARENT_CONSENT_REQUIRED_MESSAGE,
+            ) from exc
 
     join_code: str | None = None
     for _ in range(_MAX_JOIN_CODE_ATTEMPTS):
@@ -330,9 +350,12 @@ async def create_kid(
 ) -> KidCreateResponse:
     """Admin-create a kid account inside a group and return a handoff JWT.
 
-    Authorization: caller must have a `users` row with role parent or teacher
-    AND must own the target group. Phase 1 keeps this strict (only the owner)
-    -- co-parent / co-teacher flows can ride the join-code redemption path.
+    Authorization: caller must have a `users` row with role parent, have a
+    receipt linked for the exact active parental-consent policy, AND own the
+    target group. Teachers can create an empty classroom, but cannot provision
+    a kid until a future flow links a parent/guardian receipt to that
+    enrollment. Phase 1 keeps ownership strict -- co-parent / co-teacher flows
+    can ride the join-code redemption path.
 
     Side effects (in order):
     1. Insert `users` row (firebase_uid=NULL, entra_oid=NULL; kids have no
@@ -356,6 +379,23 @@ async def create_kid(
             status_code=status.HTTP_403_FORBIDDEN,
             detail=f"Role '{caller.role}' cannot provision kids.",
         )
+
+    if caller.role == "teacher":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=("A parent or guardian with current consent must provision this kid."),
+        )
+
+    try:
+        await require_linked_current_parent_consent(
+            session,
+            parent_user_id=caller.id,
+        )
+    except CurrentParentConsentRequiredError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=CURRENT_PARENT_CONSENT_REQUIRED_MESSAGE,
+        ) from exc
 
     group_result = await session.execute(select(models.Group).where(models.Group.id == group_id))
     group = group_result.scalar_one_or_none()
