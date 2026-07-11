@@ -35,6 +35,7 @@ def test_w1_promotion_order_and_containment_are_explicit() -> None:
     deploy = workflow.index("Deploy the API only after migrations and rebuild")
     rollout = workflow.index("Require the exact API revision to be healthy and serving")
     public_readiness = workflow.index("Smoke public readiness surfaces")
+    browser_cors = workflow.index("Verify trusted parent browser CORS preflight")
     web_readiness = workflow.index("Verify exact W1 web deployments")
     authenticated = workflow.index("Non-skipped authenticated handoff and Observation canary")
     final_runtime = workflow.index("Assert final W1 runtime, queue, and digest state")
@@ -54,6 +55,7 @@ def test_w1_promotion_order_and_containment_are_explicit() -> None:
         < deploy
         < rollout
         < public_readiness
+        < browser_cors
         < authenticated
         < final_runtime
         < restore_strict_modes
@@ -108,6 +110,18 @@ def test_w1_promotion_order_and_containment_are_explicit() -> None:
     assert '"${W1_API_READY_REVISION:-}"' in workflow
     assert '.status == "ok" and .version == $version' in workflow
     assert '.status == "ready" and .version == $version' in workflow
+    assert '"https://parents.thehinterlandguide.app"' in workflow
+    assert '"https://purple-coast-088e6b30f.7.azurestaticapps.net"' in workflow
+    assert "Access-Control-Request-Method: POST" in workflow
+    assert "Access-Control-Request-Headers: content-type" in workflow
+    assert '"${base_url}/v1/auth/consent"' in workflow
+    assert "access-control-allow-origin: ${origin}" in workflow
+    assert "access-control-allow-credentials: true" in workflow
+    assert 'untrusted_origin="https://example.invalid"' in workflow
+    assert '.cors_preflight={result:"passed"' in workflow
+    assert 'test "$probe_count" = 4' in workflow
+    assert 'test "$rejected_probe_count" = 2' in workflow
+    assert "Access-Control-Allow-Origin: *" not in workflow
     assert workflow.count("/.well-known/hinterland-build.json?sha={expected}") == 2
     assert workflow.count('("parents", "https://parents.thehinterlandguide.app")') == 2
     assert workflow.count('("landing", "https://thehinterlandguide.app")') == 2

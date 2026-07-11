@@ -20,6 +20,15 @@ def test_settings_accept_typed_environment_overrides() -> None:
     assert settings.readiness_database_required is True
 
 
+def test_default_cors_origins_are_exact_and_parent_only() -> None:
+    assert Settings().cors_origins == [
+        "http://localhost:19006",
+        "https://parents.thehinterlandguide.app",
+        "https://purple-coast-088e6b30f.7.azurestaticapps.net",
+    ]
+    assert "*" not in Settings().cors_origins
+
+
 def test_hinterland_environment_remains_supported(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("HINTERLAND_INAT_CV_ENABLED", raising=False)
     monkeypatch.setenv("HINTERLAND_INAT_CV_ENABLED", "true")

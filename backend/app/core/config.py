@@ -15,7 +15,14 @@ LogLevel = Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
 
 
 def _default_cors_origins() -> list[str]:
-    return ["http://localhost:19006"]
+    # Keep browser access explicit. The custom domain and the backing Static
+    # Web Apps domain serve the same adult-only parent setup surface; neither
+    # the kid app nor unrelated Hinterland sites need cross-origin API access.
+    return [
+        "http://localhost:19006",
+        "https://parents.thehinterlandguide.app",
+        "https://purple-coast-088e6b30f.7.azurestaticapps.net",
+    ]
 
 
 class Settings(BaseSettings):

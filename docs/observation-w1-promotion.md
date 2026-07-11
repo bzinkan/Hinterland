@@ -72,16 +72,21 @@ The promotion job performs this order:
    held/rejected lifecycle rules;
 8. requires the parent, landing apex, and landing `www` build markers to match
    the promotion SHA before API rollout, then runs public
-   health/readiness/JWKS probes and the non-skipped parent, kid, Expedition,
-   idempotent Observation, Field Journal, `pilot_private`, DTO, and
-   signed-photo-denial canaries;
+   health/readiness/JWKS probes; before any authenticated canary, both the
+   revision URL and public API domain must accept an exact-origin parent
+   consent CORS preflight from the custom parent domain and its backing Static
+   Web Apps domain, while an unrelated origin must be denied (wildcards and
+   landing-site origins do not qualify); it then runs the non-skipped parent,
+   kid, Expedition, idempotent Observation, Field Journal, `pilot_private`,
+   DTO, and signed-photo-denial canaries;
 9. runs the database health job in strict mode, requires empty moderation
    active/DLQ counts, provisions/verifies alerts, and sends an action-group test;
 10. verifies every API/job setting and immutable image again.
 
 The workflow artifact is intentionally sanitized. It contains the commit,
 image digest, API revision, Alembic head, job execution IDs/statuses, bounded
-request IDs, alert-test acceptance, and pass/fail facts. It must never contain
+request IDs, parent-browser CORS probe counts, alert-test acceptance, and
+pass/fail facts. It must never contain
 tokens, SAS URLs, emails, join codes, child/user text, coordinates, or images.
 Receiving the action-group test is still a human evidence item; API acceptance
 alone does not prove that an operator saw it.
@@ -142,3 +147,8 @@ job, and revoke its queue access. A code rollback uses a known-good Azure
 Container Apps revision and must never restore Event Grid moderation, CV, or
 iNaturalist submission. Follow `android-internal-pilot-stop-plan.md`; there is
 no Cloud Run rollback path.
+
+A missing trusted parent origin is a promotion blocker. A wildcard or an
+unexpected origin receiving `Access-Control-Allow-Origin` is a security hard
+stop: preserve the preflight evidence and roll forward or back to an exact
+allowlist before any further consent or child testing.

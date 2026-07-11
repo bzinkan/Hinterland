@@ -772,6 +772,86 @@ jobs:
               "${base_url}${HINTERLAND_KID_JWKS_PATH}" >/dev/null
           done
 
+      - name: Verify trusted parent browser CORS preflight
+        run: |
+          set -euo pipefail
+          test -n "${HINTERLAND_API_BASE_URL:-}"
+          api_surfaces=(
+            "${HINTERLAND_API_BASE_URL}"
+            "https://api.thehinterlandguide.app"
+          )
+          trusted_origins=(
+            "https://parents.thehinterlandguide.app"
+            "https://purple-coast-088e6b30f.7.azurestaticapps.net"
+          )
+          response_headers="$(mktemp)"
+          normalized_headers="$(mktemp)"
+          trap 'rm -f "$response_headers" "$normalized_headers"' EXIT
+          probe_count=0
+          for base_url in "${api_surfaces[@]}"; do
+            for origin in "${trusted_origins[@]}"; do
+              : > "$response_headers"
+              status="$(curl --silent --show-error --output /dev/null \
+                --dump-header "$response_headers" \
+                --request OPTIONS \
+                --header "Origin: ${origin}" \
+                --header "Access-Control-Request-Method: POST" \
+                --header "Access-Control-Request-Headers: content-type" \
+                --max-time 30 --write-out '%{http_code}' \
+                "${base_url}/v1/auth/consent")"
+              test "$status" = 200
+              tr -d '\r' < "$response_headers" > "$normalized_headers"
+              grep -Fxi "access-control-allow-origin: ${origin}" \
+                "$normalized_headers" >/dev/null
+              grep -Fxi "access-control-allow-credentials: true" \
+                "$normalized_headers" >/dev/null
+              methods="$(awk -F': *' \
+                'tolower($1) == "access-control-allow-methods" {print toupper($2)}' \
+                "$normalized_headers" | tail -n 1)"
+              methods=",${methods// /},"
+              [[ "$methods" == *,POST,* ]]
+              headers="$(awk -F': *' \
+                'tolower($1) == "access-control-allow-headers" {print tolower($2)}' \
+                "$normalized_headers" | tail -n 1)"
+              headers=",${headers// /},"
+              [[ "$headers" == *,content-type,* ]]
+              probe_count=$((probe_count + 1))
+            done
+          done
+          test "$probe_count" = 4
+          untrusted_origin="https://example.invalid"
+          rejected_probe_count=0
+          for base_url in "${api_surfaces[@]}"; do
+            : > "$response_headers"
+            status="$(curl --silent --show-error --output /dev/null \
+              --dump-header "$response_headers" \
+              --request OPTIONS \
+              --header "Origin: ${untrusted_origin}" \
+              --header "Access-Control-Request-Method: POST" \
+              --header "Access-Control-Request-Headers: content-type" \
+              --max-time 30 --write-out '%{http_code}' \
+              "${base_url}/v1/auth/consent")"
+            test "$status" = 400
+            tr -d '\r' < "$response_headers" > "$normalized_headers"
+            if grep -qi '^access-control-allow-origin:' "$normalized_headers"; then
+              echo "Untrusted browser origin received API access" >&2
+              exit 1
+            fi
+            rejected_probe_count=$((rejected_probe_count + 1))
+          done
+          test "$rejected_probe_count" = 2
+          jq \
+            --argjson trusted_origin_count "${#trusted_origins[@]}" \
+            --argjson api_surface_count "${#api_surfaces[@]}" \
+            --argjson probe_count "$probe_count" \
+            --argjson rejected_probe_count "$rejected_probe_count" \
+            '.cors_preflight={result:"passed", path:"/v1/auth/consent", method:"POST",
+              trusted_origin_count:$trusted_origin_count,
+              api_surface_count:$api_surface_count, probe_count:$probe_count,
+              rejected_probe_count:$rejected_probe_count}' \
+            promotion-artifact/promotion.json > promotion-artifact/promotion.tmp
+          mv promotion-artifact/promotion.tmp promotion-artifact/promotion.json
+
       - name: Non-skipped authenticated handoff and Observation canary
         env:
           HINTERLAND_SMOKE_ENTRA_BEARER: ${{ secrets.HINTERLAND_SMOKE_ENTRA_BEARER }}

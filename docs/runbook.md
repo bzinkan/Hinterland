@@ -27,6 +27,30 @@ curl -fsS https://api.thehinterlandguide.app/ready
 curl -fsS https://api.thehinterlandguide.app/.well-known/hinterland-kid-jwks.json
 ```
 
+The protected promotion also sends an `OPTIONS /v1/auth/consent` preflight to
+both the exact Container Apps revision URL and the public API domain. Each must
+echo the requesting origin for both trusted parent surfaces
+(`parents.thehinterlandguide.app` and the current parent Static Web Apps
+domain), allow credentials, `POST`, and `content-type`, and must never use a
+wildcard origin. This gate runs before the authenticated family smoke so a
+browser-only consent outage cannot pass promotion again.
+
+An operator can reproduce the non-mutating public-domain probe without a
+bearer, email, nonce, or consent record:
+
+```bash
+curl -sS -D - -o /dev/null -X OPTIONS \
+  https://api.thehinterlandguide.app/v1/auth/consent \
+  -H "Origin: https://parents.thehinterlandguide.app" \
+  -H "Access-Control-Request-Method: POST" \
+  -H "Access-Control-Request-Headers: content-type"
+```
+
+Repeat for both trusted parent origins and both API surfaces. The unrelated
+origin negative control must return 400 without
+`Access-Control-Allow-Origin`. `http://localhost:19006` is local-development
+compatibility and never counts as deployed W1 browser evidence.
+
 The authenticated parent/kid smoke requires an operator-provided test-parent
 Entra v2 access token for `api://hinterland-api/user.access`. The requested
 scope uses that URI, while the token's `aud` claim must be the API client ID
@@ -72,7 +96,8 @@ The required order is:
 7. run a bounded `hinterland-state-rebuild` before exposing the new API;
    dispatcher replay also excludes users with queued/running rebuilds;
 8. update the API only after migration and required rebuild success; and
-9. run public, authenticated, Observation, privacy, and worker canaries.
+9. run public readiness and exact parent-browser CORS preflights, followed by
+   authenticated, Observation, privacy, and worker canaries.
 
 The root build context is mandatory because the image is also the Expedition
 content version. `job start --image` is not a substitute for `job update`: a
@@ -292,7 +317,8 @@ and Blob erasure follows the reviewed asynchronous workflow/retention policy.
 
 Hard-stop W1 for wrong-user data, unauthorized photo URL, pre-clean/external
 photo egress, duplicated/lost retry work, raw coordinate leakage, incorrect
-consent, or account-switch presentation leakage. Preserve evidence and follow
+consent, account-switch presentation leakage, or wildcard/unexpected-origin
+browser API access. Preserve evidence and follow
 `android-internal-pilot-stop-plan.md`.
 
 ## Runtime AI Violation
