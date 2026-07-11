@@ -97,7 +97,7 @@ jobs:
           done
 
       - name: Publish sanitized parent callback deployment evidence
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: parent-callback-deploy-${{ github.run_id }}
           path: parent-callback-deploy-evidence.json
