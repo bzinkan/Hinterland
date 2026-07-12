@@ -38,7 +38,10 @@ The parent token must be a v2 access token for the `user.access` scope. Its
 a missing, wrong-tenant, wrong-audience, wrong-scope, or nearly expired token. It creates a
 throwaway kid through the real exact-policy, browser-bound consent proof,
 canonical parent, server-enforced group/kid, and handoff path, then passes that
-kid's session to the Observation canary in memory. An email-only,
+kid's session to the Observation canary in memory. The generated Central
+hostname is the canonical revision target; the workflow also requires the
+public DNS and TLS binding to resolve to that same Central app before the
+protected canary starts. An email-only,
 stored-but-unlinked, missing-proof, or stale-policy consent must fail the
 promotion. Do not create a persistent kid bearer secret or persist the consent
 nonce.
@@ -52,9 +55,12 @@ separate and does not constitute W1 promotion.
 The promotion job performs this order:
 
 1. verifies subscription, tenant, and isolated `hinterland-dev-rg` (and rejects
-   `gordi-pilot-rg`);
+   `gordi-pilot-rg`), then proves the primary API is in
+   `hinterland-cae-central-dev`/Central US, the rollback API and every job are
+   in `hinterland-cae-dev`/East US, and no job was cloned into Central;
 2. applies and verifies NoOp moderation, all CV gates false, public iNaturalist
-   submission false, OAuth token absent, and Observation idempotency required;
+   submission false, OAuth token absent, and Observation idempotency required
+   on both API apps and every required job;
 3. removes any iNaturalist-named job, verifies inherited Service Bus roles do
    not permit the runtime identity to use the inert iNaturalist queue, and
    enumerates both explicit system topics and resource-scoped Event Grid
@@ -65,7 +71,8 @@ The promotion job performs this order:
    Unknown/catalog samples through the real handler registry, builds one
    `repository@sha256:...` image, requires the W1 job
    inventory/identity/database-secret contract, and pins only the manual
-   preflight/migration jobs;
+   preflight/migration jobs. After migration and rebuild, it deploys that same
+   digest to the Central primary API, East rollback API, and every East job;
 6. runs read-only preflight and additive migrations, then—and only then—pins
    every scheduled consumer/job before taxonomy ingest, Expedition sync, and a
    bounded strict/drained derived-state rebuild;
@@ -110,7 +117,8 @@ contract before upload and the two live origins after upload. Both the live
 parent deployment and protected promotion hard-reject non-`main` refs.
 
 The workflow artifact is intentionally sanitized. It contains the commit,
-image digest, API revision, Alembic head, job execution IDs/statuses, bounded
+image digest, Central primary revision, East rollback revision, their verified
+regions, the public DNS target, Alembic head, job execution IDs/statuses, bounded
 request IDs, aggregate dispatcher sample/p50/p95/max and per-handler timing,
 parent-browser CORS probe counts, callback pass/hash facts,
 alert-test acceptance, and pass/fail facts. It must never contain tokens, OAuth
@@ -190,6 +198,13 @@ job, and revoke its queue access. A code rollback uses a known-good Azure
 Container Apps revision and must never restore Event Grid moderation, CV, or
 iNaturalist submission. Follow `android-internal-pilot-stop-plan.md`; there is
 no Cloud Run rollback path.
+
+For a Central API readiness, TLS, authentication, privacy, or p95 failure,
+leave PostgreSQL and every job unchanged and restore the public `api` DNS
+record to the retained East API target. Both API apps must already be running
+the same immutable digest before a DNS rollback. Keep the Central evidence and
+request IDs, verify public readiness/JWKS after propagation, and do not delete
+either environment during the W1 evidence window.
 
 A missing trusted parent origin is a promotion blocker. A wildcard or an
 unexpected origin receiving `Access-Control-Allow-Origin` is a security hard

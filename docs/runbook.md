@@ -141,8 +141,12 @@ The required order is:
 6. ingest the checked-in taxonomy catalog and sync Expedition content;
 7. run a bounded `hinterland-state-rebuild` before exposing the new API;
    dispatcher replay also excludes users with queued/running rebuilds;
-8. update the API only after migration and required rebuild success; and
-9. run public readiness and exact parent-browser CORS preflights, followed by
+8. update the Central primary API and East rollback API only after migration
+   and required rebuild success, using the same digest as every East job;
+9. require the Central generated hostname and public API hostname to report the
+   exact current version, while the East rollback hostname remains healthy;
+   and
+10. run public readiness and exact parent-browser CORS preflights, followed by
    authenticated, Observation, privacy, and worker canaries.
 
 The root build context is mandatory because the image is also the Expedition
@@ -150,7 +154,10 @@ content version. `job start --image` is not a substitute for `job update`: a
 start-time override can replace template environment/command configuration.
 
 The W1 promotion workflow requires and pins the current W1 job inventory to the
-same digest as the API. It does not restore retired platform scripts, legacy
+same digest as both API apps. The canonical API is
+`hinterland-api-central` in Central US; `hinterland-api` remains the East US
+rollback, and the 13 jobs remain only in East US. Deployment must fail if an
+API or job drifts from that placement or digest. It does not restore retired platform scripts, legacy
 environment aliases, or the retired legacy-reconcile job. The optional
 photo-revocation replay job belongs to closed-beta provisioning.
 

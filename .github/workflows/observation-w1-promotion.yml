@@ -17,9 +17,15 @@ env:
   AZURE_SUBSCRIPTION_ID_EXPECTED: 3ac5dfb0-91b7-47d3-8187-9dc8d6305e96
   AZURE_TENANT_ID_EXPECTED: 18dbd7fa-c411-49bc-82fc-9ccaa26e3404
   AZURE_ACR_NAME: hinterlandacrdev
-  AZURE_CONTAINER_APP: hinterland-api
+  AZURE_CONTAINER_APP: hinterland-api-central
+  AZURE_CONTAINER_APP_ENV: hinterland-cae-central-dev
+  AZURE_ROLLBACK_CONTAINER_APP: hinterland-api
+  AZURE_ROLLBACK_CONTAINER_APP_ENV: hinterland-cae-dev
+  AZURE_API_LOCATION_EXPECTED: centralus
+  AZURE_JOB_LOCATION_EXPECTED: eastus
   AZURE_STORAGE_ACCOUNT: hinterlandphotosdev
-  AZURE_UAMI_NAME: hinterland-api-mi
+  AZURE_UAMI_NAME: hinterland-api-central-mi
+  AZURE_ROLLBACK_UAMI_NAME: hinterland-api-mi
   IMAGE_REPOSITORY: hinterland-api
   ENTRA_API_AUDIENCE: 7dd9da3c-b7d6-45d4-955b-d7561c43f209
   ENTRA_CLIENT_APP_ID: 60504e4c-6b5f-4031-a80a-3e4bdfae29b2
@@ -150,12 +156,51 @@ jobs:
           test "$(az account show --query tenantId --output tsv)" = "${AZURE_TENANT_ID_EXPECTED}"
           az group show --name "${AZURE_RESOURCE_GROUP}" --output none
 
+          normalize_location() {
+            tr '[:upper:]' '[:lower:]' | tr -d ' '
+          }
+          assert_app_placement() {
+            local app="$1" expected_location="$2" expected_environment="$3"
+            local app_json location environment
+            app_json="$(az containerapp show --name "$app" \
+              --resource-group "${AZURE_RESOURCE_GROUP}" --output json)"
+            location="$(jq -r '.location // empty' <<<"$app_json" | normalize_location)"
+            environment="$(jq -r '.properties.environmentId // empty' <<<"$app_json")"
+            test "$location" = "$expected_location"
+            test "${environment##*/}" = "$expected_environment"
+          }
+          assert_app_placement "${AZURE_CONTAINER_APP}" \
+            "${AZURE_API_LOCATION_EXPECTED}" "${AZURE_CONTAINER_APP_ENV}"
+          assert_app_placement "${AZURE_ROLLBACK_CONTAINER_APP}" \
+            "${AZURE_JOB_LOCATION_EXPECTED}" "${AZURE_ROLLBACK_CONTAINER_APP_ENV}"
+
+          mapfile -t placement_jobs < <(az containerapp job list \
+            --resource-group "${AZURE_RESOURCE_GROUP}" \
+            --query "[?starts_with(name, 'hinterland-')].name" --output tsv)
+          test "${#placement_jobs[@]}" -gt 0
+          for job in "${placement_jobs[@]}"; do
+            job_json="$(az containerapp job show --name "$job" \
+              --resource-group "${AZURE_RESOURCE_GROUP}" --output json)"
+            location="$(jq -r '.location // empty' <<<"$job_json" | normalize_location)"
+            environment="$(jq -r '.properties.environmentId // empty' <<<"$job_json")"
+            test "$location" = "${AZURE_JOB_LOCATION_EXPECTED}"
+            test "${environment##*/}" = "${AZURE_ROLLBACK_CONTAINER_APP_ENV}"
+          done
+
           BASELINE_IMAGE="$(az containerapp show \
             --name "${AZURE_CONTAINER_APP}" \
             --resource-group "${AZURE_RESOURCE_GROUP}" \
             --query 'properties.template.containers[0].image' --output tsv)"
           BASELINE_REVISION="$(az containerapp show \
             --name "${AZURE_CONTAINER_APP}" \
+            --resource-group "${AZURE_RESOURCE_GROUP}" \
+            --query properties.latestReadyRevisionName --output tsv)"
+          BASELINE_ROLLBACK_IMAGE="$(az containerapp show \
+            --name "${AZURE_ROLLBACK_CONTAINER_APP}" \
+            --resource-group "${AZURE_RESOURCE_GROUP}" \
+            --query 'properties.template.containers[0].image' --output tsv)"
+          BASELINE_ROLLBACK_REVISION="$(az containerapp show \
+            --name "${AZURE_ROLLBACK_CONTAINER_APP}" \
             --resource-group "${AZURE_RESOURCE_GROUP}" \
             --query properties.latestReadyRevisionName --output tsv)"
           JOB_COUNT="$(az containerapp job list \
@@ -166,9 +211,14 @@ jobs:
             --arg resource_group "${AZURE_RESOURCE_GROUP}" \
             --arg baseline_image "${BASELINE_IMAGE}" \
             --arg baseline_revision "${BASELINE_REVISION}" \
+            --arg baseline_rollback_image "${BASELINE_ROLLBACK_IMAGE}" \
+            --arg baseline_rollback_revision "${BASELINE_ROLLBACK_REVISION}" \
             --argjson baseline_job_count "${JOB_COUNT}" \
             '.azure={subscription:$subscription, resource_group:$resource_group,
               baseline_image:$baseline_image, baseline_revision:$baseline_revision,
+              baseline_rollback_image:$baseline_rollback_image,
+              baseline_rollback_revision:$baseline_rollback_revision,
+              api_location:"centralus", job_location:"eastus",
               baseline_job_count:$baseline_job_count}' \
             promotion-artifact/promotion.json > promotion-artifact/promotion.tmp
           mv promotion-artifact/promotion.tmp promotion-artifact/promotion.json
@@ -177,35 +227,42 @@ jobs:
         run: |
           set -euo pipefail
 
-          remove_inat_token_from_app() {
-            local count
+          remove_forbidden_runtime_variable() {
+            local app="$1" variable="$2" count
             count="$(az containerapp show \
-              --name "${AZURE_CONTAINER_APP}" \
+              --name "$app" \
               --resource-group "${AZURE_RESOURCE_GROUP}" \
-              --query "length(properties.template.containers[0].env[?name=='HINTERLAND_INAT_OAUTH_TOKEN'])" \
+              --query "length(properties.template.containers[0].env[?name=='${variable}'])" \
               --output tsv)"
             if [[ "$count" != 0 ]]; then
               az containerapp update \
-                --name "${AZURE_CONTAINER_APP}" \
+                --name "$app" \
                 --resource-group "${AZURE_RESOURCE_GROUP}" \
-                --remove-env-vars HINTERLAND_INAT_OAUTH_TOKEN \
+                --remove-env-vars "$variable" \
                 --output none
             fi
           }
 
-          remove_inat_token_from_app
-          az containerapp update \
-            --name "${AZURE_CONTAINER_APP}" \
-            --resource-group "${AZURE_RESOURCE_GROUP}" \
-            --set-env-vars \
-              HINTERLAND_MODERATION_PROVIDER=noop \
-              HINTERLAND_INAT_CV_ENABLED=false \
-              HINTERLAND_INAT_CV_DISCLOSURE_APPROVED=false \
-              HINTERLAND_INAT_CV_BENCHMARK_APPROVED=false \
-              HINTERLAND_INAT_SUBMIT_ENABLED=false \
-              HINTERLAND_ENTRA_API_AUDIENCE="${ENTRA_API_AUDIENCE}" \
-              HINTERLAND_OBSERVATION_IDEMPOTENCY_REQUIRED=true \
-            --output none
+          for app in "${AZURE_CONTAINER_APP}" "${AZURE_ROLLBACK_CONTAINER_APP}"; do
+            remove_forbidden_runtime_variable "$app" HINTERLAND_INAT_OAUTH_TOKEN
+            remove_forbidden_runtime_variable "$app" HINTERLAND_DEV_AUTH_TOKEN
+            az containerapp update \
+              --name "$app" \
+              --resource-group "${AZURE_RESOURCE_GROUP}" \
+              --set-env-vars \
+                HINTERLAND_MODERATION_PROVIDER=noop \
+                HINTERLAND_INAT_CV_ENABLED=false \
+                HINTERLAND_INAT_CV_DISCLOSURE_APPROVED=false \
+                HINTERLAND_INAT_CV_BENCHMARK_APPROVED=false \
+                HINTERLAND_INAT_SUBMIT_ENABLED=false \
+                HINTERLAND_ALLOW_STUB_AUTH=false \
+                HINTERLAND_DEV_AUTH_ENABLED=false \
+                HINTERLAND_ORGANISM_FALLBACK_PROVIDER=noop \
+                HINTERLAND_GEOCODING_PROVIDER=noop \
+                HINTERLAND_ENTRA_API_AUDIENCE="${ENTRA_API_AUDIENCE}" \
+                HINTERLAND_OBSERVATION_IDEMPOTENCY_REQUIRED=true \
+              --output none
+          done
 
           mapfile -t jobs < <(az containerapp job list \
             --resource-group "${AZURE_RESOURCE_GROUP}" \
@@ -229,6 +286,10 @@ jobs:
                 HINTERLAND_INAT_CV_DISCLOSURE_APPROVED=false \
                 HINTERLAND_INAT_CV_BENCHMARK_APPROVED=false \
                 HINTERLAND_INAT_SUBMIT_ENABLED=false \
+                HINTERLAND_ALLOW_STUB_AUTH=false \
+                HINTERLAND_DEV_AUTH_ENABLED=false \
+                HINTERLAND_ORGANISM_FALLBACK_PROVIDER=noop \
+                HINTERLAND_GEOCODING_PROVIDER=noop \
                 HINTERLAND_ENTRA_API_AUDIENCE="${ENTRA_API_AUDIENCE}" \
                 HINTERLAND_OBSERVATION_IDEMPOTENCY_REQUIRED=true \
               --output none
@@ -335,8 +396,16 @@ jobs:
             --name "${AZURE_UAMI_NAME}" \
             --resource-group "${AZURE_RESOURCE_GROUP}" \
             --query id --output tsv)"
+          rollback_uami_principal="$(az identity show \
+            --name "${AZURE_ROLLBACK_UAMI_NAME}" \
+            --resource-group "${AZURE_RESOURCE_GROUP}" \
+            --query principalId --output tsv)"
+          rollback_uami_id="$(az identity show \
+            --name "${AZURE_ROLLBACK_UAMI_NAME}" \
+            --resource-group "${AZURE_RESOURCE_GROUP}" \
+            --query id --output tsv)"
           assert_only_runtime_identity() {
-            local kind="$1" name="$2" identity
+            local kind="$1" name="$2" expected_id="$3" identity
             if [[ "$kind" == app ]]; then
               identity="$(az containerapp show --name "$name" \
                 --resource-group "${AZURE_RESOURCE_GROUP}" --query identity --output json)"
@@ -344,36 +413,40 @@ jobs:
               identity="$(az containerapp job show --name "$name" \
                 --resource-group "${AZURE_RESOURCE_GROUP}" --query identity --output json)"
             fi
-            jq -e --arg expected "${uami_id,,}" '
+            jq -e --arg expected "${expected_id,,}" '
               .type == "UserAssigned"
               and ((.userAssignedIdentities // {}) | length == 1)
               and ([((.userAssignedIdentities // {}) | keys[]) | ascii_downcase]
                    | index($expected) != null)
             ' <<< "$identity" >/dev/null
           }
-          assert_only_runtime_identity app "${AZURE_CONTAINER_APP}"
+          assert_only_runtime_identity app "${AZURE_CONTAINER_APP}" "$uami_id"
+          assert_only_runtime_identity app "${AZURE_ROLLBACK_CONTAINER_APP}" \
+            "$rollback_uami_id"
           mapfile -t identity_jobs < <(az containerapp job list \
             --resource-group "${AZURE_RESOURCE_GROUP}" \
             --query "[?starts_with(name, 'hinterland-')].name" --output tsv)
           for job in "${identity_jobs[@]}"; do
             [[ -n "$job" ]] || continue
-            assert_only_runtime_identity job "$job"
+            assert_only_runtime_identity job "$job" "$rollback_uami_id"
           done
           queue_id="/subscriptions/${AZURE_SUBSCRIPTION_ID_EXPECTED}/resourceGroups/${AZURE_RESOURCE_GROUP}/providers/Microsoft.ServiceBus/namespaces/${SERVICE_BUS_NAMESPACE}/queues/${INAT_QUEUE}"
           az servicebus queue show \
             --namespace-name "${SERVICE_BUS_NAMESPACE}" \
             --resource-group "${AZURE_RESOURCE_GROUP}" \
             --name "${INAT_QUEUE}" --output none
-          for role in \
-            "Azure Service Bus Data Sender" \
-            "Azure Service Bus Data Receiver" \
-            "Azure Service Bus Data Owner"; do
-            count="$(az role assignment list \
-              --assignee-object-id "$uami_principal" \
-              --scope "$queue_id" --include-inherited \
-              --query "[?roleDefinitionName=='${role}'] | length(@)" \
-              --output tsv)"
-            test "$count" = 0
+          for principal in "$uami_principal" "$rollback_uami_principal"; do
+            for role in \
+              "Azure Service Bus Data Sender" \
+              "Azure Service Bus Data Receiver" \
+              "Azure Service Bus Data Owner"; do
+              count="$(az role assignment list \
+                --assignee-object-id "$principal" \
+                --scope "$queue_id" --include-inherited \
+                --query "[?roleDefinitionName=='${role}'] | length(@)" \
+                --output tsv)"
+              test "$count" = 0
+            done
           done
 
       - name: Build one immutable image
@@ -686,11 +759,15 @@ jobs:
               HINTERLAND_INAT_CV_DISCLOSURE_APPROVED=false \
               HINTERLAND_INAT_CV_BENCHMARK_APPROVED=false \
               HINTERLAND_INAT_SUBMIT_ENABLED=false \
+              HINTERLAND_ALLOW_STUB_AUTH=false \
+              HINTERLAND_DEV_AUTH_ENABLED=false \
+              HINTERLAND_ORGANISM_FALLBACK_PROVIDER=noop \
+              HINTERLAND_GEOCODING_PROVIDER=noop \
               HINTERLAND_ENTRA_API_AUDIENCE="${ENTRA_API_AUDIENCE}" \
               HINTERLAND_OBSERVATION_IDEMPOTENCY_REQUIRED=true \
             --output none
 
-      - name: Require the exact API revision to be healthy and serving
+      - name: Require exact Central and East API revisions to be healthy and serving
         run: |
           set -euo pipefail
 
@@ -700,55 +777,92 @@ jobs:
           # revision.  Do not let a promotion reach its authenticated canary
           # until the control plane and both ingress surfaces prove the exact
           # requested digest and application version are live.
-          deadline=$((SECONDS + 600))
-          ready_revision=""
-          while (( SECONDS < deadline )); do
-            app_json="$(az containerapp show \
-              --name "${AZURE_CONTAINER_APP}" \
-              --resource-group "${AZURE_RESOURCE_GROUP}" --output json)"
-            latest_revision="$(jq -r '.properties.latestRevisionName // empty' <<<"$app_json")"
-            latest_ready_revision="$(jq -r '.properties.latestReadyRevisionName // empty' <<<"$app_json")"
-            active_revision_mode="$(jq -r '.properties.configuration.activeRevisionsMode // empty' <<<"$app_json")"
-            traffic_ok="$(jq -r '
-              if .properties.configuration.ingress.traffic
-                 | any(.latestRevision == true and .weight == 100)
-              then "true" else "false" end
-            ' <<<"$app_json")"
+          wait_for_exact_revision() {
+            local app="$1" deadline=$((SECONDS + 600)) ready_revision=""
+            local app_json latest_revision latest_ready_revision active_revision_mode
+            local traffic_ok revision_json revision_image provisioning_state health_state
+            local running_state app_version
+            while (( SECONDS < deadline )); do
+              app_json="$(az containerapp show \
+                --name "$app" \
+                --resource-group "${AZURE_RESOURCE_GROUP}" --output json)"
+              latest_revision="$(jq -r '.properties.latestRevisionName // empty' <<<"$app_json")"
+              latest_ready_revision="$(jq -r '.properties.latestReadyRevisionName // empty' <<<"$app_json")"
+              active_revision_mode="$(jq -r '.properties.configuration.activeRevisionsMode // empty' <<<"$app_json")"
+              traffic_ok="$(jq -r '
+                if .properties.configuration.ingress.traffic
+                   | any(.latestRevision == true and .weight == 100)
+                then "true" else "false" end
+              ' <<<"$app_json")"
 
-            if [[ -n "$latest_revision" && "$latest_revision" == "$latest_ready_revision" \
-              && "$active_revision_mode" == "Single" && "$traffic_ok" == "true" ]]; then
-              revision_json="$(az containerapp revision show \
-                --name "${AZURE_CONTAINER_APP}" \
-                --resource-group "${AZURE_RESOURCE_GROUP}" \
-                --revision "$latest_revision" --output json)"
-              revision_image="$(jq -r '.properties.template.containers[0].image // empty' <<<"$revision_json")"
-              provisioning_state="$(jq -r '.properties.provisioningState // empty' <<<"$revision_json")"
-              health_state="$(jq -r '.properties.healthState // empty' <<<"$revision_json")"
-              running_state="$(jq -r '.properties.runningState // empty' <<<"$revision_json")"
-              app_version="$(jq -r '
-                [.properties.template.containers[0].env[]?
-                  | select(.name == "HINTERLAND_APP_VERSION") | .value][0] // empty
-              ' <<<"$revision_json")"
-              if [[ "$revision_image" == "$IMAGE" && "$provisioning_state" == "Provisioned" \
-                && "$health_state" == "Healthy" && "$running_state" == Running* \
-                && "$app_version" == "$GITHUB_SHA" ]]; then
-                ready_revision="$latest_revision"
-                break
+              if [[ -n "$latest_revision" && "$latest_revision" == "$latest_ready_revision" \
+                && "$active_revision_mode" == "Single" && "$traffic_ok" == "true" ]]; then
+                revision_json="$(az containerapp revision show \
+                  --name "$app" \
+                  --resource-group "${AZURE_RESOURCE_GROUP}" \
+                  --revision "$latest_revision" --output json)"
+                revision_image="$(jq -r '.properties.template.containers[0].image // empty' <<<"$revision_json")"
+                provisioning_state="$(jq -r '.properties.provisioningState // empty' <<<"$revision_json")"
+                health_state="$(jq -r '.properties.healthState // empty' <<<"$revision_json")"
+                running_state="$(jq -r '.properties.runningState // empty' <<<"$revision_json")"
+                app_version="$(jq -r '
+                  [.properties.template.containers[0].env[]?
+                    | select(.name == "HINTERLAND_APP_VERSION") | .value][0] // empty
+                ' <<<"$revision_json")"
+                if [[ "$revision_image" == "$IMAGE" && "$provisioning_state" == "Provisioned" \
+                  && "$health_state" == "Healthy" && "$running_state" == Running* \
+                  && "$app_version" == "$GITHUB_SHA" ]]; then
+                  ready_revision="$latest_revision"
+                  break
+                fi
               fi
-            fi
-            sleep 10
-          done
+              sleep 10
+            done
+            test -n "$ready_revision"
+            printf '%s' "$ready_revision"
+          }
 
-          test -n "$ready_revision"
+          ready_revision="$(wait_for_exact_revision "${AZURE_CONTAINER_APP}")"
           fqdn="$(az containerapp show \
             --name "${AZURE_CONTAINER_APP}" \
             --resource-group "${AZURE_RESOURCE_GROUP}" \
             --query properties.configuration.ingress.fqdn --output tsv)"
           echo "HINTERLAND_API_BASE_URL=https://${fqdn}" >> "$GITHUB_ENV"
           echo "W1_API_READY_REVISION=${ready_revision}" >> "$GITHUB_ENV"
-          jq --arg revision "$ready_revision" --arg version "$GITHUB_SHA" \
-            --arg image "$IMAGE" \
-            '.api_rollout={revision:$revision, version:$version, image:$image}' \
+
+          az containerapp update \
+            --name "${AZURE_ROLLBACK_CONTAINER_APP}" \
+            --resource-group "${AZURE_RESOURCE_GROUP}" \
+            --image "${IMAGE}" \
+            --set-env-vars \
+              HINTERLAND_APP_VERSION="${GITHUB_SHA}" \
+              HINTERLAND_MODERATION_PROVIDER=noop \
+              HINTERLAND_INAT_CV_ENABLED=false \
+              HINTERLAND_INAT_CV_DISCLOSURE_APPROVED=false \
+              HINTERLAND_INAT_CV_BENCHMARK_APPROVED=false \
+              HINTERLAND_INAT_SUBMIT_ENABLED=false \
+              HINTERLAND_ALLOW_STUB_AUTH=false \
+              HINTERLAND_DEV_AUTH_ENABLED=false \
+              HINTERLAND_ORGANISM_FALLBACK_PROVIDER=noop \
+              HINTERLAND_GEOCODING_PROVIDER=noop \
+              HINTERLAND_ENTRA_API_AUDIENCE="${ENTRA_API_AUDIENCE}" \
+              HINTERLAND_OBSERVATION_IDEMPOTENCY_REQUIRED=true \
+            --output none
+          rollback_ready_revision="$(wait_for_exact_revision \
+            "${AZURE_ROLLBACK_CONTAINER_APP}")"
+          rollback_fqdn="$(az containerapp show \
+            --name "${AZURE_ROLLBACK_CONTAINER_APP}" \
+            --resource-group "${AZURE_RESOURCE_GROUP}" \
+            --query properties.configuration.ingress.fqdn --output tsv)"
+          echo "W1_ROLLBACK_READY_REVISION=${rollback_ready_revision}" >> "$GITHUB_ENV"
+          echo "W1_ROLLBACK_API_BASE_URL=https://${rollback_fqdn}" >> "$GITHUB_ENV"
+
+          jq --arg revision "$ready_revision" \
+            --arg rollback_revision "$rollback_ready_revision" \
+            --arg version "$GITHUB_SHA" --arg image "$IMAGE" \
+            '.api_rollout={revision:$revision, rollback_revision:$rollback_revision,
+              version:$version, image:$image, primary_location:"centralus",
+              rollback_location:"eastus"}' \
             promotion-artifact/promotion.json > promotion-artifact/promotion.tmp
           mv promotion-artifact/promotion.tmp promotion-artifact/promotion.json
 
@@ -777,7 +891,45 @@ jobs:
         run: |
           set -euo pipefail
           test -n "${W1_API_READY_REVISION:-}"
-          for base_url in "${HINTERLAND_API_BASE_URL}" "https://api.thehinterlandguide.app"; do
+          test -n "${W1_ROLLBACK_READY_REVISION:-}"
+          test -n "${W1_ROLLBACK_API_BASE_URL:-}"
+
+          primary_domain_count="$(az containerapp show \
+            --name "${AZURE_CONTAINER_APP}" \
+            --resource-group "${AZURE_RESOURCE_GROUP}" \
+            --query "length(properties.configuration.ingress.customDomains[?name=='api.thehinterlandguide.app'])" \
+            --output tsv)"
+          rollback_domain_count="$(az containerapp show \
+            --name "${AZURE_ROLLBACK_CONTAINER_APP}" \
+            --resource-group "${AZURE_RESOURCE_GROUP}" \
+            --query "length(properties.configuration.ingress.customDomains[?name=='api.thehinterlandguide.app'])" \
+            --output tsv)"
+          test "$primary_domain_count" = 1
+          test "$rollback_domain_count" = 1
+          primary_static_ip="$(az containerapp env show \
+            --name "${AZURE_CONTAINER_APP_ENV}" \
+            --resource-group "${AZURE_RESOURCE_GROUP}" \
+            --query properties.staticIp --output tsv)"
+          test -n "$primary_static_ip"
+          test -z "$(dig +short CNAME api.thehinterlandguide.app)"
+          mapfile -t public_ips < <(
+            dig +short A api.thehinterlandguide.app | sort -u
+          )
+          test "${#public_ips[@]}" = 1
+          public_ip="${public_ips[0]}"
+          test "$public_ip" = "$primary_static_ip"
+          jq --arg hostname "api.thehinterlandguide.app" \
+            --arg public_ip "$public_ip" \
+            --arg primary_static_ip "$primary_static_ip" \
+            '.dns={hostname:$hostname, public_ip:$public_ip,
+              primary_static_ip:$primary_static_ip}' \
+            promotion-artifact/promotion.json > promotion-artifact/promotion.tmp
+          mv promotion-artifact/promotion.tmp promotion-artifact/promotion.json
+
+          for base_url in \
+            "${HINTERLAND_API_BASE_URL}" \
+            "${W1_ROLLBACK_API_BASE_URL}" \
+            "https://api.thehinterlandguide.app"; do
             health="$(curl --fail --silent --show-error "${base_url}/health")"
             ready="$(curl --fail --silent --show-error "${base_url}/ready")"
             jq -e --arg version "${GITHUB_SHA}" \
@@ -794,6 +946,7 @@ jobs:
           test -n "${HINTERLAND_API_BASE_URL:-}"
           api_surfaces=(
             "${HINTERLAND_API_BASE_URL}"
+            "${W1_ROLLBACK_API_BASE_URL}"
             "https://api.thehinterlandguide.app"
           )
           trusted_origins=(
@@ -834,7 +987,7 @@ jobs:
               probe_count=$((probe_count + 1))
             done
           done
-          test "$probe_count" = 4
+          test "$probe_count" = 6
           untrusted_origin="https://example.invalid"
           rejected_probe_count=0
           for base_url in "${api_surfaces[@]}"; do
@@ -855,7 +1008,7 @@ jobs:
             fi
             rejected_probe_count=$((rejected_probe_count + 1))
           done
-          test "$rejected_probe_count" = 2
+          test "$rejected_probe_count" = 3
           jq \
             --argjson trusted_origin_count "${#trusted_origins[@]}" \
             --argjson api_surface_count "${#api_surfaces[@]}" \
@@ -975,8 +1128,12 @@ jobs:
             --name "${AZURE_UAMI_NAME}" \
             --resource-group "${AZURE_RESOURCE_GROUP}" \
             --query id --output tsv)"
+          rollback_uami_id="$(az identity show \
+            --name "${AZURE_ROLLBACK_UAMI_NAME}" \
+            --resource-group "${AZURE_RESOURCE_GROUP}" \
+            --query id --output tsv)"
           assert_only_runtime_identity() {
-            local kind="$1" name="$2" identity
+            local kind="$1" name="$2" expected_id="$3" identity
             if [[ "$kind" == app ]]; then
               identity="$(az containerapp show --name "$name" \
                 --resource-group "${AZURE_RESOURCE_GROUP}" --query identity --output json)"
@@ -984,7 +1141,7 @@ jobs:
               identity="$(az containerapp job show --name "$name" \
                 --resource-group "${AZURE_RESOURCE_GROUP}" --query identity --output json)"
             fi
-            jq -e --arg expected "${uami_id,,}" '
+            jq -e --arg expected "${expected_id,,}" '
               .type == "UserAssigned"
               and ((.userAssignedIdentities // {}) | length == 1)
               and ([((.userAssignedIdentities // {}) | keys[]) | ascii_downcase]
@@ -997,33 +1154,61 @@ jobs:
             --resource-group "${AZURE_RESOURCE_GROUP}" \
             --query 'properties.template.containers[0].image' --output tsv)"
           test "$api_image" = "$IMAGE"
-          assert_only_runtime_identity app "${AZURE_CONTAINER_APP}"
-          for pair in \
-            HINTERLAND_MODERATION_PROVIDER=noop \
-            HINTERLAND_INAT_CV_ENABLED=false \
-            HINTERLAND_INAT_CV_DISCLOSURE_APPROVED=false \
-            HINTERLAND_INAT_CV_BENCHMARK_APPROVED=false \
-            HINTERLAND_INAT_SUBMIT_ENABLED=false \
-            HINTERLAND_ENTRA_API_AUDIENCE="${ENTRA_API_AUDIENCE}" \
-            HINTERLAND_OBSERVATION_IDEMPOTENCY_REQUIRED=true; do
-            assert_env app "${AZURE_CONTAINER_APP}" "${pair%%=*}" "${pair#*=}"
-          done
-          api_token_count="$(az containerapp show \
-            --name "${AZURE_CONTAINER_APP}" \
+          rollback_api_image="$(az containerapp show \
+            --name "${AZURE_ROLLBACK_CONTAINER_APP}" \
             --resource-group "${AZURE_RESOURCE_GROUP}" \
-            --query "length(properties.template.containers[0].env[?name=='HINTERLAND_INAT_OAUTH_TOKEN'])" \
-            --output tsv)"
-          test "$api_token_count" = 0
+            --query 'properties.template.containers[0].image' --output tsv)"
+          test "$rollback_api_image" = "$IMAGE"
+          assert_only_runtime_identity app "${AZURE_CONTAINER_APP}" "$uami_id"
+          assert_only_runtime_identity app "${AZURE_ROLLBACK_CONTAINER_APP}" \
+            "$rollback_uami_id"
+          normalize_location() {
+            tr '[:upper:]' '[:lower:]' | tr -d ' '
+          }
+          for app in "${AZURE_CONTAINER_APP}" "${AZURE_ROLLBACK_CONTAINER_APP}"; do
+            for pair in \
+              HINTERLAND_MODERATION_PROVIDER=noop \
+              HINTERLAND_INAT_CV_ENABLED=false \
+              HINTERLAND_INAT_CV_DISCLOSURE_APPROVED=false \
+              HINTERLAND_INAT_CV_BENCHMARK_APPROVED=false \
+              HINTERLAND_INAT_SUBMIT_ENABLED=false \
+              HINTERLAND_ALLOW_STUB_AUTH=false \
+              HINTERLAND_DEV_AUTH_ENABLED=false \
+              HINTERLAND_ORGANISM_FALLBACK_PROVIDER=noop \
+              HINTERLAND_GEOCODING_PROVIDER=noop \
+              HINTERLAND_ENTRA_API_AUDIENCE="${ENTRA_API_AUDIENCE}" \
+              HINTERLAND_OBSERVATION_IDEMPOTENCY_REQUIRED=true; do
+              assert_env app "$app" "${pair%%=*}" "${pair#*=}"
+            done
+            api_token_count="$(az containerapp show \
+              --name "$app" \
+              --resource-group "${AZURE_RESOURCE_GROUP}" \
+              --query "length(properties.template.containers[0].env[?name=='HINTERLAND_INAT_OAUTH_TOKEN'])" \
+              --output tsv)"
+            test "$api_token_count" = 0
+          done
+          primary_location="$(az containerapp show --name "${AZURE_CONTAINER_APP}" \
+            --resource-group "${AZURE_RESOURCE_GROUP}" --query location --output tsv | \
+            normalize_location)"
+          rollback_location="$(az containerapp show --name "${AZURE_ROLLBACK_CONTAINER_APP}" \
+            --resource-group "${AZURE_RESOURCE_GROUP}" --query location --output tsv | \
+            normalize_location)"
+          test "$primary_location" = "${AZURE_API_LOCATION_EXPECTED}"
+          test "$rollback_location" = "${AZURE_JOB_LOCATION_EXPECTED}"
 
           mapfile -t jobs < <(az containerapp job list \
             --resource-group "${AZURE_RESOURCE_GROUP}" \
             --query "[?starts_with(name, 'hinterland-')].name" --output tsv)
           for job in "${jobs[@]}"; do
-            assert_only_runtime_identity job "$job"
-            image="$(az containerapp job show --name "$job" \
-              --resource-group "${AZURE_RESOURCE_GROUP}" \
-              --query 'properties.template.containers[0].image' --output tsv)"
+            assert_only_runtime_identity job "$job" "$rollback_uami_id"
+            job_json="$(az containerapp job show --name "$job" \
+              --resource-group "${AZURE_RESOURCE_GROUP}" --output json)"
+            image="$(jq -r '.properties.template.containers[0].image // empty' <<<"$job_json")"
             test "$image" = "$IMAGE"
+            job_location="$(jq -r '.location // empty' <<<"$job_json" | normalize_location)"
+            job_environment="$(jq -r '.properties.environmentId // empty' <<<"$job_json")"
+            test "$job_location" = "${AZURE_JOB_LOCATION_EXPECTED}"
+            test "${job_environment##*/}" = "${AZURE_ROLLBACK_CONTAINER_APP_ENV}"
             password_ref="$(az containerapp job show --name "$job" \
               --resource-group "${AZURE_RESOURCE_GROUP}" \
               --query "properties.template.containers[0].env[?name=='HINTERLAND_DATABASE_PASSWORD'].secretRef | [0]" \
@@ -1040,6 +1225,10 @@ jobs:
               HINTERLAND_INAT_CV_DISCLOSURE_APPROVED=false \
               HINTERLAND_INAT_CV_BENCHMARK_APPROVED=false \
               HINTERLAND_INAT_SUBMIT_ENABLED=false \
+              HINTERLAND_ALLOW_STUB_AUTH=false \
+              HINTERLAND_DEV_AUTH_ENABLED=false \
+              HINTERLAND_ORGANISM_FALLBACK_PROVIDER=noop \
+              HINTERLAND_GEOCODING_PROVIDER=noop \
               HINTERLAND_ENTRA_API_AUDIENCE="${ENTRA_API_AUDIENCE}" \
               HINTERLAND_OBSERVATION_IDEMPOTENCY_REQUIRED=true; do
               assert_env job "$job" "${pair%%=*}" "${pair#*=}"
@@ -1063,14 +1252,22 @@ jobs:
             --name "${AZURE_CONTAINER_APP}" \
             --resource-group "${AZURE_RESOURCE_GROUP}" \
             --query properties.latestReadyRevisionName --output tsv)"
+          rollback_revision="$(az containerapp show \
+            --name "${AZURE_ROLLBACK_CONTAINER_APP}" \
+            --resource-group "${AZURE_RESOURCE_GROUP}" \
+            --query properties.latestReadyRevisionName --output tsv)"
           jq \
             --arg image "$IMAGE" --arg digest "$IMAGE_DIGEST" \
             --arg revision "$revision" --arg alembic_head "$ALEMBIC_HEAD" \
+            --arg rollback_revision "$rollback_revision" \
             --argjson job_count "${#jobs[@]}" \
             --argjson moderation_active "$active" \
             --argjson moderation_deadletter "$deadletter" \
             '.deployment={image:$image, digest:$digest, api_revision:$revision,
-              alembic_head:$alembic_head, job_count:$job_count}
+              rollback_api_revision:$rollback_revision,
+              api_location:"centralus", rollback_location:"eastus",
+              job_location:"eastus", alembic_head:$alembic_head,
+              job_count:$job_count}
              | .queues={moderation_active:$moderation_active,
                 moderation_deadletter:$moderation_deadletter}' \
             promotion-artifact/promotion.json > promotion-artifact/promotion.tmp

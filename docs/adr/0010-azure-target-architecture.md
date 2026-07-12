@@ -166,7 +166,7 @@ Phases 0-10 landed. The full state + scope cuts are documented in
 [`infra-azure/phase-10-gcp-decommission.md`](../../infra-azure/phase-10-gcp-decommission.md).
 Key deltas vs the ADR plan:
 
-- **Postgres landed in centralus**, not eastus2. This Sponsored subscription's quota blocks Burstable Postgres in eastus + eastus2. The roughly 25 ms cross-region latency is acceptable only when request paths keep SQL round trips bounded; it is not evidence that a multi-savepoint dispatcher meets its 300 ms budget. The 2026-07-12 W1 device probe exposed that distinction, so the dispatcher now batches ledger outcomes and the exact Azure promotion must measure the real handler registry. Co-location remains the required fallback if that bounded path still misses budget.
+- **Postgres landed in centralus**, not eastus2. This Sponsored subscription's quota blocks Burstable Postgres in eastus + eastus2. The exact W1 workload proved that the East US API could not meet the multi-savepoint dispatcher's 300 ms budget. [ADR 0016](0016-central-us-api-colocation.md) therefore places the primary API in Central US while retaining the East API as a same-digest rollback and keeping the jobs and non-database dependencies in East US.
 - **The old Hinterland apex/`www` Firebase fallback is superseded.** ADR 0014 makes Azure Static Web Apps the only active landing/parents hosting path.
 - **Cloud SQL was stopped, not deleted.** Activation-policy NEVER preserves data and backups, zero compute cost, instant restart.
 - **MSAL is the active adult web auth path.** Native mobile uses kid QR/dev login and parent web handoff; Firebase email/password sign-in is removed by ADR 0014.

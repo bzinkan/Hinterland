@@ -2,7 +2,7 @@
 
 - **Status:** Open
 - **Date filed:** 2026-05-10
-- **Updated:** 2026-07-09 for ADR 0015
+- **Updated:** 2026-07-12 for ADR 0016
 - **Owner:** Brian
 
 ## Current State
@@ -54,6 +54,14 @@ additive Central US API deployment against the existing canonical database,
 with the East US API retained as rollback until the exact 50-sample probe and
 public cutover both pass.
 
+The additive Central US API then ran the same revision-45 immutable digest
+against the canonical Central US database. Its generated hostname passed the
+complete W1 upload/idempotency/Journal/private-photo canary. The exact Central
+revision completed 50 mixed Unknown/catalog/coarse observations at 62.12 ms
+p95 and 92.02 ms maximum. This proves the co-located topology satisfies the
+budget before DNS, but risk closure still requires the protected workflow on
+the final public revision and its alert evidence.
+
 ## Remaining Closure Checklist
 
 - [x] Implement low-data rarity fallback and duration logging.
@@ -64,6 +72,8 @@ public cutover both pass.
 - [x] Run a disposable PostgreSQL probe with mixed Unknown/catalog observations,
       real handlers, and an active Expedition below 300 ms p95; enforce the
       exact Unknown/no-location SQL query budget separately.
+- [x] Prove the additive Central API with an exact-revision, 50-sample deployed
+      Log Analytics probe below 300 ms before public DNS cutover.
 - [ ] Run pilot traffic until at least 50 deployed observations exist.
 - [ ] Confirm deployed Log Analytics p95 below 300 ms.
 - [x] Add Azure Monitor configuration for sustained p95 above 300 ms.

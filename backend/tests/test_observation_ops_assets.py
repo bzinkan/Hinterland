@@ -39,7 +39,14 @@ def test_active_azure_environment_is_hinterland_only() -> None:
 
     assert 'PROJECT_SLUG="hinterland"' in environment
     assert 'HINTERLAND_RESOURCE_GROUP="hinterland-dev-rg"' in environment
-    assert 'HINTERLAND_CONTAINER_APP_NAME="hinterland-api"' in environment
+    assert 'AZURE_LOCATION_API="centralus"' in environment
+    assert 'AZURE_LOCATION_JOBS="eastus"' in environment
+    assert 'HINTERLAND_CONTAINER_APPS_ENV="hinterland-cae-central-dev"' in environment
+    assert 'HINTERLAND_CONTAINER_APP_NAME="hinterland-api-central"' in environment
+    assert 'HINTERLAND_USER_ASSIGNED_IDENTITY="hinterland-api-central-mi"' in environment
+    assert 'HINTERLAND_JOBS_CONTAINER_APPS_ENV="hinterland-cae-dev"' in environment
+    assert 'HINTERLAND_JOBS_USER_ASSIGNED_IDENTITY="hinterland-api-mi"' in environment
+    assert 'HINTERLAND_ROLLBACK_CONTAINER_APP_NAME="hinterland-api"' in environment
     assert 'HINTERLAND_ENTRA_API_AUDIENCE="7dd9da3c-b7d6-45d4-955b-d7561c43f209"' in environment
     assert 'HINTERLAND_KID_JWKS_PATH="/.well-known/hinterland-kid-jwks.json"' in environment
     assert not (_ROOT / "infra-azure/phase-9-observation-w1.sh").exists()
@@ -50,6 +57,7 @@ def test_active_azure_environment_is_hinterland_only() -> None:
 def test_active_workflow_migrates_before_api_and_removes_retired_aliases() -> None:
     workflow = (_ROOT / ".github/workflows/deploy-azure-api-dev.yml").read_text(encoding="utf-8")
 
+    placement = workflow.index("Require split API and job placement")
     retire_jobs = workflow.index("Retire obsolete recovery jobs")
     pin_migration_jobs = workflow.index("Pin only preflight and migration jobs to this image")
     seed_migration_settings = workflow.index("Seed preflight and migration job settings")
@@ -58,13 +66,14 @@ def test_active_workflow_migrates_before_api_and_removes_retired_aliases() -> No
     pin_all_jobs = workflow.index("Pin all Hinterland jobs after migration success")
     seed_all_settings = workflow.index("Seed all Hinterland job settings after migration success")
     content_jobs = workflow.index("Run taxonomy and Expedition content jobs")
-    deploy_api = workflow.index("Deploy API revision")
+    deploy_api = workflow.index("Deploy Central API then East rollback revision")
     rebuild = workflow.index("Rebuild derived state")
     smoke = workflow.index("Smoke public API surfaces")
     verify = workflow.index("Verify deployed naming and image")
 
     assert (
-        retire_jobs
+        placement
+        < retire_jobs
         < pin_migration_jobs
         < seed_migration_settings
         < remove_aliases
@@ -78,6 +87,21 @@ def test_active_workflow_migrates_before_api_and_removes_retired_aliases() -> No
         < verify
     )
     assert "HINTERLAND_KID_JWKS_PATH" in workflow
+    assert "AZURE_CONTAINER_APP: hinterland-api-central" in workflow
+    assert "AZURE_CONTAINER_APP_ENV: hinterland-cae-central-dev" in workflow
+    assert "AZURE_CONTAINER_APP_UAMI: hinterland-api-central-mi" in workflow
+    assert "AZURE_ROLLBACK_CONTAINER_APP: hinterland-api" in workflow
+    assert "AZURE_ROLLBACK_CONTAINER_APP_ENV: hinterland-cae-dev" in workflow
+    assert "AZURE_ROLLBACK_CONTAINER_APP_UAMI: hinterland-api-mi" in workflow
+    assert 'test "$location" = "${AZURE_JOB_LOCATION_EXPECTED}"' in workflow
+    assert 'test "${environment##*/}" = "${AZURE_ROLLBACK_CONTAINER_APP_ENV}"' in workflow
+    assert 'update_app "${AZURE_CONTAINER_APP}"' in workflow
+    assert 'update_app "${AZURE_ROLLBACK_CONTAINER_APP}"' in workflow
+    assert 'PRIMARY_API_READY_REVISION="$(wait_for_exact_revision' in workflow
+    assert 'ROLLBACK_API_READY_REVISION="$(wait_for_exact_revision' in workflow
+    assert 'test "$image" = "$IMAGE"' in workflow
+    assert 'assert_app "${AZURE_CONTAINER_APP}"' in workflow
+    assert 'assert_app "${AZURE_ROLLBACK_CONTAINER_APP}"' in workflow
     assert "HINTERLAND_SMOKE_ENTRA_BEARER" in workflow
     assert "HINTERLAND_DATABASE_PASSWORD=secretref:pg-password" in workflow
     assert "ENTRA_API_AUDIENCE: 7dd9da3c-b7d6-45d4-955b-d7561c43f209" in workflow

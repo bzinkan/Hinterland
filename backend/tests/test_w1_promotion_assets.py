@@ -67,7 +67,9 @@ def test_w1_promotion_order_and_containment_are_explicit() -> None:
     expeditions = workflow.index("run_job hinterland-sync-expeditions")
     rebuild = workflow.index("run_job hinterland-state-rebuild")
     deploy = workflow.index("Deploy the API only after migrations and rebuild")
-    rollout = workflow.index("Require the exact API revision to be healthy and serving")
+    rollout = workflow.index(
+        "Require exact Central and East API revisions to be healthy and serving"
+    )
     public_readiness = workflow.index("Smoke public readiness surfaces")
     browser_cors = workflow.index("Verify trusted parent browser CORS preflight")
     web_readiness = workflow.index("Verify exact W1 web deployments")
@@ -114,6 +116,27 @@ def test_w1_promotion_order_and_containment_are_explicit() -> None:
     assert '"user.access" not in scopes.split()' in workflow
     assert workflow.count('HINTERLAND_ENTRA_API_AUDIENCE="${ENTRA_API_AUDIENCE}"') >= 7
     assert "HINTERLAND_OBSERVATION_IDEMPOTENCY_REQUIRED=true" in workflow
+    assert "AZURE_CONTAINER_APP: hinterland-api-central" in workflow
+    assert "AZURE_CONTAINER_APP_ENV: hinterland-cae-central-dev" in workflow
+    assert "AZURE_UAMI_NAME: hinterland-api-central-mi" in workflow
+    assert "AZURE_ROLLBACK_CONTAINER_APP: hinterland-api" in workflow
+    assert "AZURE_ROLLBACK_CONTAINER_APP_ENV: hinterland-cae-dev" in workflow
+    assert "AZURE_ROLLBACK_UAMI_NAME: hinterland-api-mi" in workflow
+    assert 'test "$location" = "${AZURE_JOB_LOCATION_EXPECTED}"' in workflow
+    assert 'test "${environment##*/}" = "${AZURE_ROLLBACK_CONTAINER_APP_ENV}"' in workflow
+    assert 'ready_revision="$(wait_for_exact_revision "${AZURE_CONTAINER_APP}")"' in workflow
+    assert '"${AZURE_ROLLBACK_CONTAINER_APP}")"' in workflow
+    assert "W1_ROLLBACK_READY_REVISION" in workflow
+    assert "W1_ROLLBACK_API_BASE_URL" in workflow
+    assert 'test "$rollback_api_image" = "$IMAGE"' in workflow
+    assert 'assert_only_runtime_identity job "$job" "$rollback_uami_id"' in workflow
+    assert "dig +short CNAME api.thehinterlandguide.app" in workflow
+    assert "dig +short A api.thehinterlandguide.app | sort -u" in workflow
+    assert 'test "${#public_ips[@]}" = 1' in workflow
+    assert 'test "$rollback_domain_count" = 1' in workflow
+    assert 'test "$public_ip" = "$primary_static_ip"' in workflow
+    assert 'test "$primary_domain_count" = 1' in workflow
+    assert ".dns={hostname:$hostname, public_ip:$public_ip," in workflow
     benchmark_step, _ = _step_containing(
         workflow, "Require exact-revision deployed dispatcher p95 below 300 ms"
     )
@@ -179,8 +202,8 @@ def test_w1_promotion_order_and_containment_are_explicit() -> None:
     assert "access-control-allow-credentials: true" in workflow
     assert 'untrusted_origin="https://example.invalid"' in workflow
     assert '.cors_preflight={result:"passed"' in workflow
-    assert 'test "$probe_count" = 4' in workflow
-    assert 'test "$rejected_probe_count" = 2' in workflow
+    assert 'test "$probe_count" = 6' in workflow
+    assert 'test "$rejected_probe_count" = 3' in workflow
     assert "Access-Control-Allow-Origin: *" not in workflow
     assert workflow.count("/.well-known/hinterland-build.json?sha={expected}") == 2
     assert workflow.count('("parents", "https://parents.thehinterlandguide.app")') == 2
