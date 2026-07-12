@@ -1,10 +1,15 @@
 from __future__ import annotations
 
 import importlib.util
+import io
+import json
 import sys
+from datetime import UTC, datetime
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
+from azure import identity as azure_identity
 from ulid import ULID
 
 _ROOT = Path(__file__).resolve().parents[2]
@@ -128,3 +133,260 @@ def test_evaluate_rows_rejects_invalid_seed_ids() -> None:
 
     with pytest.raises(ValueError, match="invalid or duplicate"):
         _evaluate(seed, [])
+
+
+def test_query_rows_uses_direct_http_bearer_without_nested_cli(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    seed = _seed(1)
+    expected_rows = _rows(seed)
+    columns = [{"name": name, "type": "string"} for name in expected_rows[0]]
+    response_payload = {
+        "tables": [
+            {
+                "name": "PrimaryResult",
+                "columns": columns,
+                "rows": [[row[name] for name in expected_rows[0]] for row in expected_rows],
+            }
+        ]
+    }
+    captured: dict[str, object] = {}
+
+    def fake_urlopen(request: object, *, timeout: int) -> io.BytesIO:
+        captured["request"] = request
+        captured["timeout"] = timeout
+        return io.BytesIO(json.dumps(response_payload).encode("utf-8"))
+
+    monkeypatch.setattr(verifier.urllib.request, "urlopen", fake_urlopen)
+    monkeypatch.setattr(
+        verifier.shutil,
+        "which",
+        lambda _name: pytest.fail("Azure CLI fallback must not run with a bearer token"),
+    )
+    observation_ids = seed["observation_ids"]
+    assert isinstance(observation_ids, list)
+
+    rows = verifier._query_rows(
+        workspace_id="0c73db66-d049-4ddd-940e-502e1cb75cf1",
+        revision="hinterland-api--0000045",
+        image="hinterlandacrdev.azurecr.io/hinterland-api@sha256:" + "a" * 64,
+        observation_ids=observation_ids,
+        started_at=datetime(2026, 7, 12, 12, 0, tzinfo=UTC),
+        finished_at=datetime(2026, 7, 12, 12, 5, tzinfo=UTC),
+        bearer_token="test.jwt.token",
+    )
+
+    assert rows == expected_rows
+    request = captured["request"]
+    assert request.full_url == (
+        "https://api.loganalytics.azure.com/v1/workspaces/"
+        "0c73db66-d049-4ddd-940e-502e1cb75cf1/query"
+    )
+    assert request.get_header("Authorization") == "Bearer test.jwt.token"
+    assert captured["timeout"] == 90
+    request_body = json.loads(request.data)
+    assert observation_ids[0] in request_body["query"]
+    assert "ContainerImage_s" in request_body["query"]
+
+
+def test_github_actions_oidc_mints_log_analytics_token_in_memory(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    request_secret = "github-request-secret"
+    assertion = "header.payload.signature"
+    access_secret = "log.analytics.token"
+    client_id = "11111111-1111-4111-8111-111111111111"
+    tenant_id = "22222222-2222-4222-8222-222222222222"
+    captured: dict[str, object] = {}
+    monkeypatch.setenv("AZURE_CLIENT_ID", client_id)
+    monkeypatch.setenv("AZURE_TENANT_ID", tenant_id)
+    monkeypatch.setenv(
+        "ACTIONS_ID_TOKEN_REQUEST_URL",
+        "https://pipelines.actions.githubusercontent.com/example/oidc?api-version=2.0",
+    )
+    monkeypatch.setenv("ACTIONS_ID_TOKEN_REQUEST_TOKEN", request_secret)
+    monkeypatch.setattr(verifier.time, "time", lambda: 1_000.0)
+
+    def fake_urlopen(request: object, *, timeout: int) -> io.BytesIO:
+        captured["oidc_request"] = request
+        captured["oidc_timeout"] = timeout
+        return io.BytesIO(json.dumps({"value": assertion}).encode("utf-8"))
+
+    class FakeCredential:
+        def __init__(self, *, tenant_id: str, client_id: str, func: object) -> None:
+            captured["tenant_id"] = tenant_id
+            captured["client_id"] = client_id
+            captured["assertion_func"] = func
+
+        def get_token(self, scope: str) -> SimpleNamespace:
+            captured["scope"] = scope
+            assertion_func = captured["assertion_func"]
+            captured["assertion"] = assertion_func()
+            return SimpleNamespace(token=access_secret, expires_on=5_000)
+
+        def close(self) -> None:
+            captured["closed"] = True
+
+    monkeypatch.setattr(verifier.urllib.request, "urlopen", fake_urlopen)
+    monkeypatch.setattr(azure_identity, "ClientAssertionCredential", FakeCredential)
+    monkeypatch.setattr(
+        verifier.shutil,
+        "which",
+        lambda _name: pytest.fail("GitHub OIDC must not invoke the Azure CLI"),
+    )
+
+    token = verifier._github_actions_log_analytics_token(minimum_validity_seconds=900)
+
+    assert token == access_secret
+    assert captured["tenant_id"] == tenant_id
+    assert captured["client_id"] == client_id
+    assert captured["scope"] == "https://api.loganalytics.io/.default"
+    assert captured["assertion"] == assertion
+    assert captured["closed"] is True
+    request = captured["oidc_request"]
+    assert request.get_header("Authorization") == f"Bearer {request_secret}"
+    query = verifier.urllib.parse.parse_qs(verifier.urllib.parse.urlsplit(request.full_url).query)
+    assert query["audience"] == ["api://AzureADTokenExchange"]
+    assert captured["oidc_timeout"] == 30
+
+
+def test_github_actions_missing_oidc_configuration_fails_without_cli_fallback(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("GITHUB_ACTIONS", "true")
+    for name in (
+        "AZURE_CLIENT_ID",
+        "AZURE_TENANT_ID",
+        "ACTIONS_ID_TOKEN_REQUEST_URL",
+        "ACTIONS_ID_TOKEN_REQUEST_TOKEN",
+    ):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setattr(
+        verifier.shutil,
+        "which",
+        lambda _name: pytest.fail("GitHub Actions must not fall back to Azure CLI"),
+    )
+
+    with pytest.raises(RuntimeError, match="omitted AZURE_CLIENT_ID"):
+        verifier._resolve_bearer_token(log_token_stdin=False, timeout_seconds=900)
+
+
+def test_github_oidc_failure_does_not_expose_request_token(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    request_secret = "never-print-github-request-token"
+    monkeypatch.setenv(
+        "ACTIONS_ID_TOKEN_REQUEST_URL",
+        "https://pipelines.actions.githubusercontent.com/example/oidc?api-version=2.0",
+    )
+    monkeypatch.setenv("ACTIONS_ID_TOKEN_REQUEST_TOKEN", request_secret)
+
+    def fake_urlopen(request: object, *, timeout: int) -> io.BytesIO:
+        del timeout
+        raise verifier.urllib.error.HTTPError(
+            request.full_url,
+            403,
+            "Forbidden",
+            hdrs=None,
+            fp=io.BytesIO(b"{}"),
+        )
+
+    monkeypatch.setattr(verifier.urllib.request, "urlopen", fake_urlopen)
+
+    with pytest.raises(RuntimeError, match="status=403") as raised:
+        verifier._github_oidc_assertion()
+
+    assert request_secret not in str(raised.value)
+    assert raised.value.__cause__ is None
+
+
+def test_github_actions_rejects_stdin_token_override(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("GITHUB_ACTIONS", "true")
+    monkeypatch.setattr(sys, "stdin", io.StringIO("must-not-be-read"))
+
+    with pytest.raises(RuntimeError, match="must use environment-scoped OIDC"):
+        verifier._resolve_bearer_token(log_token_stdin=True, timeout_seconds=900)
+
+
+def test_local_operator_can_still_supply_token_over_stdin(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("GITHUB_ACTIONS", raising=False)
+    monkeypatch.setattr(sys, "stdin", io.StringIO("local.direct.token"))
+
+    token = verifier._resolve_bearer_token(log_token_stdin=True, timeout_seconds=900)
+
+    assert token == "local.direct.token"
+
+
+def test_direct_http_failure_does_not_expose_bearer(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    secret = "never-print-this-token"
+    seed = _seed(1)
+    observation_ids = seed["observation_ids"]
+    assert isinstance(observation_ids, list)
+
+    def fake_urlopen(request: object, *, timeout: int) -> io.BytesIO:
+        del timeout
+        raise verifier.urllib.error.HTTPError(
+            request.full_url,
+            401,
+            "Unauthorized",
+            hdrs=None,
+            fp=io.BytesIO(b'{"error":{"code":"Unauthorized"}}'),
+        )
+
+    monkeypatch.setattr(verifier.urllib.request, "urlopen", fake_urlopen)
+
+    with pytest.raises(RuntimeError, match="status=401") as raised:
+        verifier._query_rows(
+            workspace_id="0c73db66-d049-4ddd-940e-502e1cb75cf1",
+            revision="hinterland-api--0000045",
+            image="hinterlandacrdev.azurecr.io/hinterland-api@sha256:" + "a" * 64,
+            observation_ids=observation_ids,
+            started_at=datetime(2026, 7, 12, 12, 0, tzinfo=UTC),
+            finished_at=datetime(2026, 7, 12, 12, 5, tzinfo=UTC),
+            bearer_token=secret,
+        )
+
+    assert secret not in str(raised.value)
+    assert raised.value.__cause__ is None
+
+
+def test_cli_invocation_preserves_windows_and_posix_paths() -> None:
+    arguments = ["monitor", "log-analytics", "query", "--analytics-query", "Table | take 1"]
+
+    windows_command, windows_shell, windows_executable = verifier._azure_cli_invocation(
+        r"C:\Program Files\Azure CLI\az.cmd",
+        arguments,
+        windows=True,
+        comspec=r"C:\Windows\System32\cmd.exe",
+    )
+    posix_command, posix_shell, posix_executable = verifier._azure_cli_invocation(
+        "/usr/bin/az",
+        arguments,
+        windows=False,
+        comspec=None,
+    )
+
+    assert isinstance(windows_command, str)
+    assert '"Table | take 1"' in windows_command
+    assert windows_shell is True
+    assert windows_executable == r"C:\Windows\System32\cmd.exe"
+    assert posix_command == ["/usr/bin/az", *arguments]
+    assert posix_shell is False
+    assert posix_executable is None
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {},
+        {"tables": []},
+        {"tables": [{"columns": [{"name": "only"}], "rows": [[1, 2]]}]},
+    ],
+)
+def test_http_result_shape_fails_closed(payload: object) -> None:
+    with pytest.raises(RuntimeError, match="Log Analytics HTTP API"):
+        verifier._rows_from_http_response(payload)

@@ -91,7 +91,10 @@ The promotion job performs this order:
    observations. Promotion polls Log Analytics for every exact observation on
    the exact revision and immutable image, and fails on missing/duplicate/
    partial events or nearest-rank dispatcher p95 greater than or equal to
-   300 ms;
+   300 ms. The verifier uses the protected environment's GitHub OIDC assertion
+   to mint a short-lived Log Analytics data-plane token in memory; neither the
+   assertion nor access token is written to the artifact, command line, or
+   logs. Local operators retain the authenticated Azure CLI fallback;
 9. runs the database health job in strict mode, requires empty moderation
    active/DLQ counts, provisions/verifies alerts, and sends an action-group test;
 10. verifies every API/job setting and immutable image again, rechecks the web
