@@ -25,6 +25,14 @@ tags:
     id: "tab-observe"
 - assertVisible:
     id: "observe-screen"
+- scrollUntilVisible:
+    element:
+      id: "observation-library-button"
+    direction: DOWN
+    timeout: 20000
+    speed: 40
+    visibilityPercentage: 100
+    centerElement: true
 - tapOn:
     id: "observation-library-button"
 - runFlow: "../partials/pick_first_android_image.yaml"
@@ -34,28 +42,76 @@ tags:
     timeout: 30000
 - assertVisible:
     id: "observation-confirm-image"
+- scrollUntilVisible:
+    element:
+      id: "observation-confirm-button"
+    direction: DOWN
+    timeout: 20000
+    speed: 40
+    visibilityPercentage: 100
+    centerElement: true
 - tapOn:
     id: "observation-confirm-button"
 - extendedWaitUntil:
     visible:
       id: "observation-submit-screen"
     timeout: 30000
+- scrollUntilVisible:
+    element:
+      id: "observation-no-location-button"
+    direction: DOWN
+    timeout: 20000
+    speed: 40
+    visibilityPercentage: 100
+    centerElement: true
 - tapOn:
     id: "observation-no-location-button"
+- scrollUntilVisible:
+    element:
+      id: "observation-unknown-button"
+    direction: DOWN
+    timeout: 20000
+    speed: 40
+    visibilityPercentage: 100
+    centerElement: true
 - tapOn:
     id: "observation-unknown-button"
+- scrollUntilVisible:
+    element:
+      id: "observation-save-button"
+    direction: DOWN
+    timeout: 20000
+    speed: 40
+    visibilityPercentage: 100
+    centerElement: true
 - tapOn:
     id: "observation-save-button"
 - extendedWaitUntil:
     visible:
       id: "observation-stage-complete"
     timeout: 120000
+- scrollUntilVisible:
+    element:
+      id: "observation-done-button"
+    direction: DOWN
+    timeout: 20000
+    speed: 40
+    visibilityPercentage: 100
+    centerElement: true
 - tapOn:
     id: "observation-done-button"
 - extendedWaitUntil:
     visible:
       id: "field-journal-screen"
     timeout: 30000
+- scrollUntilVisible:
+    element:
+      id: "field-journal-observation-card"
+    direction: DOWN
+    timeout: 20000
+    speed: 40
+    visibilityPercentage: 100
+    centerElement: true
 - extendedWaitUntil:
     visible:
       id: "field-journal-private-status"
@@ -76,6 +132,14 @@ tags:
 - assertVisible: "This photo is private during the pilot."
 - assertNotVisible:
     id: "observation-detail-photo-image"
+- takeScreenshot: "w1-pilot-private-observation"
+- scrollUntilVisible:
+    element:
+      text: "Manual identification correction"
+    direction: DOWN
+    timeout: 20000
+    speed: 40
+    visibilityPercentage: 100
+    centerElement: true
 - assertNotVisible:
     id: "observation-photo-helper-button"
-- takeScreenshot: "w1-pilot-private-observation"

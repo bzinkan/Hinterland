@@ -7,10 +7,23 @@ appId: app.thehinterlandguide
     text: "Select photos.*"
     optional: true
 - tapOn:
+    text: "Photo taken on .*"
+    index: 0
+    optional: true
+- tapOn:
+    text: "^(Done|Add|Select)$"
+    optional: true
+- tapOn:
     id: "com.google.android.providers.media.module:id/icon_thumbnail"
     index: 0
     optional: true
 - tapOn:
+    text: "^(Done|Add|Select)$"
+    optional: true
+- tapOn:
     id: "com.google.android.documentsui:id/thumbnail"
     index: 0
+    optional: true
+- tapOn:
+    text: "^(Done|Add|Select)$"
     optional: true
