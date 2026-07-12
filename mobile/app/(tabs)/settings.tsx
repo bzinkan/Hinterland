@@ -178,13 +178,17 @@ export default function SettingsScreen() {
             <Text style={styles.value}>signed in as {signedInUser.display_name}</Text>
             <Text style={styles.help}>role: {signedInUser.role}</Text>
             <Pressable
+              accessibilityRole="button"
+              accessibilityState={{ disabled: busy, busy }}
               style={[styles.button, styles.buttonGhost, busy && styles.buttonDisabled]}
               onPress={() => void requestSignOut()}
               disabled={busy}
             >
-              <Text style={styles.buttonText}>Sign out</Text>
+              <Text style={[styles.buttonText, styles.buttonGhostText]}>Sign out</Text>
             </Pressable>
             <Pressable
+              accessibilityRole="button"
+              accessibilityState={{ disabled: busy, busy }}
               style={[styles.button, styles.buttonDanger, busy && styles.buttonDisabled]}
               onPress={handleRequestDeletion}
               disabled={busy}
@@ -196,6 +200,7 @@ export default function SettingsScreen() {
           <>
             <Text style={styles.value}>not signed in</Text>
             <Pressable
+              accessibilityRole="button"
               style={[styles.button, styles.buttonPrimary]}
               onPress={() => router.push("/sign-in")}
             >
@@ -233,16 +238,18 @@ export default function SettingsScreen() {
 
         <Text style={styles.label}>Adult tools</Text>
         <Pressable
+          accessibilityRole="button"
           style={[styles.button, styles.buttonGhost]}
           onPress={() => router.push("/classroom")}
         >
-          <Text style={styles.buttonText}>Open classroom</Text>
+          <Text style={[styles.buttonText, styles.buttonGhostText]}>Open classroom</Text>
         </Pressable>
         <Pressable
+          accessibilityRole="button"
           style={[styles.button, styles.buttonGhost]}
           onPress={() => router.push("/review-queue")}
         >
-          <Text style={styles.buttonText}>Open review queue</Text>
+          <Text style={[styles.buttonText, styles.buttonGhostText]}>Open review queue</Text>
         </Pressable>
         <Text style={styles.help}>
           Parents and teachers only. Kid accounts get a "not available"
@@ -271,21 +278,29 @@ export default function SettingsScreen() {
                   : "○ no token"}
             </Text>
             <TextInput
+              accessibilityLabel="Development bearer token"
+              autoComplete="off"
+              spellCheck={false}
               style={styles.input}
               value={draft}
               onChangeText={setDraft}
               placeholder="paste bearer token here"
-              placeholderTextColor="#999"
+              placeholderTextColor="#6b7280"
               autoCapitalize="none"
               autoCorrect={false}
               multiline
             />
             <View style={styles.row}>
               <Pressable
+                accessibilityRole="button"
+                accessibilityState={{
+                  disabled: busy || draft.trim().length === 0,
+                  busy,
+                }}
                 style={[
                   styles.button,
                   styles.buttonPrimary,
-                  busy && styles.buttonDisabled,
+                  (busy || draft.trim().length === 0) && styles.buttonDisabled,
                 ]}
                 onPress={handleSaveDevToken}
                 disabled={busy || draft.trim().length === 0}
@@ -293,15 +308,20 @@ export default function SettingsScreen() {
                 <Text style={styles.buttonText}>Save token</Text>
               </Pressable>
               <Pressable
+                accessibilityRole="button"
+                accessibilityState={{
+                  disabled: busy || tokenSaved !== true,
+                  busy,
+                }}
                 style={[
                   styles.button,
                   styles.buttonGhost,
-                  busy && styles.buttonDisabled,
+                  (busy || tokenSaved !== true) && styles.buttonDisabled,
                 ]}
                 onPress={handleClearDevToken}
                 disabled={busy || tokenSaved !== true}
               >
-                <Text style={styles.buttonText}>Clear</Text>
+                <Text style={[styles.buttonText, styles.buttonGhostText]}>Clear</Text>
               </Pressable>
             </View>
           </>
@@ -353,7 +373,8 @@ const styles = StyleSheet.create({
     marginTop: 12,
     fontFamily: "SpaceMono",
     fontSize: 12,
-    color: "#fff",
+    color: "#1f2937",
+    backgroundColor: "#fff",
   },
   row: {
     flexDirection: "row",
@@ -361,6 +382,8 @@ const styles = StyleSheet.create({
     marginTop: 12,
   },
   button: {
+    minHeight: 44,
+    minWidth: 44,
     paddingHorizontal: 14,
     paddingVertical: 8,
     borderRadius: 6,
@@ -372,6 +395,7 @@ const styles = StyleSheet.create({
   buttonGhost: {
     borderColor: "#888",
     borderWidth: StyleSheet.hairlineWidth,
+    backgroundColor: "#fff",
   },
   buttonDanger: {
     backgroundColor: "#991b1b",
@@ -382,5 +406,8 @@ const styles = StyleSheet.create({
   buttonText: {
     fontSize: 14,
     color: "#fff",
+  },
+  buttonGhostText: {
+    color: "#1f2937",
   },
 });

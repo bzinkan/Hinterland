@@ -104,10 +104,11 @@ export default function ReviewQueueScreen() {
               : err.message}
           </Text>
           <Pressable
-            style={[styles.button, styles.buttonGhost]}
+            accessibilityRole="button"
+            style={[styles.button, styles.buttonGhostLight]}
             onPress={() => router.back()}
           >
-            <Text style={styles.buttonText}>Back</Text>
+            <Text style={[styles.buttonText, styles.buttonGhostText]}>Back</Text>
           </Pressable>
         </View>
       </DesktopContainer>
@@ -180,6 +181,8 @@ function ReviewCard({
     <View style={styles.card}>
       {url.data ? (
         <Image
+          accessibilityRole="image"
+          accessibilityLabel="Observation photo awaiting adult review"
           source={{ uri: url.data.url }}
           style={styles.thumb}
           resizeMode="cover"
@@ -203,6 +206,8 @@ function ReviewCard({
       )}
       <View style={styles.actions}>
         <Pressable
+          accessibilityRole="button"
+          accessibilityState={{ disabled: busy, busy }}
           style={[styles.button, styles.buttonGhost, busy && styles.buttonDisabled]}
           disabled={busy}
           onPress={onReject}
@@ -210,6 +215,8 @@ function ReviewCard({
           <Text style={styles.buttonText}>Reject</Text>
         </Pressable>
         <Pressable
+          accessibilityRole="button"
+          accessibilityState={{ disabled: busy, busy }}
           style={[styles.button, styles.buttonPrimary, busy && styles.buttonDisabled]}
           disabled={busy}
           onPress={onApprove}
@@ -253,11 +260,13 @@ const styles = StyleSheet.create({
     backgroundColor: "#000",
   },
   thumbPlaceholder: { alignItems: "center", justifyContent: "center" },
-  thumbError: { fontSize: 12, opacity: 0.6 },
-  cardMeta: { fontSize: 12, opacity: 0.6 },
-  cardReason: { fontSize: 12, opacity: 0.7, marginTop: 4 },
+  thumbError: { fontSize: 12, color: "#fff", opacity: 0.75 },
+  cardMeta: { fontSize: 12, color: "#fff", opacity: 0.75 },
+  cardReason: { fontSize: 12, color: "#fff", opacity: 0.85, marginTop: 4 },
   actions: { flexDirection: "row", gap: 12, marginTop: 12 },
   button: {
+    minHeight: 44,
+    minWidth: 44,
     paddingHorizontal: 16,
     paddingVertical: 10,
     borderRadius: 6,
@@ -266,6 +275,12 @@ const styles = StyleSheet.create({
   },
   buttonPrimary: { backgroundColor: "#2f6feb" },
   buttonGhost: { borderColor: "#888", borderWidth: StyleSheet.hairlineWidth },
+  buttonGhostLight: {
+    borderColor: "#888",
+    borderWidth: StyleSheet.hairlineWidth,
+    backgroundColor: "#fff",
+  },
   buttonDisabled: { opacity: 0.4 },
   buttonText: { fontSize: 14, color: "#fff" },
+  buttonGhostText: { color: "#1f2937" },
 });

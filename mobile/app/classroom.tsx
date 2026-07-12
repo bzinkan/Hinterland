@@ -16,6 +16,7 @@ import QRCode from "react-native-qrcode-svg";
 
 import DesktopContainer from "@/components/DesktopContainer";
 import { Text, View } from "@/components/Themed";
+import { useColorScheme } from "@/components/useColorScheme";
 import { ApiError } from "@/src/api/client";
 import {
   type AgeBand,
@@ -70,8 +71,12 @@ export default function ClassroomScreen() {
               ? "The classroom view is for parent and teacher accounts."
               : err.message}
           </Text>
-          <Pressable style={[styles.button, styles.buttonGhost]} onPress={() => router.back()}>
-            <Text style={styles.buttonText}>Back</Text>
+          <Pressable
+            accessibilityRole="button"
+            style={[styles.button, styles.buttonGhost]}
+            onPress={() => router.back()}
+          >
+            <Text style={[styles.buttonText, styles.buttonGhostText]}>Back</Text>
           </Pressable>
         </View>
       </DesktopContainer>
@@ -151,6 +156,10 @@ function GroupPicker({
           return (
             <Pressable
               key={g.id}
+              testID={`classroom-group-tab-${g.id}`}
+              accessibilityRole="button"
+              accessibilityLabel={`Open group ${g.name}`}
+              accessibilityState={{ selected: active }}
               style={[styles.tab, active && styles.tabActive]}
               onPress={() => onSelect(g.id)}
             >
@@ -159,6 +168,9 @@ function GroupPicker({
           );
         })}
         <Pressable
+          testID="classroom-new-group-button"
+          accessibilityRole="button"
+          accessibilityState={{ expanded: creating }}
           style={[styles.tab, styles.tabGhost]}
           onPress={() => setCreating((v) => !v)}
         >
@@ -168,14 +180,26 @@ function GroupPicker({
       {creating && (
         <RNView style={styles.row}>
           <TextInput
+            accessibilityLabel="Group name"
+            autoComplete="off"
             style={[styles.input, { flex: 1 }]}
             value={draft}
             onChangeText={setDraft}
             placeholder="Group name (e.g. Mr. Smith's 5th grade)"
-            placeholderTextColor="#999"
+            placeholderTextColor="#6b7280"
           />
           <Pressable
-            style={[styles.button, styles.buttonPrimary]}
+            testID="classroom-create-group-button"
+            accessibilityRole="button"
+            accessibilityState={{
+              disabled: create.isPending || draft.trim().length === 0,
+              busy: create.isPending,
+            }}
+            style={[
+              styles.button,
+              styles.buttonPrimary,
+              (create.isPending || draft.trim().length === 0) && styles.buttonDisabled,
+            ]}
             disabled={create.isPending || draft.trim().length === 0}
             onPress={() => create.mutate(draft.trim())}
           >
@@ -219,14 +243,26 @@ function NoGroupYet({ onCreated }: { onCreated: (g: Group) => void }) {
         per family, per class, or per club.
       </Text>
       <TextInput
+        accessibilityLabel="Group name"
+        autoComplete="off"
         style={styles.input}
         value={draft}
         onChangeText={setDraft}
         placeholder="Group name"
-        placeholderTextColor="#999"
+        placeholderTextColor="#6b7280"
       />
       <Pressable
-        style={[styles.button, styles.buttonPrimary, create.isPending && styles.buttonDisabled]}
+        testID="classroom-create-first-group-button"
+        accessibilityRole="button"
+        accessibilityState={{
+          disabled: create.isPending || draft.trim().length === 0,
+          busy: create.isPending,
+        }}
+        style={[
+          styles.button,
+          styles.buttonPrimary,
+          (create.isPending || draft.trim().length === 0) && styles.buttonDisabled,
+        ]}
         disabled={create.isPending || draft.trim().length === 0}
         onPress={() => create.mutate(draft.trim())}
       >
@@ -261,6 +297,9 @@ function GroupDetail({ group }: { group: Group }) {
           </Text>
         </RNView>
         <Pressable
+          testID="classroom-add-kid-button"
+          accessibilityRole="button"
+          accessibilityLabel={`Add a kid to ${group.name}`}
           style={[styles.button, styles.buttonPrimary]}
           onPress={() => setShowAdd(true)}
         >
@@ -305,9 +344,16 @@ function GroupDetail({ group }: { group: Group }) {
 }
 
 function RosterRow({ member }: { member: RosterMember }) {
+  const colorScheme = useColorScheme();
   const subtitle = member.role === "kid" ? `kid · age ${member.age_band ?? "?"}` : member.role;
   return (
-    <RNView style={styles.rosterRow}>
+    <RNView
+      testID={`classroom-roster-row-${member.membership_id}`}
+      style={[
+        styles.rosterRow,
+        colorScheme === "dark" ? styles.rosterRowDark : styles.rosterRowLight,
+      ]}
+    >
       <RNView style={{ flex: 1 }}>
         <Text style={styles.rosterName}>{member.display_name}</Text>
         <Text style={styles.rosterMeta}>{subtitle}</Text>
@@ -365,22 +411,33 @@ function AddKidModal({
 
           <Text style={styles.sectionLabel}>Display name</Text>
           <TextInput
+            testID="classroom-kid-display-name"
+            accessibilityLabel="Kid display name"
+            autoComplete="off"
             style={styles.input}
             value={name}
             onChangeText={setName}
             placeholder="First name or nickname"
-            placeholderTextColor="#999"
+            placeholderTextColor="#6b7280"
             autoCapitalize="words"
             autoCorrect={false}
           />
 
           <Text style={styles.sectionLabel}>Age band</Text>
-          <RNView style={styles.tabRow}>
+          <RNView
+            accessibilityRole="radiogroup"
+            accessibilityLabel="Age band selection"
+            style={styles.tabRow}
+          >
             {AGE_BANDS.map((band) => {
               const active = band === ageBand;
               return (
                 <Pressable
                   key={band}
+                  testID={`classroom-age-band-${band}`}
+                  accessibilityRole="radio"
+                  accessibilityLabel={`Age band ${band}`}
+                  accessibilityState={{ checked: active }}
                   style={[styles.tab, active && styles.tabActive]}
                   onPress={() => setAgeBand(band)}
                 >
@@ -392,13 +449,25 @@ function AddKidModal({
 
           <RNView style={styles.row}>
             <Pressable
-              style={[styles.button, styles.buttonGhost, { flex: 1 }]}
+              accessibilityRole="button"
+              accessibilityState={{ disabled: create.isPending }}
+              style={[
+                styles.button,
+                styles.buttonGhost,
+                create.isPending && styles.buttonDisabled,
+                { flex: 1 },
+              ]}
               onPress={onClose}
               disabled={create.isPending}
             >
-              <Text style={styles.buttonText}>Cancel</Text>
+              <Text style={[styles.buttonText, styles.buttonGhostText]}>Cancel</Text>
             </Pressable>
             <Pressable
+              accessibilityRole="button"
+              accessibilityState={{
+                disabled: create.isPending || !name.trim(),
+                busy: create.isPending,
+              }}
               style={[
                 styles.button,
                 styles.buttonPrimary,
@@ -456,6 +525,7 @@ function HandoffModal({
             )}
           </RNView>
           <Pressable
+            accessibilityRole="button"
             style={[styles.button, styles.buttonPrimary]}
             onPress={onClose}
           >
@@ -486,16 +556,19 @@ const styles = StyleSheet.create({
   code: { fontFamily: "SpaceMono", fontSize: 13 },
   tabRow: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 6 },
   tab: {
+    minHeight: 44,
+    minWidth: 44,
     paddingHorizontal: 12,
     paddingVertical: 6,
     borderRadius: 999,
     borderColor: "#888",
     borderWidth: StyleSheet.hairlineWidth,
+    backgroundColor: "#fff",
   },
   tabActive: { backgroundColor: "#2f6feb", borderColor: "#2f6feb" },
   tabGhost: { borderStyle: "dashed" },
-  tabText: { fontSize: 13, color: "#fff", opacity: 0.85 },
-  tabTextActive: { opacity: 1, fontWeight: "600" },
+  tabText: { fontSize: 13, color: "#1f2937", opacity: 0.85 },
+  tabTextActive: { color: "#fff", opacity: 1, fontWeight: "600" },
   row: { flexDirection: "row", gap: 8, alignItems: "center", marginTop: 8 },
   input: {
     minHeight: 40,
@@ -504,10 +577,13 @@ const styles = StyleSheet.create({
     borderRadius: 6,
     paddingHorizontal: 10,
     fontSize: 14,
-    color: "#fff",
+    color: "#1f2937",
+    backgroundColor: "#fff",
     marginTop: 6,
   },
   button: {
+    minHeight: 44,
+    minWidth: 44,
     paddingHorizontal: 14,
     paddingVertical: 10,
     borderRadius: 6,
@@ -515,16 +591,22 @@ const styles = StyleSheet.create({
     marginTop: 8,
   },
   buttonPrimary: { backgroundColor: "#2f6feb" },
-  buttonGhost: { borderColor: "#888", borderWidth: StyleSheet.hairlineWidth },
+  buttonGhost: {
+    borderColor: "#888",
+    borderWidth: StyleSheet.hairlineWidth,
+    backgroundColor: "#fff",
+  },
   buttonDisabled: { opacity: 0.4 },
   buttonText: { fontSize: 14, color: "#fff" },
+  buttonGhostText: { color: "#1f2937" },
   rosterRow: {
     flexDirection: "row",
     alignItems: "center",
     paddingVertical: 10,
-    borderBottomColor: "rgba(255,255,255,0.1)",
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
+  rosterRowLight: { borderBottomColor: "rgba(31,41,55,0.15)" },
+  rosterRowDark: { borderBottomColor: "rgba(255,255,255,0.1)" },
   rosterName: { fontSize: 14, fontWeight: "500" },
   rosterMeta: { fontSize: 12, opacity: 0.6, marginTop: 2 },
   modalScrim: {

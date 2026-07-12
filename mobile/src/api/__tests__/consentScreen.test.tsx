@@ -1,4 +1,4 @@
-import { TextInput } from "react-native";
+import { StyleSheet, TextInput } from "react-native";
 import renderer, { act } from "react-test-renderer";
 
 import ConsentScreen from "@/app/consent";
@@ -66,6 +66,30 @@ describe("ConsentScreen", () => {
     jest.clearAllMocks();
     mockStoredProof = null;
     useAuthSession.getState().setAnonymous();
+  });
+
+  it("keeps the email control readable and labelled on the light parent surface", () => {
+    let tree!: renderer.ReactTestRenderer;
+    act(() => {
+      tree = renderer.create(<ConsentScreen />);
+    });
+
+    const input = tree.root.findByType(TextInput);
+    expect(input.props.accessibilityLabel).toBe("Parent or guardian email");
+    expect(input.props.autoComplete).toBe("email");
+    expect(input.props.placeholderTextColor).toBe("#6b7280");
+    expect(StyleSheet.flatten(input.props.style)).toMatchObject({
+      color: "#1f2937",
+      backgroundColor: "#fff",
+    });
+    expect(
+      tree.root.findByProps({ testID: "consent-agreement-checkbox" }).props,
+    ).toMatchObject({
+      accessibilityRole: "checkbox",
+      accessibilityState: { checked: false },
+    });
+
+    act(() => tree.unmount());
   });
 
   it("reuses one private nonce after an ambiguous recording error", async () => {

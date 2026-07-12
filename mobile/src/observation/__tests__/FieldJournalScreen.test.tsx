@@ -1,3 +1,4 @@
+import { StyleSheet, Text } from "react-native";
 import renderer, { act } from "react-test-renderer";
 
 import FieldJournalScreen from "@/app/(tabs)/index";
@@ -238,6 +239,15 @@ describe("Field Journal screen", () => {
     expect(
       tree.root.findAllByProps({ testID: "field-journal-private-status" }).length,
     ).toBeGreaterThan(0);
+    const privateStatus = tree.root.findByProps({
+      testID: "field-journal-private-status",
+    });
+    const privateStatusText = privateStatus
+      .findAllByType(Text)
+      .find((node) => node.props.children === "This photo is private during the pilot.")!;
+    expect(
+      StyleSheet.flatten(privateStatusText.props.style),
+    ).toMatchObject({ color: "#fff" });
     expect(
       tree.root.findAllByProps({ testID: "field-journal-photo-image" }),
     ).toHaveLength(0);

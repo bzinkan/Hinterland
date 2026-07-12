@@ -191,11 +191,16 @@ export default function ConsentScreen() {
 
         <Text style={styles.sectionLabel}>Your email</Text>
         <TextInput
+          accessibilityLabel="Parent or guardian email"
+          autoComplete="email"
+          inputMode="email"
+          spellCheck={false}
+          textContentType="emailAddress"
           style={styles.input}
           value={email}
           onChangeText={setEmail}
           placeholder="parent@example.com"
-          placeholderTextColor="#999"
+          placeholderTextColor="#6b7280"
           autoCapitalize="none"
           autoCorrect={false}
           keyboardType="email-address"
@@ -204,6 +209,8 @@ export default function ConsentScreen() {
 
         <Pressable
           testID="consent-agreement-checkbox"
+          accessibilityRole="checkbox"
+          accessibilityState={{ checked: agreed }}
           style={styles.checkboxRow}
           onPress={() => setAgreed((x) => !x)}
         >
@@ -340,7 +347,8 @@ const styles = StyleSheet.create({
     marginTop: 4,
     marginBottom: 12,
     fontSize: 14,
-    color: "#fff",
+    color: "#1f2937",
+    backgroundColor: "#fff",
   },
   checkboxRow: {
     flexDirection: "row",

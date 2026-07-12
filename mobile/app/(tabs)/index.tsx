@@ -408,7 +408,7 @@ function JournalBodyState({
               void clearBearerToken().finally(() => router.replace("/kid-handoff"));
             }}
           >
-            <Text style={styles.buttonText}>Ask an adult</Text>
+            <Text style={[styles.buttonText, styles.buttonGhostText]}>Ask an adult</Text>
           </Pressable>
         ) : (
           <Pressable
@@ -417,7 +417,7 @@ function JournalBodyState({
             style={[styles.button, styles.buttonGhost]}
             onPress={onRetry}
           >
-            <Text style={styles.buttonText}>Retry</Text>
+            <Text style={[styles.buttonText, styles.buttonGhostText]}>Retry</Text>
           </Pressable>
         )}
       </View>
@@ -633,7 +633,9 @@ function LoadMoreButton({
       disabled={loading}
       onPress={onPress}
     >
-      <Text style={styles.buttonText}>{loading ? "Loading..." : "Load more"}</Text>
+      <Text style={[styles.buttonText, styles.buttonGhostText]}>
+        {loading ? "Loading…" : "Load more"}
+      </Text>
     </Pressable>
   );
 }
@@ -783,6 +785,7 @@ const styles = StyleSheet.create({
   },
   placeholderText: {
     fontSize: 12,
+    color: "#fff",
     opacity: 0.72,
     textAlign: "center",
   },
@@ -810,10 +813,14 @@ const styles = StyleSheet.create({
   buttonGhost: {
     borderColor: "#888",
     borderWidth: StyleSheet.hairlineWidth,
+    backgroundColor: "#fff",
   },
   buttonText: {
     fontSize: 14,
     color: "#fff",
+  },
+  buttonGhostText: {
+    color: "#1f2937",
   },
   loadMore: {
     marginTop: 4,
