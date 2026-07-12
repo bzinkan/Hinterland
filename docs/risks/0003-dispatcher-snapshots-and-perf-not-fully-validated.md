@@ -32,6 +32,28 @@ Unknown/catalog/active-Expedition registry probe plus a bounded SQL statement
 budget for the exact Unknown/no-location device path; exact Azure evidence is
 still required before this risk can close.
 
+The first exact-revision 50-sample Azure probe on revision
+`hinterland-api--0000045` completed every dispatch but confirmed that the risk
+remains open. Aggregate p95 was 888.16 ms. Unknown/no-location was within budget
+at 227.99 ms p95, while catalog/no-location was 1193.86 ms and
+catalog/coarse-location was 1181.40 ms. Handler p95 values were 142.57 ms for
+Dex, 167.18 ms for Rarity, 360.16 ms for World, and 115.66 ms for Expedition.
+The promotion verifier's initial ARM-scoped Azure CLI OIDC session could not
+mint the separate Log Analytics data-plane audience. It now exchanges a fresh,
+environment-scoped GitHub OIDC assertion for a short-lived data-plane token in
+memory and queries the documented Log Analytics HTTPS endpoint directly. No
+assertion or token is placed in the command line, logs, or promotion artifact.
+That operational repair does not change or waive the 300 ms gate.
+
+The measured handler timings track the approximately 28 ms East US API to
+Central US PostgreSQL round trip, while PostgreSQL CPU and I/O remained well
+below saturation. Even the practical remaining SQL reductions cannot preserve
+the required client-issued savepoint around every handler and bring catalog
+paths below 300 ms across regions. The next promotion therefore requires an
+additive Central US API deployment against the existing canonical database,
+with the East US API retained as rollback until the exact 50-sample probe and
+public cutover both pass.
+
 ## Remaining Closure Checklist
 
 - [x] Implement low-data rarity fallback and duration logging.

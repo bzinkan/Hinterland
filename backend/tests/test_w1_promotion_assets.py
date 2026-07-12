@@ -123,6 +123,16 @@ def test_w1_promotion_order_and_containment_are_explicit() -> None:
     assert '--expected-image "$IMAGE"' in benchmark_step
     assert "--threshold-ms 300" in benchmark_step
     assert "--timeout-seconds 900" in benchmark_step
+    assert "AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}" in benchmark_step
+    assert "AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}" in benchmark_step
+    assert (
+        "backend/.venv/bin/python scripts/verify_deployed_dispatcher_benchmark.py" in benchmark_step
+    )
+    assert "get-access-token" not in benchmark_step
+    assert "--log-token-stdin" not in benchmark_step
+    assert "log_analytics_token" not in benchmark_step
+    assert "AZURE_CREDENTIALS" not in benchmark_step
+    assert "id-token: write" in workflow
     assert "del(.observation_ids)" in workflow
     assert workflow.count("--slurpfile benchmark") >= 2
     assert 'HINTERLAND_DISPATCHER_BENCHMARK_SAMPLES: "50"' in workflow

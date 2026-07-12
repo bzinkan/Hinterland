@@ -894,6 +894,9 @@ jobs:
           python scripts/smoke_azure_parent_kid.py
 
       - name: Require exact-revision deployed dispatcher p95 below 300 ms
+        env:
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
         run: |
           set -euo pipefail
           workspace_id="$(az monitor log-analytics workspace show \
@@ -901,7 +904,7 @@ jobs:
             --workspace-name hinterland-law-dev \
             --query customerId --output tsv)"
           test -n "$workspace_id"
-          python scripts/verify_deployed_dispatcher_benchmark.py \
+          backend/.venv/bin/python scripts/verify_deployed_dispatcher_benchmark.py \
             --seed-evidence promotion-artifact/authenticated-smoke.json \
             --workspace-id "$workspace_id" \
             --expected-revision "$W1_API_READY_REVISION" \
