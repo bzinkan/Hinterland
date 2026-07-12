@@ -202,7 +202,6 @@ class ExpeditionHandler:
 
         rewards: list[Reward] = []
         for progress, _content, exp, completed, next_step in candidates:
-
             inputs = replace(
                 base_inputs,
                 current_expedition_taxon_ids=completed_taxa.get(progress.id, frozenset()),
@@ -307,9 +306,7 @@ class ExpeditionHandler:
             )
         ).all()
         taxon_by_observation = {
-            observation_id: taxon_id
-            for observation_id, taxon_id in rows
-            if taxon_id is not None
+            observation_id: taxon_id for observation_id, taxon_id in rows if taxon_id is not None
         }
         return {
             progress_id: frozenset(

@@ -458,9 +458,7 @@ def run_dispatcher_benchmark(
             if not isinstance(observation_id, str) or len(observation_id) != 26:
                 raise RuntimeError("benchmark create omitted canonical observation id")
             if body.get("dispatch_status") != "complete":
-                raise RuntimeError(
-                    f"benchmark dispatch did not complete for scenario {scenario}"
-                )
+                raise RuntimeError(f"benchmark dispatch did not complete for scenario {scenario}")
             create_id_list: list[str] = []
             _record_request_id(created, create_id_list)
             if len(create_id_list) != 1:

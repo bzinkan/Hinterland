@@ -120,5 +120,8 @@ def test_dispatcher_benchmark_seeds_mixed_private_safe_workload(
         "catalog_no_location": 5,
         "catalog_coarse_location": 5,
     }
-    assert all("latitude" not in payload and "longitude" not in payload for payload in client.create_payloads)
+    assert all(
+        "latitude" not in payload and "longitude" not in payload
+        for payload in client.create_payloads
+    )
     assert sum(payload.get("geohash4") == "dnp1" for payload in client.create_payloads) == 5

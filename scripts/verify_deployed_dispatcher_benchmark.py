@@ -226,7 +226,7 @@ def _query_rows(
 let benchmark_ids = dynamic({ids_json});
 ContainerAppConsoleLogs_CL
 | where TimeGenerated between(datetime({start}) .. datetime({end}))
-| where ContainerAppName_s == '{revision.split('--', 1)[0]}'
+| where ContainerAppName_s == '{revision.split("--", 1)[0]}'
 | where RevisionName_s == '{revision}'
 | where ContainerImage_s == '{image}'
 | extend j=parse_json(Log_s)
@@ -249,16 +249,16 @@ ContainerAppConsoleLogs_CL
         # Kusto uses pipes/semicolons, not newlines, for this query's grammar.
         query = " ".join(line.strip() for line in query.splitlines())
     az_arguments = [
-            "monitor",
-            "log-analytics",
-            "query",
-            "--workspace",
-            workspace_id,
-            "--analytics-query",
-            query,
-            "--output",
-            "json",
-        ]
+        "monitor",
+        "log-analytics",
+        "query",
+        "--workspace",
+        workspace_id,
+        "--analytics-query",
+        query,
+        "--output",
+        "json",
+    ]
     command: str | list[str] = [az_cli, *az_arguments]
     run_with_shell = False
     shell_executable: str | None = None
@@ -323,9 +323,7 @@ def main() -> int:
             finished_at=finished_at,
         )
         observed_ids = {
-            row.get("observation_id")
-            for row in rows
-            if isinstance(row.get("observation_id"), str)
+            row.get("observation_id") for row in rows if isinstance(row.get("observation_id"), str)
         }
         if len(observed_ids) >= len(observation_ids) or time.monotonic() >= deadline:
             break

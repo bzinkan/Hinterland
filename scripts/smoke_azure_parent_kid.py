@@ -43,9 +43,7 @@ API_BASE = os.environ.get("HINTERLAND_API_BASE_URL", "https://api.thehinterlandg
 PARENT_BEARER = os.environ.get("HINTERLAND_SMOKE_ENTRA_BEARER", "").strip()
 PARENT_NAME = os.environ.get("HINTERLAND_SMOKE_PARENT_NAME", "Smoke Test Parent")
 KID_NAME = os.environ.get("HINTERLAND_SMOKE_KID_NAME", "Sparrow")
-DISPATCHER_BENCHMARK_SAMPLES = int(
-    os.environ.get("HINTERLAND_DISPATCHER_BENCHMARK_SAMPLES", "0")
-)
+DISPATCHER_BENCHMARK_SAMPLES = int(os.environ.get("HINTERLAND_DISPATCHER_BENCHMARK_SAMPLES", "0"))
 _REQUEST_ID_PATTERN = re.compile(r"^[A-Za-z0-9._:-]{1,128}$")
 
 

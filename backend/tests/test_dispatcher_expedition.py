@@ -229,9 +229,7 @@ async def test_not_in_current_expedition_blocks_repeat_species(
         )
     )
     completed_taxa_result = MagicMock()
-    completed_taxa_result.all = MagicMock(
-        return_value=[("01J0PREVIOUSOBS000000ULID", 47157)]
-    )
+    completed_taxa_result.all = MagicMock(return_value=[("01J0PREVIOUSOBS000000ULID", 47157)])
     fake_session.execute = AsyncMock(
         side_effect=[progress_result, species_result, completed_taxa_result]
     )
@@ -645,9 +643,7 @@ async def test_not_in_dex_reuses_atomic_dex_predecessor_state(
     progress = _progress("x")
     _wire_session(fake_session, progress_pairs=[(progress, _content("x", body))])
 
-    result = await ExpeditionHandler().handle(
-        _ctx(fake_session, is_first_find=is_first_find)
-    )
+    result = await ExpeditionHandler().handle(_ctx(fake_session, is_first_find=is_first_find))
 
     assert [reward.type for reward in result.rewards] == expected_types
     assert fake_session.execute.await_count == 2
