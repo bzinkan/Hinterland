@@ -1475,7 +1475,7 @@ jobs:
 
       - name: Publish promotion evidence
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: observation-w1-promotion-${{ github.run_id }}
           path: promotion-artifact/promotion.json
