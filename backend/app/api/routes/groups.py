@@ -7,7 +7,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Annotated, Literal
 
 import structlog
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from ulid import ULID
@@ -318,8 +318,8 @@ class KidCreateRequest(BaseModel):
     age_band: AgeBand
 
 
-class KidCreateResponse(BaseModel):
-    """Public shape of a freshly-provisioned kid + their handoff JWT.
+class KidHandoffResponse(BaseModel):
+    """Minimal public shape of a kid plus a fresh handoff JWT.
 
     The `handoff_token` is a single-use Hinterland-signed RS256 JWT (typ
     `handoff`, 15-minute TTL). The parent hands it to the kid's device via
@@ -329,11 +329,16 @@ class KidCreateResponse(BaseModel):
     """
 
     id: str
-    firebase_uid: str | None = None
     display_name: str
     age_band: str
     handoff_token: str
     expires_at: datetime
+
+
+class KidCreateResponse(KidHandoffResponse):
+    """One-release-compatible kid-create response."""
+
+    firebase_uid: str | None = None
 
 
 @router.post(
@@ -347,6 +352,7 @@ async def create_kid(
     current_user: CurrentUserDep,
     session: DbSessionDep,
     settings: Annotated[Settings, Depends(get_request_settings)],
+    response: Response,
 ) -> KidCreateResponse:
     """Admin-create a kid account inside a group and return a handoff JWT.
 
@@ -458,10 +464,134 @@ async def create_kid(
         parent_id=caller.id,
         jti=_jti,
     )
+    response.headers["Cache-Control"] = "private, no-store"
+    response.headers["Pragma"] = "no-cache"
 
     return KidCreateResponse(
         id=kid.id,
         firebase_uid=None,
+        display_name=kid.display_name,
+        age_band=str(kid.age_band),
+        handoff_token=handoff_token,
+        expires_at=handoff_expires_at,
+    )
+
+
+# ---------------------------------------------------------------------------
+# POST /v1/groups/{group_id}/kids/{kid_user_id}/handoff -- reissue kid QR
+# ---------------------------------------------------------------------------
+
+
+@router.post(
+    "/groups/{group_id}/kids/{kid_user_id}/handoff",
+    response_model=KidHandoffResponse,
+    status_code=status.HTTP_200_OK,
+)
+async def reissue_kid_handoff(
+    group_id: str,
+    kid_user_id: str,
+    current_user: CurrentUserDep,
+    session: DbSessionDep,
+    settings: Annotated[Settings, Depends(get_request_settings)],
+    response: Response,
+) -> KidHandoffResponse:
+    """Mint a fresh, short-lived handoff for an existing kid account.
+
+    This is the recovery path for a new device, an expired QR, or an
+    owner-scoped offline queue preserved across sign-out. Only the parent who
+    owns the group and originally provisioned the kid may mint another token.
+    The token is returned once, is never persisted by this endpoint, and is
+    consumed atomically by ``POST /v1/auth/kid-exchange``.
+
+    Previously minted, unconsumed handoffs remain independently single-use
+    until their 15-minute expiry. The UI therefore describes this as a new QR,
+    not as invalidating an earlier QR or another device's active session.
+    """
+    caller = await resolve_current_user_row(
+        session,
+        current_user,
+        missing_user_status=status.HTTP_404_NOT_FOUND,
+    )
+    if caller.role not in _KID_PROVISIONER_ROLES:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Role '{caller.role}' cannot provision kid handoffs.",
+        )
+    if caller.role == "teacher":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="A parent or guardian with current consent must provision this kid.",
+        )
+
+    try:
+        await require_linked_current_parent_consent(
+            session,
+            parent_user_id=caller.id,
+        )
+    except CurrentParentConsentRequiredError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=CURRENT_PARENT_CONSENT_REQUIRED_MESSAGE,
+        ) from exc
+
+    group_result = await session.execute(
+        select(models.Group).where(
+            models.Group.id == group_id,
+            models.Group.archived_at.is_(None),
+        )
+    )
+    group = group_result.scalar_one_or_none()
+    if group is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Group '{group_id}' not found.",
+        )
+    if group.owner_user_id != caller.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only the group owner can provision kid handoffs in this group.",
+        )
+
+    kid_result = await session.execute(
+        select(models.User)
+        .join(models.Membership, models.Membership.user_id == models.User.id)
+        .where(
+            models.User.id == kid_user_id,
+            models.User.role == "kid",
+            models.User.parent_user_id == caller.id,
+            models.User.disabled_at.is_(None),
+            models.Membership.group_id == group.id,
+            models.Membership.role == "kid",
+        )
+    )
+    kid = kid_result.scalar_one_or_none()
+    if kid is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Kid not found in this group.",
+        )
+
+    handoff_token, _jti = mint_handoff_token(
+        kid_user_id=kid.id,
+        parent_id=caller.id,
+        group_id=group.id,
+        settings=settings,
+    )
+    handoff_expires_at = datetime.now(UTC) + timedelta(
+        seconds=settings.hinterland_handoff_ttl_seconds
+    )
+    response.headers["Cache-Control"] = "private, no-store"
+    response.headers["Pragma"] = "no-cache"
+
+    log.info(
+        "groups.reissue_kid_handoff",
+        group_id=group.id,
+        kid_id=kid.id,
+        parent_id=caller.id,
+    )
+
+    return KidHandoffResponse(
+        id=kid.id,
         display_name=kid.display_name,
         age_band=str(kid.age_band),
         handoff_token=handoff_token,

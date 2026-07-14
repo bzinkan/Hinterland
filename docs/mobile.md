@@ -66,6 +66,13 @@ Unsynced rows remain owned by the original user. Sign-out warns the managing
 adult and offers preserve-or-explicit-discard; the next account never sees or
 processes another user's row or JPEG.
 
+The parent who owns the group can restore that original kid on the device by
+choosing **New sign-in QR** from the kid's Classroom roster row. The returned
+15-minute handoff exists only in the modal's ephemeral state, is removed on
+Done, expiry, group/account replacement, or unmount, and is never written to a
+query cache, URL, log, or local storage. After exchange, foreground queue sync
+continues only the rows whose owner matches the restored canonical kid ID.
+
 ### Immediate Identification
 
 W1 offers bundled/project-catalog search, manual display text, and Unknown.

@@ -73,6 +73,13 @@ that at `POST /v1/auth/kid-exchange` for a 30-day Hinterland session JWT.
 Hinterland kid JWTs are RS256 and are verified against
 `/.well-known/hinterland-kid-jwks.json`.
 
+For an expired QR, new device, or owner-scoped offline work preserved across
+sign-out, the consenting parent who owns the group can mint a fresh one-time
+handoff at `POST /v1/groups/{group_id}/kids/{kid_user_id}/handoff`. The server
+revalidates the canonical parent/kid relationship and exact group membership;
+the token response is private/no-store. Minting a new handoff does not claim to
+revoke another device's already-issued session.
+
 The backend augments request identity from Postgres on every real token path:
 `CurrentUser.uid` is the canonical local `users.id`. Route code should resolve
 the row through `resolve_current_user_row(...)`, not by directly querying

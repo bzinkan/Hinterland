@@ -152,6 +152,7 @@ def _write_evidence(
                 "generated_at": datetime.now(UTC).isoformat(),
                 "result": "passed",
                 "parent_kid_handoff": "passed",
+                "existing_kid_handoff_reissue": "passed",
                 "current_parent_consent_enforced": True,
                 "starter_expedition_visible": True,
                 "request_ids": request_ids,
@@ -191,12 +192,12 @@ def run_parent_kid_smoke(
     request_ids: list[str] = []
     print(f"API base: {base_url}")
 
-    print("[1/10] GET /health...")
+    print("[1/12] GET /health...")
     status, payload, headers = request(base_url, "GET", "/health")
     _record_request_id(headers, request_ids)
     expect("/health", status, payload, headers=headers)
 
-    print("[2/10] POST /v1/auth/consent...")
+    print("[2/12] POST /v1/auth/consent...")
     status, payload, headers = request(
         base_url,
         "POST",
@@ -214,7 +215,7 @@ def run_parent_kid_smoke(
     if not isinstance(consent_id, str) or len(consent_id) != 26:
         raise RuntimeError("consent response omitted the receipt id")
 
-    print("[3/10] POST /v1/auth/parent-signup...")
+    print("[3/12] POST /v1/auth/parent-signup...")
     status, payload, headers = request(
         base_url,
         "POST",
@@ -232,7 +233,7 @@ def run_parent_kid_smoke(
         raise RuntimeError("parent signup returned an unexpected role")
     parent_user_id = payload["id"]
 
-    print("[4/10] GET /v1/me as parent...")
+    print("[4/12] GET /v1/me as parent...")
     status, payload, headers = request(base_url, "GET", "/v1/me", token=parent_bearer)
     _record_request_id(headers, request_ids)
     expect("/v1/me", status, payload, headers=headers)
@@ -244,7 +245,7 @@ def run_parent_kid_smoke(
     ):
         raise RuntimeError("parent /v1/me omitted the canonical mobile identity")
 
-    print("[5/10] POST /v1/groups...")
+    print("[5/12] POST /v1/groups...")
     status, payload, headers = request(
         base_url,
         "POST",
@@ -259,7 +260,7 @@ def run_parent_kid_smoke(
     # consent recorded in step 2 was linked, not merely stored.
     group_id = payload["id"]
 
-    print("[6/10] POST /v1/groups/{group_id}/kids...")
+    print("[6/12] POST /v1/groups/{group_id}/kids...")
     status, payload, headers = request(
         base_url,
         "POST",
@@ -276,9 +277,80 @@ def run_parent_kid_smoke(
         expected_status=201,
     )
     kid_user_id = payload["id"]
-    handoff_token = payload["handoff_token"]
+    initial_handoff_token = payload.get("handoff_token")
+    if not isinstance(initial_handoff_token, str) or not initial_handoff_token:
+        raise RuntimeError("kid create response omitted the one-time handoff")
 
-    print("[7/10] POST /v1/auth/kid-exchange...")
+    print("[7/12] POST /v1/auth/kid-exchange with initial handoff...")
+    status, payload, headers = request(
+        base_url,
+        "POST",
+        "/v1/auth/kid-exchange",
+        body={"handoff_token": initial_handoff_token},
+    )
+    _record_request_id(headers, request_ids)
+    expect("/v1/auth/kid-exchange", status, payload, headers=headers)
+    initial_kid_session_token = payload["session_token"]
+
+    print("[8/12] GET /v1/me with initial kid session...")
+    status, payload, headers = request(
+        base_url,
+        "GET",
+        "/v1/me",
+        token=initial_kid_session_token,
+    )
+    _record_request_id(headers, request_ids)
+    expect("/v1/me", status, payload, headers=headers)
+    if (
+        payload.get("uid") != kid_user_id
+        or payload.get("id") != kid_user_id
+        or payload.get("display_name") != kid_name
+        or payload.get("role") != "kid"
+        or payload.get("group_id") != group_id
+    ):
+        raise RuntimeError("initial kid /v1/me did not match the throwaway handoff")
+
+    print("[9/12] POST existing-kid handoff reissue...")
+    status, payload, headers = request(
+        base_url,
+        "POST",
+        f"/v1/groups/{group_id}/kids/{kid_user_id}/handoff",
+        token=parent_bearer,
+    )
+    _record_request_id(headers, request_ids)
+    expect(
+        "/v1/groups/{group_id}/kids/{kid_user_id}/handoff",
+        status,
+        payload,
+        headers=headers,
+    )
+    normalized_headers = {key.lower(): value for key, value in headers.items()}
+    if "no-store" not in normalized_headers.get("cache-control", "").lower():
+        raise RuntimeError("kid handoff reissue response was cacheable")
+    if payload.get("id") != kid_user_id or payload.get("display_name") != kid_name:
+        raise RuntimeError("kid handoff reissue did not return the canonical kid")
+    handoff_token = payload.get("handoff_token")
+    if not isinstance(handoff_token, str) or not handoff_token:
+        raise RuntimeError("kid handoff reissue omitted the one-time handoff")
+    if handoff_token == initial_handoff_token:
+        raise RuntimeError("kid handoff reissue reused the prior credential")
+    if not isinstance(payload.get("expires_at"), str):
+        raise RuntimeError("kid handoff reissue omitted its expiry")
+
+    # Reissuing a sign-in QR must not claim to revoke a session that was
+    # already issued to the same canonical kid.
+    status, old_session_payload, headers = request(
+        base_url,
+        "GET",
+        "/v1/me",
+        token=initial_kid_session_token,
+    )
+    _record_request_id(headers, request_ids)
+    expect("/v1/me after handoff reissue", status, old_session_payload, headers=headers)
+    if old_session_payload.get("id") != kid_user_id:
+        raise RuntimeError("handoff reissue unexpectedly invalidated the existing kid session")
+
+    print("[10/12] Exchange reissued handoff for the same canonical kid...")
     status, payload, headers = request(
         base_url,
         "POST",
@@ -289,7 +361,6 @@ def run_parent_kid_smoke(
     expect("/v1/auth/kid-exchange", status, payload, headers=headers)
     kid_session_token = payload["session_token"]
 
-    print("[8/10] GET /v1/me as kid...")
     status, payload, headers = request(base_url, "GET", "/v1/me", token=kid_session_token)
     _record_request_id(headers, request_ids)
     expect("/v1/me", status, payload, headers=headers)
@@ -300,9 +371,9 @@ def run_parent_kid_smoke(
         or payload.get("role") != "kid"
         or payload.get("group_id") != group_id
     ):
-        raise RuntimeError("kid /v1/me did not match the throwaway handoff")
+        raise RuntimeError("reissued kid /v1/me did not match the existing canonical kid")
 
-    print("[9/10] GET /v1/expeditions/available as kid...")
+    print("[11/12] GET /v1/expeditions/available as kid...")
     deadline = time.time() + 90
     last_status: int | None = None
     last_payload: Any = None
@@ -332,7 +403,7 @@ def run_parent_kid_smoke(
         )
         raise RuntimeError("backyard_starter not visible")
 
-    print("[10/10] Observation W1 canary with in-memory kid session...")
+    print("[12/12] Observation W1 canary with in-memory kid session...")
     observation = run_canary(base_url=base_url, bearer=kid_session_token)
     dispatcher_benchmark: DispatcherBenchmarkSeed | None = None
     if dispatcher_benchmark_samples:

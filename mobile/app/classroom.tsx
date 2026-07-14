@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { router, Stack } from "expo-router";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -26,6 +26,7 @@ import {
   createKid,
   listGroupMembers,
   listGroups,
+  reissueKidHandoff,
   type RosterMember,
 } from "@/src/api/groups";
 import { useAuthSession } from "@/src/auth/session";
@@ -103,7 +104,10 @@ export default function ClassroomScreen() {
         />
 
         {activeGroup ? (
-          <GroupDetail group={activeGroup} />
+          <GroupDetail
+            key={`${ownerUserId ?? "anonymous"}:${activeGroup.id}`}
+            group={activeGroup}
+          />
         ) : (
           <NoGroupYet onCreated={(g) => setSelectedGroupId(g.id)} />
         )}
@@ -275,9 +279,10 @@ function NoGroupYet({ onCreated }: { onCreated: (g: Group) => void }) {
 }
 
 function GroupDetail({ group }: { group: Group }) {
-  const ownerUserId = useAuthSession((state) =>
-    state.status === "authenticated" ? state.user.id : null,
+  const currentUser = useAuthSession((state) =>
+    state.status === "authenticated" ? state.user : null,
   );
+  const ownerUserId = currentUser?.id ?? null;
   const roster = useQuery({
     queryKey: ["group-members", ownerUserId ?? "anonymous", group.id],
     queryFn: () => listGroupMembers(group.id),
@@ -285,6 +290,53 @@ function GroupDetail({ group }: { group: Group }) {
   });
   const [showAdd, setShowAdd] = useState(false);
   const [handoff, setHandoff] = useState<CreateKidResponse | null>(null);
+  const [reissueKidId, setReissueKidId] = useState<string | null>(null);
+  const canReissueKidHandoffs =
+    currentUser?.role === "parent" && currentUser.id === group.owner_user_id;
+  const reissue = useMutation({
+    mutationKey: ["reissue-kid-handoff", ownerUserId ?? "anonymous", group.id],
+    mutationFn: ({ kidUserId }: { kidUserId: string }) =>
+      reissueKidHandoff(group.id, kidUserId),
+    gcTime: 0,
+    onSuccess: (response) => {
+      if (!handoffIsUsable(response)) {
+        reissue.reset();
+        Alert.alert(
+          "Couldn't create sign-in QR",
+          "The one-time code was invalid or already expired. Try again.",
+        );
+        return;
+      }
+      setHandoff(response);
+    },
+    onError: (err) => {
+      if (!(err instanceof ImperativeRequestSupersededError)) {
+        Alert.alert("Couldn't create sign-in QR", apiErrorMessage(err));
+      }
+    },
+    onSettled: () => setReissueKidId(null),
+  });
+  const resetReissue = reissue.reset;
+
+  useEffect(() => {
+    if (!handoff) return;
+    const remainingMs = Date.parse(handoff.expires_at) - Date.now();
+    if (!Number.isFinite(remainingMs) || remainingMs <= 0) {
+      setHandoff(null);
+      resetReissue();
+      return;
+    }
+    const timer = setTimeout(() => {
+      setHandoff(null);
+      resetReissue();
+    }, remainingMs);
+    return () => clearTimeout(timer);
+  }, [handoff, resetReissue]);
+
+  function closeHandoff() {
+    setHandoff(null);
+    resetReissue();
+  }
 
   return (
     <RNView style={styles.section}>
@@ -320,7 +372,18 @@ function GroupDetail({ group }: { group: Group }) {
               No members yet. Tap "Add kid" to provision the first account.
             </Text>
           }
-          renderItem={({ item }) => <RosterRow member={item} />}
+          renderItem={({ item }) => (
+            <RosterRow
+              member={item}
+              canReissue={canReissueKidHandoffs && item.role === "kid"}
+              reissuePending={reissue.isPending}
+              reissueBusy={reissue.isPending && reissueKidId === item.user_id}
+              onReissue={() => {
+                setReissueKidId(item.user_id);
+                reissue.mutate({ kidUserId: item.user_id });
+              }}
+            />
+          )}
           scrollEnabled={false}
         />
       )}
@@ -331,19 +394,38 @@ function GroupDetail({ group }: { group: Group }) {
         onClose={() => setShowAdd(false)}
         onCreated={(resp) => {
           setShowAdd(false);
-          setHandoff(resp);
+          if (handoffIsUsable(resp)) {
+            setHandoff(resp);
+          } else {
+            Alert.alert(
+              "Couldn't create sign-in QR",
+              "The one-time code was invalid or already expired. Try again.",
+            );
+          }
         }}
       />
 
       <HandoffModal
         handoff={handoff}
-        onClose={() => setHandoff(null)}
+        onClose={closeHandoff}
       />
     </RNView>
   );
 }
 
-function RosterRow({ member }: { member: RosterMember }) {
+function RosterRow({
+  member,
+  canReissue,
+  reissuePending,
+  reissueBusy,
+  onReissue,
+}: {
+  member: RosterMember;
+  canReissue: boolean;
+  reissuePending: boolean;
+  reissueBusy: boolean;
+  onReissue: () => void;
+}) {
   const colorScheme = useColorScheme();
   const subtitle = member.role === "kid" ? `kid · age ${member.age_band ?? "?"}` : member.role;
   return (
@@ -354,13 +436,39 @@ function RosterRow({ member }: { member: RosterMember }) {
         colorScheme === "dark" ? styles.rosterRowDark : styles.rosterRowLight,
       ]}
     >
-      <RNView style={{ flex: 1 }}>
+      <RNView style={styles.rosterIdentity}>
         <Text style={styles.rosterName}>{member.display_name}</Text>
         <Text style={styles.rosterMeta}>{subtitle}</Text>
       </RNView>
-      <Text style={styles.rosterMeta}>
-        {member.observation_count} obs · {member.dex_count} dex
-      </Text>
+      <RNView style={styles.rosterActions}>
+        <Text style={styles.rosterMeta}>
+          {member.observation_count} obs · {member.dex_count} dex
+        </Text>
+        {canReissue && (
+          <Pressable
+            testID={`classroom-reissue-kid-${member.user_id}`}
+            accessibilityRole="button"
+            accessibilityLabel={`Create a new sign-in QR for ${member.display_name}`}
+            accessibilityHint="Shows a one-time code that expires in 15 minutes."
+            accessibilityState={{
+              disabled: reissuePending,
+              busy: reissueBusy,
+            }}
+            disabled={reissuePending}
+            style={[
+              styles.button,
+              styles.buttonGhost,
+              styles.rosterHandoffButton,
+              reissuePending && styles.buttonDisabled,
+            ]}
+            onPress={onReissue}
+          >
+            <Text style={[styles.buttonText, styles.buttonGhostText]}>
+              {reissueBusy ? "Creating…" : "New sign-in QR"}
+            </Text>
+          </Pressable>
+        )}
+      </RNView>
     </RNView>
   );
 }
@@ -384,7 +492,9 @@ function AddKidModal({
   );
 
   const create = useMutation({
+    mutationKey: ["create-kid", ownerUserId ?? "anonymous", groupId],
     mutationFn: () => createKid(groupId, name.trim(), ageBand),
+    gcTime: 0,
     onSuccess: (resp) => {
       void queryClient.invalidateQueries({
         queryKey: ["group-members", ownerUserId ?? "anonymous", groupId],
@@ -392,6 +502,7 @@ function AddKidModal({
       setName("");
       setAgeBand("9-10");
       onCreated(resp);
+      create.reset();
     },
     onError: (err) => {
       if (!(err instanceof ImperativeRequestSupersededError)) {
@@ -495,22 +606,32 @@ function HandoffModal({
   handoff: CreateKidResponse | null;
   onClose: () => void;
 }) {
+  const expiryLabel = handoff ? formatHandoffExpiry(handoff.expires_at) : "";
   return (
     <Modal
+      testID="classroom-handoff-modal"
       visible={handoff != null}
       transparent
       animationType="fade"
       onRequestClose={onClose}
     >
       <RNView style={styles.modalScrim}>
-        <View style={styles.modalCard}>
-          <Text style={styles.heading}>Hand off to {handoff?.display_name}</Text>
-          <Text style={styles.help}>
-            Open Hinterland on the kid's device and scan this code. The token
-            is one-time-use; if the kid doesn't sign in within a few minutes
-            you'll need to re-issue from their roster row.
+        <View accessibilityViewIsModal style={styles.modalCard}>
+          <Text accessibilityRole="header" style={styles.heading}>
+            Hand off to {handoff?.display_name}
           </Text>
-          <RNView style={styles.qrWrap}>
+          <Text style={styles.help}>
+            Open The Hinterland Guide on the kid's device and scan this
+            one-time code. It expires at {expiryLabel}. This does not sign the
+            kid out of another device.
+          </Text>
+          <RNView
+            testID="classroom-handoff-qr"
+            accessible
+            accessibilityRole="image"
+            accessibilityLabel={`One-time sign-in QR for ${handoff?.display_name ?? "kid"}`}
+            style={styles.qrWrap}
+          >
             {handoff && (
               <QRCode
                 value={JSON.stringify({
@@ -525,7 +646,9 @@ function HandoffModal({
             )}
           </RNView>
           <Pressable
+            testID="classroom-handoff-done-button"
             accessibilityRole="button"
+            accessibilityLabel="Close sign-in QR"
             style={[styles.button, styles.buttonPrimary]}
             onPress={onClose}
           >
@@ -535,6 +658,34 @@ function HandoffModal({
       </RNView>
     </Modal>
   );
+}
+
+function handoffIsUsable(handoff: unknown): handoff is CreateKidResponse {
+  if (handoff == null || typeof handoff !== "object") return false;
+  const candidate = handoff as Partial<Record<keyof CreateKidResponse, unknown>>;
+  if (
+    typeof candidate.id !== "string" ||
+    candidate.id.length === 0 ||
+    typeof candidate.display_name !== "string" ||
+    candidate.display_name.length === 0 ||
+    typeof candidate.age_band !== "string" ||
+    typeof candidate.handoff_token !== "string" ||
+    candidate.handoff_token.trim().length === 0 ||
+    typeof candidate.expires_at !== "string"
+  ) {
+    return false;
+  }
+  const expiresAt = Date.parse(candidate.expires_at);
+  return (
+    Number.isFinite(expiresAt) &&
+    expiresAt > Date.now()
+  );
+}
+
+function formatHandoffExpiry(expiresAt: string): string {
+  const parsed = new Date(expiresAt);
+  if (!Number.isFinite(parsed.getTime())) return "soon";
+  return parsed.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
 }
 
 function apiErrorMessage(err: unknown): string {
@@ -602,9 +753,14 @@ const styles = StyleSheet.create({
   rosterRow: {
     flexDirection: "row",
     alignItems: "center",
+    flexWrap: "wrap",
+    gap: 8,
     paddingVertical: 10,
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
+  rosterIdentity: { flex: 1, minWidth: 160 },
+  rosterActions: { alignItems: "flex-end" },
+  rosterHandoffButton: { marginTop: 4, paddingHorizontal: 10 },
   rosterRowLight: { borderBottomColor: "rgba(31,41,55,0.15)" },
   rosterRowDark: { borderBottomColor: "rgba(255,255,255,0.1)" },
   rosterName: { fontSize: 14, fontWeight: "500" },

@@ -4,6 +4,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy.dialects import postgresql
 from sqlalchemy.ext.asyncio import AsyncSession
 
 import app.api.routes.groups as groups_routes_module
@@ -286,6 +287,7 @@ def test_create_group_happy_path(
 # ---------------------------------------------------------------------------
 
 _GROUP_ID = "01J0GROUPIDABCDEFGHIJKLMNO"
+_EXISTING_KID_ID = "01J0EXISTINGKID0000000000"
 _KID_FIREBASE_UID = "firebase-kid-xyz"
 _KID_HANDOFF_TOKEN = "fake-handoff-token-for-kid"
 _KID_HANDOFF_JTI = "01HANDOFFJTI00000000000000"
@@ -297,6 +299,23 @@ def _group_row(*, owner_user_id: str = _USER_ID) -> models.Group:
         name="Family",
         join_code="ABC123",
         owner_user_id=owner_user_id,
+    )
+
+
+def _existing_kid_row(
+    *,
+    role: str = "kid",
+    parent_user_id: str = _USER_ID,
+    disabled_at: datetime | None = None,
+) -> models.User:
+    return models.User(
+        id=_EXISTING_KID_ID,
+        firebase_uid=None,
+        role=role,
+        display_name="Sparrow",
+        age_band="9-10",
+        parent_user_id=parent_user_id,
+        disabled_at=disabled_at,
     )
 
 
@@ -593,6 +612,8 @@ def test_create_kid_happy_path(
     )
 
     assert response.status_code == 201
+    assert response.headers["cache-control"] == "private, no-store"
+    assert response.headers["pragma"] == "no-cache"
     body = response.json()
     assert body["display_name"] == "Sparrow"
     assert body["age_band"] == "9-10"
@@ -683,6 +704,243 @@ def test_create_kid_no_token_minted_on_db_failure(
         # Phase 6a path: mint happens after commit, so it must not run at all.
         assert fb_calls["mint_handoff"] == []
         assert fb_calls["create_token"] == []
+
+
+# ---------------------------------------------------------------------------
+# POST /v1/groups/{group_id}/kids/{kid_user_id}/handoff
+# ---------------------------------------------------------------------------
+
+
+def _set_reissue_session_lookups(
+    fake_session: AsyncMock,
+    *,
+    caller: models.User | None,
+    group: models.Group | None = None,
+    kid: models.User | None = None,
+) -> None:
+    caller_result = MagicMock()
+    caller_result.scalar_one_or_none = MagicMock(return_value=caller)
+
+    group_result = MagicMock()
+    group_result.scalar_one_or_none = MagicMock(return_value=group)
+
+    kid_result = MagicMock()
+    kid_result.scalar_one_or_none = MagicMock(return_value=kid)
+
+    fake_session.execute = AsyncMock(side_effect=[caller_result, group_result, kid_result])
+    fake_session.add = MagicMock()
+    fake_session.commit = AsyncMock()
+
+
+def _reissue_path(kid_user_id: str = _EXISTING_KID_ID) -> str:
+    return f"/v1/groups/{_GROUP_ID}/kids/{kid_user_id}/handoff"
+
+
+def test_reissue_kid_handoff_requires_bearer_token(groups_client: TestClient) -> None:
+    response = groups_client.post(_reissue_path())
+
+    assert response.status_code == 401
+    assert response.headers["www-authenticate"] == "Bearer"
+
+
+def test_reissue_kid_handoff_rejects_kid_caller(
+    groups_client: TestClient,
+    fake_session: AsyncMock,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _stub_token_verifier(monkeypatch)
+    calls = _stub_firebase_admin(monkeypatch)
+    _set_reissue_session_lookups(fake_session, caller=_user_row(role="kid"))
+
+    response = groups_client.post(
+        _reissue_path(),
+        headers={"Authorization": "Bearer valid"},
+    )
+
+    assert response.status_code == 403
+    assert calls["mint_handoff"] == []
+
+
+def test_reissue_kid_handoff_rejects_teacher_without_parent_guardian_flow(
+    groups_client: TestClient,
+    fake_session: AsyncMock,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _stub_token_verifier(monkeypatch)
+    calls = _stub_firebase_admin(monkeypatch)
+    _set_reissue_session_lookups(fake_session, caller=_user_row(role="teacher"))
+
+    response = groups_client.post(
+        _reissue_path(),
+        headers={"Authorization": "Bearer valid"},
+    )
+
+    assert response.status_code == 409
+    assert "parent or guardian" in response.json()["error"]["message"]
+    assert calls["mint_handoff"] == []
+
+
+def test_reissue_kid_handoff_requires_current_linked_consent(
+    groups_client: TestClient,
+    fake_session: AsyncMock,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _stub_token_verifier(monkeypatch)
+    calls = _stub_firebase_admin(monkeypatch)
+    _set_reissue_session_lookups(fake_session, caller=_user_row(role="parent"))
+    require_consent = AsyncMock(side_effect=CurrentParentConsentRequiredError)
+    monkeypatch.setattr(
+        groups_routes_module,
+        "require_linked_current_parent_consent",
+        require_consent,
+    )
+
+    response = groups_client.post(
+        _reissue_path(),
+        headers={"Authorization": "Bearer valid"},
+    )
+
+    assert response.status_code == 409
+    require_consent.assert_awaited_once_with(fake_session, parent_user_id=_USER_ID)
+    assert calls["mint_handoff"] == []
+
+
+def test_reissue_kid_handoff_rejects_non_owner(
+    groups_client: TestClient,
+    fake_session: AsyncMock,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _stub_token_verifier(monkeypatch)
+    calls = _stub_firebase_admin(monkeypatch)
+    _set_reissue_session_lookups(
+        fake_session,
+        caller=_user_row(role="parent"),
+        group=_group_row(owner_user_id="01J0OTHEROWNERID00000000UL"),
+    )
+
+    response = groups_client.post(
+        _reissue_path(),
+        headers={"Authorization": "Bearer valid"},
+    )
+
+    assert response.status_code == 403
+    assert calls["mint_handoff"] == []
+
+
+def test_reissue_kid_handoff_fails_closed_when_kid_is_not_selectable(
+    groups_client: TestClient,
+    fake_session: AsyncMock,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _stub_token_verifier(monkeypatch)
+    calls = _stub_firebase_admin(monkeypatch)
+    # The route's SQL filters wrong-group, non-kid, differently parented, and
+    # disabled rows. All of those fail closed as the same non-disclosing 404.
+    _set_reissue_session_lookups(
+        fake_session,
+        caller=_user_row(role="parent"),
+        group=_group_row(),
+        kid=None,
+    )
+
+    response = groups_client.post(
+        _reissue_path(),
+        headers={"Authorization": "Bearer valid"},
+    )
+
+    assert response.status_code == 404
+    assert response.json()["error"]["message"] == "Kid not found in this group."
+    assert calls["mint_handoff"] == []
+
+
+def test_reissue_kid_handoff_returns_fresh_no_store_token(
+    groups_client: TestClient,
+    fake_session: AsyncMock,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _stub_token_verifier(monkeypatch)
+    calls = _stub_firebase_admin(monkeypatch)
+    _set_reissue_session_lookups(
+        fake_session,
+        caller=_user_row(role="parent"),
+        group=_group_row(),
+        kid=_existing_kid_row(),
+    )
+
+    response = groups_client.post(
+        _reissue_path(),
+        headers={"Authorization": "Bearer valid"},
+    )
+
+    assert response.status_code == 200
+    assert response.headers["cache-control"] == "private, no-store"
+    assert response.headers["pragma"] == "no-cache"
+    assert response.json() == {
+        "id": _EXISTING_KID_ID,
+        "display_name": "Sparrow",
+        "age_band": "9-10",
+        "handoff_token": _KID_HANDOFF_TOKEN,
+        "expires_at": response.json()["expires_at"],
+    }
+    assert datetime.fromisoformat(response.json()["expires_at"]) > datetime.now(UTC)
+    assert len(calls["mint_handoff"]) == 1
+    mint_kwargs = calls["mint_handoff"][0]
+    assert mint_kwargs["kid_user_id"] == _EXISTING_KID_ID
+    assert mint_kwargs["parent_id"] == _USER_ID
+    assert mint_kwargs["group_id"] == _GROUP_ID
+    assert isinstance(mint_kwargs["settings"], Settings)
+    fake_session.add.assert_not_called()
+    fake_session.commit.assert_not_awaited()
+
+
+def test_reissue_kid_handoff_query_enforces_canonical_relationship(
+    groups_client: TestClient,
+    fake_session: AsyncMock,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Guard every fail-closed relationship predicate in the actual SQL."""
+    _stub_token_verifier(monkeypatch)
+    _stub_firebase_admin(monkeypatch)
+
+    caller_result = MagicMock()
+    caller_result.scalar_one_or_none = MagicMock(return_value=_user_row(role="parent"))
+    group_result = MagicMock()
+    group_result.scalar_one_or_none = MagicMock(return_value=_group_row())
+    kid_result = MagicMock()
+    kid_result.scalar_one_or_none = MagicMock(return_value=_existing_kid_row())
+    results = [caller_result, group_result, kid_result]
+    statements: list[object] = []
+
+    async def execute(statement: object) -> MagicMock:
+        statements.append(statement)
+        return results[len(statements) - 1]
+
+    fake_session.execute = AsyncMock(side_effect=execute)
+    fake_session.add = MagicMock()
+    fake_session.commit = AsyncMock()
+
+    response = groups_client.post(
+        _reissue_path(),
+        headers={"Authorization": "Bearer valid"},
+    )
+
+    assert response.status_code == 200
+    assert len(statements) == 3
+    group_sql = str(
+        statements[1].compile(dialect=postgresql.dialect())  # type: ignore[attr-defined]
+    ).lower()
+    kid_sql = str(
+        statements[2].compile(dialect=postgresql.dialect())  # type: ignore[attr-defined]
+    ).lower()
+    assert "groups.id =" in group_sql
+    assert "groups.archived_at is null" in group_sql
+    assert "join memberships on memberships.user_id = users.id" in kid_sql
+    assert "users.id =" in kid_sql
+    assert "users.role =" in kid_sql
+    assert "users.parent_user_id =" in kid_sql
+    assert "users.disabled_at is null" in kid_sql
+    assert "memberships.group_id =" in kid_sql
+    assert "memberships.role =" in kid_sql
 
 
 # ---------------------------------------------------------------------------

@@ -41,6 +41,7 @@ export type CreateKidResponse = {
    * Hinterland-issued RS256 JWTs.
    */
   handoff_token: string;
+  expires_at: string;
 };
 
 export type KidExchangeResponse = {
@@ -74,4 +75,14 @@ export function createKid(
     method: "POST",
     body: { display_name: displayName, age_band: ageBand },
   });
+}
+
+export function reissueKidHandoff(
+  groupId: string,
+  kidUserId: string,
+): Promise<CreateKidResponse> {
+  return apiRequest<CreateKidResponse>(
+    `/v1/groups/${groupId}/kids/${kidUserId}/handoff`,
+    { method: "POST" },
+  );
 }

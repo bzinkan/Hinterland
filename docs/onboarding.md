@@ -14,7 +14,10 @@ Related reading: `architecture.md` (auth model, role attributes), `data-model.md
 > product flows below: a parent records the exact current consent version on
 > the parents web app, signs in through Entra, completes canonical parent
 > signup with the exact browser-bound consent proof, creates a family group and
-> kid, then shows the short-lived QR handoff to the native app. The invite-code,
+> kid, then shows the short-lived QR handoff to the native app. The group owner
+> may later create a fresh handoff for that same kid from the Classroom roster;
+> this is the W1 recovery path for an expired QR, new device, or owner-locked
+> offline work preserved across sign-out. The invite-code,
 > username/PIN, teacher welcome-sheet, and
 > teacher-created-kid flows remain future product designs and are not evidence
 > for W1 promotion.
@@ -175,6 +178,15 @@ the adult reset. No native app password reset handling.
 **New device.** Kid logs in on any device with username + PIN. Previous session on the old device is invalidated — only one active session per kid at a time. This is deliberately stricter than the parent/teacher model, because kid accounts are often shared between a family's devices and a classroom's iPads, and we want the "whoever signs in most recently has the session" rule to be predictable.
 
 **QR sign-in for known devices.** On trusted devices (biometrics enrolled), the app can store the PIN in the Secure Enclave / Android Keystore after first successful sign-in, with parent approval. Next sign-in requires only the username and a biometric tap. Phase 2 polish, not Phase 1.
+
+**W1 QR recovery.** W1 does not enable the username/PIN flows above. The
+consenting parent who owns the group chooses **New sign-in QR** on the existing
+kid's Classroom roster row. The backend confirms the kid is enabled, belongs
+to that exact group, and was provisioned by the caller before returning a
+private/no-store 15-minute token. The modal is ephemeral and does not promise
+to invalidate another device's active session. Restoring the same canonical
+kid lets the durable mobile queue resume that kid's owner-scoped work without
+exposing it to the intervening account.
 
 **Account handoff at age 13.** A kid who turns 13 can claim their own iNat account and transition to an adult-style account. This is the Phase 3 "claim flow." During Phase 1 we don't need to implement it, but we do need to not actively prevent it — which means age band is mutable (a kid's `9–10` can move to `11–12` and eventually `13+` via the parent dashboard) and we avoid any decision that assumes age is permanent.
 
