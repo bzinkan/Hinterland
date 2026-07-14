@@ -160,6 +160,7 @@ def test_w1_promotion_order_and_containment_are_explicit() -> None:
     assert workflow.count("--slurpfile benchmark") >= 2
     assert 'HINTERLAND_DISPATCHER_BENCHMARK_SAMPLES: "50"' in workflow
     for explicit_setting in (
+        "AZURE_CLIENT_ID",
         "HINTERLAND_MODERATION_PROVIDER",
         "HINTERLAND_INAT_CV_ENABLED",
         "HINTERLAND_INAT_CV_DISCLOSURE_APPROVED",
@@ -171,6 +172,20 @@ def test_w1_promotion_order_and_containment_are_explicit() -> None:
         "HINTERLAND_APP_VERSION",
     ):
         assert workflow.count(f'select(.name != "{explicit_setting}")') >= 2
+    assert workflow.count('AZURE_CLIENT_ID="${job_uami_client_id}"') >= 2
+    assert workflow.count('--arg expected_client "$job_uami_client_id"') >= 2
+    assert workflow.count('.identity.type == "UserAssigned"') >= 2
+    assert workflow.count('select(.name == "AZURE_CLIENT_ID")') >= 2
+    assert workflow.count('== [$expected_client]') >= 2
+    assert (
+        'assert_env app "${AZURE_CONTAINER_APP}" AZURE_CLIENT_ID "$uami_client_id"'
+        in workflow
+    )
+    assert (
+        'assert_env app "${AZURE_ROLLBACK_CONTAINER_APP}" AZURE_CLIENT_ID \\\n            "$rollback_uami_client_id"'
+        in workflow
+    )
+    assert 'assert_env job "$job" AZURE_CLIENT_ID "$rollback_uami_client_id"' in workflow
     assert "Microsoft.Storage.BlobCreated" in workflow
     assert "--query '[].[name,resourceGroup]'" in workflow
     assert 'resource-group "$topic_resource_group"' in workflow

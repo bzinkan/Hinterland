@@ -526,6 +526,17 @@ jobs:
             test "$password_ref" = pg-password
           done
 
+          job_uami_id="$(az identity show \
+            --name "${AZURE_ROLLBACK_UAMI_NAME}" \
+            --resource-group "${AZURE_RESOURCE_GROUP}" \
+            --query id --output tsv)"
+          job_uami_client_id="$(az identity show \
+            --name "${AZURE_ROLLBACK_UAMI_NAME}" \
+            --resource-group "${AZURE_RESOURCE_GROUP}" \
+            --query clientId --output tsv)"
+          test -n "$job_uami_id"
+          test -n "$job_uami_client_id"
+
           mapfile -t shared_env < <(
             az containerapp show \
               --name "${AZURE_CONTAINER_APP}" \
@@ -533,6 +544,7 @@ jobs:
               --query 'properties.template.containers[0].env' --output json |
             jq -r '
               .[]
+              | select(.name != "AZURE_CLIENT_ID")
               | select(.name != "HINTERLAND_APP_VERSION")
               | select(.name != "HINTERLAND_DEV_AUTH_ENABLED")
               | select(.name != "HINTERLAND_DEV_AUTH_TOKEN")
@@ -560,6 +572,7 @@ jobs:
               --image "${IMAGE}" \
               --set-env-vars \
                 "${shared_env[@]}" \
+                AZURE_CLIENT_ID="${job_uami_client_id}" \
                 HINTERLAND_APP_VERSION="${GITHUB_SHA}" \
                 HINTERLAND_MODERATION_PROVIDER=noop \
                 HINTERLAND_INAT_CV_ENABLED=false \
@@ -570,6 +583,21 @@ jobs:
                 HINTERLAND_OBSERVATION_IDEMPOTENCY_REQUIRED=true \
                 HINTERLAND_DATABASE_PASSWORD=secretref:pg-password \
               --output none
+            job_json="$(az containerapp job show \
+              --name "$job" \
+              --resource-group "${AZURE_RESOURCE_GROUP}" \
+              --output json)"
+            jq -e \
+              --arg expected_id "${job_uami_id,,}" \
+              --arg expected_client "$job_uami_client_id" '
+                .identity.type == "UserAssigned"
+                and ((.identity.userAssignedIdentities // {}) | length == 1)
+                and ([((.identity.userAssignedIdentities // {}) | keys[]) | ascii_downcase]
+                  | index($expected_id) != null)
+                and ([.properties.template.containers[0].env[]
+                  | select(.name == "AZURE_CLIENT_ID") | .value]
+                  == [$expected_client])
+              ' <<< "$job_json" >/dev/null
           done
 
 
@@ -612,6 +640,16 @@ jobs:
           mapfile -t actual_jobs < <(az containerapp job list \
             --resource-group "${AZURE_RESOURCE_GROUP}" \
             --query "[?starts_with(name, 'hinterland-')].name" --output tsv)
+          job_uami_id="$(az identity show \
+            --name "${AZURE_ROLLBACK_UAMI_NAME}" \
+            --resource-group "${AZURE_RESOURCE_GROUP}" \
+            --query id --output tsv)"
+          job_uami_client_id="$(az identity show \
+            --name "${AZURE_ROLLBACK_UAMI_NAME}" \
+            --resource-group "${AZURE_RESOURCE_GROUP}" \
+            --query clientId --output tsv)"
+          test -n "$job_uami_id"
+          test -n "$job_uami_client_id"
           mapfile -t shared_env < <(
             az containerapp show \
               --name "${AZURE_CONTAINER_APP}" \
@@ -619,6 +657,7 @@ jobs:
               --query 'properties.template.containers[0].env' --output json |
             jq -r '
               .[]
+              | select(.name != "AZURE_CLIENT_ID")
               | select(.name != "HINTERLAND_APP_VERSION")
               | select(.name != "HINTERLAND_DEV_AUTH_ENABLED")
               | select(.name != "HINTERLAND_DEV_AUTH_TOKEN")
@@ -644,6 +683,7 @@ jobs:
               --image "${IMAGE}" \
               --set-env-vars \
                 "${shared_env[@]}" \
+                AZURE_CLIENT_ID="${job_uami_client_id}" \
                 HINTERLAND_APP_VERSION="${GITHUB_SHA}" \
                 HINTERLAND_MODERATION_PROVIDER=noop \
                 HINTERLAND_INAT_CV_ENABLED=false \
@@ -654,6 +694,21 @@ jobs:
                 HINTERLAND_OBSERVATION_IDEMPOTENCY_REQUIRED=true \
                 HINTERLAND_DATABASE_PASSWORD=secretref:pg-password \
               --output none
+            job_json="$(az containerapp job show \
+              --name "$job" \
+              --resource-group "${AZURE_RESOURCE_GROUP}" \
+              --output json)"
+            jq -e \
+              --arg expected_id "${job_uami_id,,}" \
+              --arg expected_client "$job_uami_client_id" '
+                .identity.type == "UserAssigned"
+                and ((.identity.userAssignedIdentities // {}) | length == 1)
+                and ([((.identity.userAssignedIdentities // {}) | keys[]) | ascii_downcase]
+                  | index($expected_id) != null)
+                and ([.properties.template.containers[0].env[]
+                  | select(.name == "AZURE_CLIENT_ID") | .value]
+                  == [$expected_client])
+              ' <<< "$job_json" >/dev/null
           done
           az containerapp job update \
             --name hinterland-obs-health \
@@ -1128,10 +1183,18 @@ jobs:
             --name "${AZURE_UAMI_NAME}" \
             --resource-group "${AZURE_RESOURCE_GROUP}" \
             --query id --output tsv)"
+          uami_client_id="$(az identity show \
+            --name "${AZURE_UAMI_NAME}" \
+            --resource-group "${AZURE_RESOURCE_GROUP}" \
+            --query clientId --output tsv)"
           rollback_uami_id="$(az identity show \
             --name "${AZURE_ROLLBACK_UAMI_NAME}" \
             --resource-group "${AZURE_RESOURCE_GROUP}" \
             --query id --output tsv)"
+          rollback_uami_client_id="$(az identity show \
+            --name "${AZURE_ROLLBACK_UAMI_NAME}" \
+            --resource-group "${AZURE_RESOURCE_GROUP}" \
+            --query clientId --output tsv)"
           assert_only_runtime_identity() {
             local kind="$1" name="$2" expected_id="$3" identity
             if [[ "$kind" == app ]]; then
@@ -1162,6 +1225,9 @@ jobs:
           assert_only_runtime_identity app "${AZURE_CONTAINER_APP}" "$uami_id"
           assert_only_runtime_identity app "${AZURE_ROLLBACK_CONTAINER_APP}" \
             "$rollback_uami_id"
+          assert_env app "${AZURE_CONTAINER_APP}" AZURE_CLIENT_ID "$uami_client_id"
+          assert_env app "${AZURE_ROLLBACK_CONTAINER_APP}" AZURE_CLIENT_ID \
+            "$rollback_uami_client_id"
           normalize_location() {
             tr '[:upper:]' '[:lower:]' | tr -d ' '
           }
@@ -1201,6 +1267,7 @@ jobs:
             --query "[?starts_with(name, 'hinterland-')].name" --output tsv)
           for job in "${jobs[@]}"; do
             assert_only_runtime_identity job "$job" "$rollback_uami_id"
+            assert_env job "$job" AZURE_CLIENT_ID "$rollback_uami_client_id"
             job_json="$(az containerapp job show --name "$job" \
               --resource-group "${AZURE_RESOURCE_GROUP}" --output json)"
             image="$(jq -r '.properties.template.containers[0].image // empty' <<<"$job_json")"
