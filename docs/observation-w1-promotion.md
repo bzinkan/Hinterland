@@ -17,6 +17,16 @@ Safety, CV/photo-helper egress, and public iNaturalist submission remain off.
   photo-revocation, accessibility, performance, and 24-hour/25-submission gates
   have passed. W1 evidence alone never enables Content Safety.
 
+## Current v12 hold
+
+The single-family Play v12 record is not yet W1-ready or fully evidenced. It
+still requires the at-most-4-GB physical-device run, accepted adult dry run,
+actual alert receipt, supervised family session, post-session privacy/data
+audit, and explicit go/no-go and continuation decisions. Group-first changes
+must not merge or deploy until that evidence is completed and archived. A later
+Groups release must run this protected promotion again, publish a higher Play
+version, and repeat the physical-device/account-isolation evidence.
+
 ## Protected GitHub environment
 
 Create a GitHub environment named `w1-promotion` and configure at least one
@@ -130,11 +140,11 @@ alone does not prove that an operator saw it.
 Before the adult dry run is accepted, use a fresh browser context and complete
 the real sequence exactly once: open `/consent`, record consent, continue to
 Entra, return through `/auth/callback`, confirm the app obtains the canonical
-`/v1/me`, and land in `/classroom`. A 404 or redirect away from the callback,
-an unhandled login result, a failed `/v1/me`, or failure to reach the classroom
-is a hard stop. Do not save a HAR, full callback URL, browser-history export, or
-screenshot containing the callback query; retain only sanitized pass/fail
-facts and bounded request IDs.
+`/v1/me`, and land in `/groups`. A 404 or redirect away from the callback, an
+unhandled login result, a failed `/v1/me`, or failure to reach Groups is a hard
+stop. `/classroom` is retained only as a one-release redirect. Do not save a
+HAR, full callback URL, browser-history export, or screenshot containing the
+callback query; retain only sanitized pass/fail facts and bounded request IDs.
 
 ## Monitoring contract
 

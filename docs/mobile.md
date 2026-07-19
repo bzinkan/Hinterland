@@ -1,6 +1,10 @@
 # Mobile
 
-Hinterland is a phone-first app. The web surface exists for parent-consent pages, the teacher dashboard, and admin tools — nothing a kid will ever see. This doc covers the mobile-specific decisions that the backend architecture doesn't cover: offline capture, permissions, build and distribution, and app-store compliance for a kids product.
+Hinterland is a phone-first app. The web surface exists for parent consent,
+parent-managed Groups, child handoff, and explicitly authorized adult tools —
+nothing a kid will ever see. This doc covers the mobile-specific decisions that
+the backend architecture doesn't cover: offline capture, permissions, build and
+distribution, and app-store compliance for a kids product.
 
 Related reading: `architecture.md` (what the backend expects from the client), `onboarding.md` (the flows this platform has to serve), `moderation.md` (why the client uploads to `pending/` and not `observations/`), `expedition-authoring.md` (voice and tone that apply equally to in-app copy).
 
@@ -8,9 +12,15 @@ Related reading: `architecture.md` (what the backend expects from the client), `
 
 **Primary: iOS and Android native**, shipped via Expo (React Native). One codebase, two app-store binaries, roughly 95% shared code with small per-platform shims for permissions copy and notification handling.
 
-**Secondary: web**, same Expo codebase via Expo-for-web. Web is for the parent consent page, the teacher dashboard (review queue, class roster, welcome-sheet download), and the kid-account handoff QR page. Web is *not* the kid experience — no camera flow, no Dex browsing, no celebration sequence. If a kid opens the web app on a laptop in Phase 1, they see "Hinterland is best on a phone — here's a QR to get the app."
+**Secondary: web**, same Expo codebase via Expo-for-web. Web is for parent
+consent, `/groups`, parent-managed child accounts, short-lived handoff QR codes,
+and explicitly authorized adult tools. Web is *not* the kid experience — no
+camera flow, Dex browsing, or celebration sequence. Educator-specific rosters,
+welcome sheets, and bulk class tooling are deferred.
 
-**Not supported: tablets as a first-class layout.** Tablets render the phone layout letterboxed. Classroom iPad use is a real Phase 1 concern but the phone layout is fine at iPad sizes; we don't build tablet-specific screens until post-beta usage data says we should.
+**Not supported: tablets as a first-class layout.** Tablets render the phone
+layout letterboxed. We do not build tablet-specific screens until post-beta
+usage data says we should.
 
 ## Why Expo and not bare React Native
 
@@ -66,8 +76,8 @@ Unsynced rows remain owned by the original user. Sign-out warns the managing
 adult and offers preserve-or-explicit-discard; the next account never sees or
 processes another user's row or JPEG.
 
-The parent who owns the group can restore that original kid on the device by
-choosing **New sign-in QR** from the kid's Classroom roster row. The returned
+The child's canonical parent can restore that original kid on the device by
+choosing **New sign-in QR** from their child's Groups row. The returned
 15-minute handoff exists only in the modal's ephemeral state, is removed on
 Done, expiry, group/account replacement, or unmount, and is never written to a
 query cache, URL, log, or local storage. After exchange, foreground queue sync
@@ -118,7 +128,11 @@ Every permission Hinterland asks for follows the same pattern: **pre-prompt in o
 - **When.** After the first successful observation, after the celebration, after the Dex reveal. Never before.
 - **Pre-prompt copy.** "Want us to let you know when your expedition is ready for the next step, or when your grown-up reviewed something? You can change your mind anytime."
 - **Denial path.** No notifications. The app never nags; denial is respected indefinitely. The kid can opt in later from settings.
-- **COPPA note.** We only send transactional notifications (expedition-ready, teacher-reviewed-your-photo, parent-approved-your-account). We do not send marketing, re-engagement, or promotional notifications to kid accounts, ever. See the notifications section below for the full policy.
+- **COPPA note.** We only send transactional notifications
+  (expedition-ready, explicitly-authorized-adult-reviewed-your-photo,
+  parent-approved-your-account). We do not send marketing, re-engagement, or
+  promotional notifications to kid accounts, ever. See the notifications
+  section below for the full policy.
 
 ### Microphone, contacts, calendar, etc.
 
@@ -131,12 +145,15 @@ Expo Notifications handles APNs and FCM uniformly. The expo-push-token is stored
 **Kid-account notification types, all transactional:**
 
 - `expedition_ready` — a scheduled expedition becomes active (daily expeditions unlock at 6am local time).
-- `teacher_reviewed` — a flagged observation was approved or rejected by the teacher.
+- `adult_reviewed` — a flagged observation was approved or rejected by an
+  explicitly authorized reviewer. Ordinary group membership grants no review
+  access.
 - `parent_approved` — the parent consent flow completed; the kid can now sign in.
 
 **Adult-account notification types:**
 
-- `review_queue_pending` — new item in the teacher review queue (throttled to once per 2 hours to avoid annoying teachers).
+- `review_queue_pending` — new item for an explicitly authorized reviewer
+  (throttled to once per 2 hours).
 - `kid_first_find` — parent opt-in only; a kid in the family group logged a first find.
 - `weekly_digest` — Sunday 6pm local time, if opted in.
 
@@ -205,7 +222,9 @@ Both stores have stricter rules for apps aimed at under-13 users. We are deliber
 **Google Play.**
 
 - Category: Education.
-- Target age group: `Ages 9 & Up`. This opts into Google's "Teacher Approved" program eligibility (not a submission we need to make, but the compliance bar is the same).
+- Target age group: `Ages 9 & Up`. Google's “Teacher Approved” label is a Play
+  program name; it does not imply that Hinterland currently ships a teacher or
+  classroom-management product.
 - Designed for Families program: yes. Requires:
   - Ads SDKs from Google's approved list only. (N/A — no ads.)
   - No interest-based ads to users under 13. (N/A — no ads.)
@@ -215,7 +234,10 @@ Both stores have stricter rules for apps aimed at under-13 users. We are deliber
 **Shared compliance.**
 
 - No third-party SDKs that send behavioral data to outside servers. Sentry for error tracking (approved — non-behavioral), Expo's services, AWS — that's the list.
-- No chat, DMs, or user-to-user text at all in Phase 1. Observations are visible to the group (parent-reviewed or teacher-reviewed) but there are no comments, likes, or messages. This sidesteps the chat-moderation problem entirely for Phase 1.
+- No chat, DMs, or user-to-user text at all in Phase 1. A child does not receive
+  peer observations, photos, names, ages, or individual progress merely because
+  they share a group. Any future aggregate group experience requires a separate
+  reviewed DTO and privacy decision.
 - Password recovery and account deletion are first-class, one-tap from settings. Google Play's account-deletion requirement is Play Console-verified; App Store's is checked at review.
 
 **Rejection recovery.** Expect 1–2 rejections from App Store review for first-time submissions of a kids app. The common ones: insufficient justification for camera permission, missing parent-gate on external links, privacy policy URL returning a 404. Keep the privacy policy URL live from day one.

@@ -103,12 +103,12 @@ describe("ParentWebSignIn", () => {
       });
       await Promise.resolve();
     });
-    expect(mockedRouter.replace).toHaveBeenCalledWith("/classroom");
+    expect(mockedRouter.replace).toHaveBeenCalledWith("/groups");
 
     act(() => tree.unmount());
   });
 
-  it("allows fresh Microsoft sign-in only when the tab proof is present", async () => {
+  it("allows fresh Microsoft sign-in when the tab proof is present", async () => {
     mockGetSignedInAdultProfile.mockResolvedValue(null);
     const tree = await renderReady();
 
@@ -158,7 +158,7 @@ describe("ParentWebSignIn", () => {
     act(() => tree.unmount());
   });
 
-  it("sends an already-resolved adult with no pending consent directly to Classroom", async () => {
+  it("sends an already-resolved adult with no pending consent directly to Groups", async () => {
     mockStoredConsentProof = null;
     useAuthSession.getState().setAuthenticated({
       id: "existing-parent",
@@ -172,7 +172,7 @@ describe("ParentWebSignIn", () => {
       await Promise.resolve();
     });
 
-    expect(mockedRouter.replace).toHaveBeenCalledWith("/classroom");
+    expect(mockedRouter.replace).toHaveBeenCalledWith("/groups");
     expect(mockParentSignup).not.toHaveBeenCalled();
     expect(mockGetSignedInAdultProfile).not.toHaveBeenCalled();
     act(() => tree.unmount());
@@ -197,17 +197,35 @@ describe("ParentWebSignIn", () => {
       mockPendingConsentProof,
     );
     expect(mockClearConsentProof).toHaveBeenCalledWith(mockPendingConsentProof);
-    expect(mockedRouter.replace).toHaveBeenCalledWith("/classroom");
+    expect(mockedRouter.replace).toHaveBeenCalledWith("/groups");
 
     act(() => tree.unmount());
   });
 
-  it("fails closed before fresh setup when the tab proof is missing", async () => {
+  it("lets a signed-out returning parent sign in without recording consent again", async () => {
+    mockStoredConsentProof = null;
+    mockGetSignedInAdultProfile.mockResolvedValue(null);
+    const tree = await renderReady();
+
+    const rendered = JSON.stringify(tree.toJSON());
+    expect(rendered).toContain("Already have a parent account");
+    await act(async () => {
+      tree.root.findByProps({ testID: "parent-msal-sign-in" }).props.onPress();
+      await Promise.resolve();
+    });
+
+    expect(mockSignIn).toHaveBeenCalledTimes(1);
+    expect(mockParentSignup).not.toHaveBeenCalled();
+    act(() => tree.unmount());
+  });
+
+  it("fails closed before fresh parent setup when the tab proof is missing", async () => {
     mockStoredConsentProof = null;
     const tree = await renderReady();
 
     const rendered = JSON.stringify(tree.toJSON());
-    expect(rendered).toContain("Review and record the current pilot consent");
+    expect(rendered).toContain("not linked to a Hinterland parent account");
+    expect(rendered).toContain("Review current pilot consent");
     expect(rendered).not.toContain("Finish parent setup");
     expect(mockParentSignup).not.toHaveBeenCalled();
     expect(mockSignIn).not.toHaveBeenCalled();

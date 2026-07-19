@@ -1,7 +1,7 @@
 import { Alert, Modal, StyleSheet, Text, TextInput } from "react-native";
 import renderer, { act, type ReactTestInstance } from "react-test-renderer";
 
-import ClassroomScreen from "@/app/classroom";
+import GroupsScreen from "@/app/groups";
 import { useAuthSession } from "@/src/auth/session";
 
 const mockUseQuery = jest.fn();
@@ -12,9 +12,13 @@ const mockInvalidateQueries = jest.fn();
 let mockColorScheme: "light" | "dark" = "light";
 
 jest.mock("expo-router", () => ({
-  router: { back: jest.fn() },
+  router: { back: jest.fn(), replace: jest.fn() },
   Stack: { Screen: () => null },
 }));
+
+const mockedRouter = jest.requireMock("expo-router").router as {
+  replace: jest.Mock;
+};
 
 jest.mock("react-native-qrcode-svg", () => "QRCode");
 
@@ -58,7 +62,7 @@ function mutationOptions(key: string): MutationOptions {
     .find((options) => options.mutationKey?.[0] === key)!;
 }
 
-describe("ClassroomScreen presentation contract", () => {
+describe("GroupsScreen presentation contract", () => {
   beforeEach(() => {
     jest.useFakeTimers();
     jest.clearAllMocks();
@@ -133,10 +137,66 @@ describe("ClassroomScreen presentation contract", () => {
     jest.useRealTimers();
   });
 
+  it("shows an explicit sign-in action instead of a disabled-query spinner", () => {
+    useAuthSession.getState().setAnonymous();
+    let tree!: renderer.ReactTestRenderer;
+    act(() => {
+      tree = renderer.create(<GroupsScreen />);
+    });
+
+    expect(JSON.stringify(tree.toJSON())).toContain("Sign in to manage groups");
+    expect(
+      (mockUseQuery.mock.calls[0][0] as { enabled: boolean }).enabled,
+    ).toBe(false);
+    act(() => {
+      tree.root.findByProps({ testID: "groups-sign-in-button" }).props.onPress();
+    });
+    expect(mockedRouter.replace).toHaveBeenCalledWith("/sign-in");
+
+    act(() => tree.unmount());
+  });
+
+  it("keeps the loading state bounded to canonical identity resolution", () => {
+    useAuthSession.getState().setInitializing();
+    let tree!: renderer.ReactTestRenderer;
+    act(() => {
+      tree = renderer.create(<GroupsScreen />);
+    });
+
+    expect(JSON.stringify(tree.toJSON())).not.toContain("Sign in to manage groups");
+    expect(
+      (mockUseQuery.mock.calls[0][0] as { enabled: boolean }).enabled,
+    ).toBe(false);
+
+    act(() => tree.unmount());
+  });
+
+  it("does not expose the adult Groups surface to a kid session", () => {
+    useAuthSession.getState().setAuthenticated({
+      id: "kid-1",
+      entra_oid: null,
+      role: "kid",
+      display_name: "Test Kid",
+    });
+    let tree!: renderer.ReactTestRenderer;
+    act(() => {
+      tree = renderer.create(<GroupsScreen />);
+    });
+
+    const rendered = JSON.stringify(tree.toJSON());
+    expect(rendered).toContain("Groups are managed by adults");
+    expect(rendered).not.toContain("Test Parent");
+    expect(
+      (mockUseQuery.mock.calls[0][0] as { enabled: boolean }).enabled,
+    ).toBe(false);
+
+    act(() => tree.unmount());
+  });
+
   it("keeps inactive controls and inputs readable on the light parent surface", () => {
     let tree!: renderer.ReactTestRenderer;
     act(() => {
-      tree = renderer.create(<ClassroomScreen />);
+      tree = renderer.create(<GroupsScreen />);
       jest.runOnlyPendingTimers();
     });
 
@@ -176,7 +236,7 @@ describe("ClassroomScreen presentation contract", () => {
     });
     const input = tree.root.findByProps({ testID: "classroom-kid-display-name" });
     expect(input.type).toBe(TextInput);
-    expect(input.props.accessibilityLabel).toBe("Kid display name");
+    expect(input.props.accessibilityLabel).toBe("Child display name");
     expect(input.props.placeholderTextColor).toBe("#6b7280");
     expect(StyleSheet.flatten(input.props.style)).toMatchObject({
       color: "#1f2937",
@@ -209,7 +269,7 @@ describe("ClassroomScreen presentation contract", () => {
     mockColorScheme = "dark";
     let tree!: renderer.ReactTestRenderer;
     act(() => {
-      tree = renderer.create(<ClassroomScreen />);
+      tree = renderer.create(<GroupsScreen />);
       jest.runOnlyPendingTimers();
     });
 
@@ -224,7 +284,7 @@ describe("ClassroomScreen presentation contract", () => {
   it("offers an accessible owner-only reissue action on kid rows", () => {
     let tree!: renderer.ReactTestRenderer;
     act(() => {
-      tree = renderer.create(<ClassroomScreen />);
+      tree = renderer.create(<GroupsScreen />);
       jest.runOnlyPendingTimers();
     });
 
@@ -257,7 +317,7 @@ describe("ClassroomScreen presentation contract", () => {
   it("shows one no-store handoff result and clears it on Done", () => {
     let tree!: renderer.ReactTestRenderer;
     act(() => {
-      tree = renderer.create(<ClassroomScreen />);
+      tree = renderer.create(<GroupsScreen />);
     });
     const reissueOptions = mutationOptions("reissue-kid-handoff");
     expect(reissueOptions.gcTime).toBe(0);
@@ -306,7 +366,7 @@ describe("ClassroomScreen presentation contract", () => {
     const alert = jest.spyOn(Alert, "alert").mockImplementation(() => undefined);
     let tree!: renderer.ReactTestRenderer;
     act(() => {
-      tree = renderer.create(<ClassroomScreen />);
+      tree = renderer.create(<GroupsScreen />);
     });
     const reissueOptions = mutationOptions("reissue-kid-handoff");
 
@@ -333,7 +393,7 @@ describe("ClassroomScreen presentation contract", () => {
   it("removes the QR exactly at server expiry", () => {
     let tree!: renderer.ReactTestRenderer;
     act(() => {
-      tree = renderer.create(<ClassroomScreen />);
+      tree = renderer.create(<GroupsScreen />);
     });
     const reissueOptions = mutationOptions("reissue-kid-handoff");
 
@@ -358,7 +418,7 @@ describe("ClassroomScreen presentation contract", () => {
   it("drops the QR and owner action when the authenticated account changes", () => {
     let tree!: renderer.ReactTestRenderer;
     act(() => {
-      tree = renderer.create(<ClassroomScreen />);
+      tree = renderer.create(<GroupsScreen />);
     });
     const reissueOptions = mutationOptions("reissue-kid-handoff");
     act(() => {
@@ -392,7 +452,7 @@ describe("ClassroomScreen presentation contract", () => {
   it("drops the initial create response from mutation state after showing its QR", () => {
     let tree!: renderer.ReactTestRenderer;
     act(() => {
-      tree = renderer.create(<ClassroomScreen />);
+      tree = renderer.create(<GroupsScreen />);
     });
     const createOptions = mutationOptions("create-kid");
     expect(createOptions.gcTime).toBe(0);

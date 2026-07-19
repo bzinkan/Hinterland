@@ -9,6 +9,12 @@
         "Referrer-Policy": "no-referrer",
         "X-Content-Type-Options": "nosniff"
       }
+    },
+    {
+      "route": "/classroom",
+      "methods": ["GET"],
+      "redirect": "/groups",
+      "statusCode": 302
     }
   ]
 }

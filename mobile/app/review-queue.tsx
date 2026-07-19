@@ -82,7 +82,7 @@ export default function ReviewQueueScreen() {
         <View style={styles.center}>
           <Stack.Screen options={{ title: "Review Queue" }} />
           <Text style={styles.heading}>Adults only</Text>
-          <Text style={styles.body}>Sign in with a parent or teacher account.</Text>
+          <Text style={styles.body}>Sign in with an authorized adult account.</Text>
         </View>
       </DesktopContainer>
     );
@@ -100,7 +100,7 @@ export default function ReviewQueueScreen() {
           </Text>
           <Text style={styles.body}>
             {isUnauthed
-              ? "The review queue is for parent and teacher accounts."
+              ? "The review queue is for authorized adult accounts."
               : err.message}
           </Text>
           <Pressable

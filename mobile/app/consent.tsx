@@ -38,7 +38,7 @@ type Phase =
  *
  * The actual adult account flow lives in the parents web app through
  * Microsoft Entra External Identities. Native kid sign-in uses the QR
- * handoff route after an adult creates the kid account.
+ * handoff route after an adult creates the child account.
  */
 export default function ConsentScreen() {
   const session = useAuthSession();
@@ -133,8 +133,8 @@ export default function ConsentScreen() {
         <Text style={styles.title}>Parental Consent</Text>
         <Text style={styles.body}>
           Hinterland is preparing a small, adult-supervised Android Internal
-          Testing pilot for kids ages 9-12. Before a kid uses it, we record
-          consent from their parent or guardian.
+          Testing pilot for children ages 9-12. Before a child uses it, we
+          record consent from their parent or guardian.
         </Text>
 
         <View
@@ -143,7 +143,7 @@ export default function ConsentScreen() {
           darkColor="rgba(255,255,255,0.1)"
         />
 
-        <Text style={styles.sectionLabel}>What we collect from your kid</Text>
+        <Text style={styles.sectionLabel}>What we collect from your child</Text>
         <Text style={styles.body}>
           - Photos of organisms they observe outdoors. Once uploaded and saved,
           server-hosted W1 private-pilot photo bytes are purged after seven
@@ -156,7 +156,7 @@ export default function ConsentScreen() {
         </Text>
         <Text style={styles.sectionLabel}>What we don't collect</Text>
         <Text style={styles.body}>
-          - No email or phone number from your kid
+          - No email or phone number from your child
           {"\n"}- No browser cookies, advertising IDs, or trackers
           {"\n"}- No microphone, contacts, or calendar access
           {"\n"}- No third-party analytics
@@ -218,7 +218,7 @@ export default function ConsentScreen() {
             {agreed && <Text style={styles.checkboxMark}>✓</Text>}
           </View>
           <Text style={styles.checkboxLabel}>
-            I am the parent or legal guardian of the kid who will use this
+            I am the parent or legal guardian of the child who will use this
             account, and I consent to Hinterland collecting the data described
             above.
           </Text>
@@ -236,8 +236,8 @@ export default function ConsentScreen() {
             {phase.linkage === "awaiting_sign_in" ? (
               <Text style={styles.muted}>
                 Next step: continue with Microsoft in this browser tab. After
-                sign-in, create a kid account, then scan the kid QR code in the
-                native app.
+                sign-in, create a child account, then scan the sign-in QR code
+                in the native app.
               </Text>
             ) : phase.linkage === "linking" ? (
               <Text style={styles.muted}>Linking consent to your adult account…</Text>
@@ -277,7 +277,7 @@ export default function ConsentScreen() {
               if (phase.linkage === "error") {
                 void retryExistingParentLink();
               } else if (phase.linkage === "linked") {
-                router.replace("/classroom");
+                router.replace("/groups");
               } else {
                 router.push("/sign-in");
               }
@@ -287,7 +287,7 @@ export default function ConsentScreen() {
               {phase.linkage === "error"
                 ? "Retry consent link"
                 : phase.linkage === "linked"
-                  ? "Open classroom"
+                  ? "Open groups"
                   : "Continue with Microsoft"}
             </Text>
           </Pressable>
