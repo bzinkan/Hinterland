@@ -25,10 +25,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.storage import SignedUrlGenerator, StorageCopyVerificationError
 from app.db import models
-from app.derived_state.rebuild import acquire_user_lock, try_acquire_user_lock
 from app.moderation.review_service import (
     ReviewResolutionConflict,
-    _subject_user_id,
+    lock_linked_review_subject,
     reject_review_item,
     revoke_approved_review_item,
 )
@@ -36,6 +35,7 @@ from app.moderation.review_service import (
 log = structlog.get_logger()
 
 MAX_REVOCATION_ATTEMPTS = 5
+_CANONICAL_PARENT_SOURCES = frozenset({"adult_review", "adult_revocation", "parent_delete"})
 
 
 class PhotoRevocationError(RuntimeError):
@@ -62,6 +62,7 @@ class ClaimedRevocation:
     attempt_count: int
     claim_review_status: str = "pending"
     requesting_actor_user_id: str | None = None
+    canonical_parent_user_id: str | None = None
 
 
 async def _claim_revocation(
@@ -76,50 +77,26 @@ async def _claim_revocation(
     """Persist the signed-URL deny gate before any storage mutation."""
     if claim_review_status not in {"pending", "approved"}:
         raise ValueError("claim_review_status must be pending or approved")
-    subject_user_id = await _subject_user_id(session, review)
-    if nonblocking:
-        if not await try_acquire_user_lock(session, subject_user_id):
-            raise ReviewResolutionConflict("Review subject is already being resolved")
-    else:
-        await acquire_user_lock(session, subject_user_id)
-
-    review_statement = (
-        select(models.ReviewQueueItem)
-        .where(models.ReviewQueueItem.id == review.id)
-        .execution_options(populate_existing=True)
+    canonical_parent_user_id = (
+        requesting_actor_user_id if source in _CANONICAL_PARENT_SOURCES else None
     )
-    if nonblocking:
-        review_statement = review_statement.with_for_update(skip_locked=True)
-    else:
-        review_statement = review_statement.with_for_update()
-    locked_review = (await session.execute(review_statement)).scalar_one_or_none()
-    if locked_review is None or locked_review.status != claim_review_status:
-        raise ReviewResolutionConflict(f"Review item is no longer {claim_review_status}")
-
-    photo = (
-        await session.execute(
-            select(models.Photo).where(models.Photo.id == locked_review.photo_id).with_for_update()
-        )
-    ).scalar_one_or_none()
-    if photo is None:
-        raise ReviewResolutionConflict("Review photo no longer exists")
+    subject = await lock_linked_review_subject(
+        session,
+        review=review,
+        expected_status=claim_review_status,
+        nonblocking=nonblocking,
+        canonical_parent_user_id=canonical_parent_user_id,
+    )
+    locked_review = subject.review
+    photo = subject.photo
     if claim_review_status == "approved":
         if photo.status != "clean" or photo.attachment_status != "attached":
             raise ReviewResolutionConflict("Approved review no longer has an attached clean photo")
-        if locked_review.observation_id is not None:
-            clean_observation = (
-                await session.execute(
-                    select(models.Observation)
-                    .where(models.Observation.id == locked_review.observation_id)
-                    .with_for_update()
-                )
-            ).scalar_one_or_none()
-            if (
-                clean_observation is None
-                or clean_observation.moderation_status != "clean"
-                or clean_observation.rejected_at is not None
-            ):
-                raise ReviewResolutionConflict("Approved review no longer has a clean observation")
+        if (
+            subject.observation.moderation_status != "clean"
+            or subject.observation.rejected_at is not None
+        ):
+            raise ReviewResolutionConflict("Approved review no longer has a clean observation")
 
     held_object_name = f"rejected/held/{photo.id}.jpg"
     revocation = (
@@ -195,6 +172,7 @@ async def _claim_revocation(
         attempt_count=revocation.attempt_count,
         claim_review_status=revocation.claim_review_status,
         requesting_actor_user_id=revocation.requesting_actor_user_id,
+        canonical_parent_user_id=canonical_parent_user_id,
     )
     # This commit makes URL denial visible before a possibly slow Blob copy.
     await session.commit()
@@ -334,6 +312,7 @@ async def revoke_and_reject_review_item(
                 session,
                 review=reloaded_review,
                 nonblocking=nonblocking,
+                canonical_parent_user_id=claim.canonical_parent_user_id,
             )
         else:
             rebuild = await reject_review_item(
@@ -341,6 +320,7 @@ async def revoke_and_reject_review_item(
                 review=reloaded_review,
                 reviewer_user_id=reviewer_user_id,
                 nonblocking=nonblocking,
+                canonical_parent_user_id=claim.canonical_parent_user_id,
             )
         photo = (
             await session.execute(

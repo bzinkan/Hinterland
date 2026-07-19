@@ -65,23 +65,17 @@ def _wire(
     list_result.scalars = MagicMock(return_value=scalars_result)
     side_effects: list[Any] = [list_result]
     for review_row, photo, observation in rows:
-        subject_observation_result = MagicMock()
-        subject_observation_result.scalar_one_or_none = MagicMock(
-            return_value=observation.user_id if observation is not None else None
-        )
-        subject_photo_result = MagicMock()
-        subject_photo_result.scalar_one_or_none = MagicMock(return_value=photo.user_id)
         locked_review_result = MagicMock()
         locked_review_result.scalar_one_or_none = MagicMock(return_value=review_row)
         photo_result = MagicMock()
         photo_result.scalar_one_or_none = MagicMock(return_value=photo)
         observation_result = MagicMock()
         observation_result.scalar_one_or_none = MagicMock(return_value=observation)
-        side_effects.append(subject_observation_result)
-        if observation is None:
-            side_effects.append(subject_photo_result)
-        side_effects.extend([locked_review_result, photo_result, observation_result])
+        # Candidate tuple, followed by the locked review/photo/observation
+        # tuple after the non-blocking child advisory lock succeeds.
+        side_effects.extend([photo_result, observation_result])
         if observation is not None:
+            side_effects.extend([locked_review_result, photo_result, observation_result])
             rebuild_lock_result = MagicMock()
             rebuild_result = MagicMock()
             rebuild_result.scalar_one_or_none = MagicMock(return_value=None)
@@ -149,7 +143,7 @@ async def test_sweep_auto_rejects_each_stale_row(fake_session: AsyncMock) -> Non
     fake_session.commit.assert_awaited_once()
 
 
-async def test_sweep_still_rejects_when_observation_already_gone(
+async def test_sweep_fails_closed_when_observation_already_gone(
     fake_session: AsyncMock,
 ) -> None:
     review = _review()
@@ -157,14 +151,15 @@ async def test_sweep_still_rejects_when_observation_already_gone(
     _wire(fake_session, rows=[(review, photo, None)])
 
     count = await sweep(fake_session, storage=MagicMock())
-    assert count == 1
-    assert review.status == "rejected"
-    assert photo.status == "deleted"
-    # Candidate scan; subject observation/photo lookup; locked review/photo/
-    # observation. The non-blocking advisory attempt uses session.scalar.
-    assert fake_session.execute.await_count == 6
-    fake_session.scalar.assert_awaited_once()
-    fake_session.commit.assert_awaited_once()
+    assert count == 0
+    assert review.status == "pending"
+    assert photo.status == "quarantine"
+    # Candidate scan and coherent subject lookup. No advisory or row lock is
+    # taken once the required linked observation is missing.
+    assert fake_session.execute.await_count == 3
+    fake_session.scalar.assert_not_awaited()
+    fake_session.commit.assert_not_awaited()
+    fake_session.rollback.assert_awaited_once()
 
 
 async def test_sweep_processes_multiple_in_one_pass(fake_session: AsyncMock) -> None:

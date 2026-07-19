@@ -252,12 +252,20 @@ def test_parent_auth_callback_contract_and_release_gates_are_fail_closed() -> No
     main_gate, main_call = _step_containing(
         parent_deploy, "Require main for live parent deployment"
     )
+    api_gate, api_call = _step_containing(
+        parent_deploy, "Require migrated API at this exact commit"
+    )
     export = parent_deploy.index("npx expo export --platform web")
     export_gate = parent_deploy.index("npm run config:parent-web -- --dist")
     deploy = parent_deploy.index("Azure/static-web-apps-deploy@v1")
-    assert main_call < export < export_gate < deploy
+    assert main_call < api_call < export < export_gate < deploy
     assert 'test "${GITHUB_REF}" = "refs/heads/main"' in main_gate
     _assert_non_skippable_gate(main_gate)
+    assert "https://api.thehinterlandguide.app/ready" in api_gate
+    assert ".version == $sha" in api_gate
+    assert '.name == "database" and .status == "ok"' in api_gate
+    _assert_non_skippable_gate(api_gate)
+    assert "  push:" not in parent_deploy
     deploy_gate, _ = _step_containing(parent_deploy, "npm run config:parent-web -- --dist")
     _assert_non_skippable_gate(deploy_gate)
     live_gate, live_call = _step_containing(

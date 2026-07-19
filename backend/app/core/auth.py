@@ -339,7 +339,10 @@ async def _query_user_with_claims(
 
     group_q = (
         select(models.Membership.group_id)
-        .where(models.Membership.user_id == user_row.id)
+        .where(
+            models.Membership.user_id == user_row.id,
+            models.Membership.status == "active",
+        )
         .order_by(models.Membership.created_at.asc())
         .limit(1)
     )
@@ -568,12 +571,37 @@ async def _resolve_hinterland(
     if cached.disabled:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="User disabled")
 
-    # Layer the kid-specific claims (parent_id, group_id from the token)
-    # on top of the cached row so routes that gate on token-supplied
-    # group_id keep working without a second query.
-    overlay = _overlay_claims(cached, raw_claims)
     token_group_id = _claim_str(raw_claims, "group_id")
-    if overlay.group_id is None and token_group_id is not None:
+    if cached.role == "kid":
+        if token_group_id is None:
+            raise _http_401("Kid session token missing group_id claim")
+        token_session_version = raw_claims.get("session_version", 1)
+        if (
+            not isinstance(token_session_version, int)
+            or isinstance(token_session_version, bool)
+            or token_session_version < 1
+        ):
+            raise _http_401("Kid session token missing session version")
+        membership_session_version = (
+            await session.execute(
+                select(models.Membership.session_version).where(
+                    models.Membership.user_id == cached.user_id,
+                    models.Membership.group_id == token_group_id,
+                    models.Membership.role == "kid",
+                    models.Membership.status == "active",
+                )
+            )
+        ).scalar_one_or_none()
+        if membership_session_version is None:
+            # Do not let a 30-day kid JWT outlive removal from its group.
+            raise _http_401("Kid session is no longer active for this group")
+        if membership_session_version != token_session_version:
+            raise _http_401("Kid session was issued for an earlier membership session")
+
+    # Layer the kid-specific claims only after proving the token still names
+    # the child's active group membership.
+    overlay = _overlay_claims(cached, raw_claims)
+    if token_group_id is not None:
         overlay = overlay.model_copy(update={"group_id": token_group_id})
     return overlay
 

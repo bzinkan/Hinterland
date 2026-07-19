@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy.dialects import postgresql
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import Settings
@@ -16,6 +17,11 @@ from tests.helpers.auth import stub_token_verifier
 
 _FIREBASE_UID = "firebase-kid-001"
 _USER_ID = "01J0KIDID0000000000000ULID"
+_PARENT_A_ID = "01J0PARENTA00000000000ULID"
+_PARENT_B_ID = "01J0PARENTB00000000000ULID"
+_TEACHER_ID = "01J0TEACHER00000000000ULID"
+_PEER_KID_ID = "01J0PEERKID00000000000ULID"
+_SHARED_GROUP_ID = "01J0SHAREDGROUP0000000ULID"
 
 
 class _StubSignedUrlGenerator:
@@ -159,15 +165,13 @@ def _wire_user_lookup(fake_session: AsyncMock, user: models.User | None) -> None
     )
 
 
-def _adult_row() -> models.User:
+def _adult_row(*, user_id: str = _PARENT_A_ID, role: str = "parent") -> models.User:
     return models.User(
-        id=_USER_ID,
+        id=user_id,
         firebase_uid=_FIREBASE_UID,
-        role="parent",
+        role=role,
         display_name="Parent Name",
     )
-    fake_session.add = MagicMock()
-    fake_session.commit = AsyncMock()
 
 
 # ---------------------------------------------------------------------------
@@ -353,38 +357,32 @@ def _wire_photo_url(
     *,
     user: models.User | None,
     photo: models.Photo | None,
-    membership_pairs: list[tuple[str, str]] | None = None,
+    parent_manages_child: bool = False,
     moderation_status: str | None = None,
-    observation_group_id: str | None = None,
+    observation_group_id: str = _SHARED_GROUP_ID,
     observation_owner_id: str | None = None,
     revocation_active: bool = False,
 ) -> None:
-    """Wire user, photo, observation authority, then adult membership."""
+    """Wire user, photo, observation state, then canonical-parent authority."""
     user_result = MagicMock()
     user_result.scalar_one_or_none = MagicMock(return_value=user)
     photo_result = MagicMock()
     photo_result.scalar_one_or_none = MagicMock(return_value=photo)
-    pairs = membership_pairs or []
     owner_id = observation_owner_id or (photo.user_id if photo is not None else "owner")
-    group_id = observation_group_id
-    if group_id is None:
-        group_id = next((gid for uid, gid in pairs if uid == owner_id), "observation-group")
     observation_result = MagicMock()
     observation_result.one_or_none = MagicMock(
         return_value=(
             moderation_status or photo.status,
-            group_id,
+            observation_group_id,
             owner_id,
             revocation_active,
         )
         if photo is not None
         else None
     )
-    memberships_result = MagicMock()
-    memberships_result.scalar_one_or_none = MagicMock(
-        return_value=(
-            "adult-membership" if user is not None and (user.id, group_id) in pairs else None
-        )
+    managed_child_result = MagicMock()
+    managed_child_result.scalar_one_or_none = MagicMock(
+        return_value=owner_id if parent_manages_child else None
     )
 
     side_effects: list[object] = [user_result]
@@ -392,9 +390,8 @@ def _wire_photo_url(
         side_effects.append(photo_result)
         if photo is not None:
             side_effects.append(observation_result)
-        if photo is not None and photo.user_id != user.id and user.role in {"parent", "teacher"}:
-            # Adult authorization is scoped to the observation's group.
-            side_effects.append(memberships_result)
+        if photo is not None and photo.user_id != user.id and user.role == "parent":
+            side_effects.append(managed_child_result)
 
     fake_session.execute = AsyncMock(side_effect=side_effects)
 
@@ -493,59 +490,92 @@ def test_photo_url_pilot_private_observation_is_denied_even_if_photo_says_clean(
     assert response.status_code == 404
 
 
-def test_photo_url_404_when_no_group_overlap(
+def test_photo_url_unrelated_parent_is_denied(
     monkeypatch: pytest.MonkeyPatch,
     photos_client: TestClient,
     fake_session: AsyncMock,
 ) -> None:
-    """Different owner, no shared groups -> 404 like missing."""
+    """An unrelated parent gets the same 404 as a missing photo."""
     _stub_token_verifier(monkeypatch)
     _wire_photo_url(
         fake_session,
-        user=_adult_row(),
+        user=_adult_row(user_id=_PARENT_B_ID),
         photo=_photo_row(owner="someone-else"),
-        membership_pairs=[(_USER_ID, "g1"), ("someone-else", "g2")],
     )
     response = photos_client.get("/v1/photos/x/url", headers={"Authorization": "Bearer fake"})
     assert response.status_code == 404
 
 
-def test_photo_url_adult_in_same_group_returns_url(
+@pytest.mark.parametrize(
+    ("photo_status", "moderation_status"),
+    [("clean", "clean"), ("quarantine", "quarantine")],
+)
+def test_photo_url_canonical_parent_can_read_own_child_photo(
     monkeypatch: pytest.MonkeyPatch,
     photos_client: TestClient,
     fake_session: AsyncMock,
+    photo_status: str,
+    moderation_status: str,
 ) -> None:
-    """Different owner BUT shared group -> signed URL returned."""
+    """Parent A can read both clean and review-held photos for their child."""
     _stub_token_verifier(monkeypatch)
     _wire_photo_url(
         fake_session,
-        user=_adult_row(),
-        photo=_photo_row(owner="someone-else"),
-        membership_pairs=[(_USER_ID, "shared"), ("someone-else", "shared")],
+        user=_adult_row(user_id=_PARENT_A_ID),
+        photo=_photo_row(owner=_USER_ID, status=photo_status),
+        moderation_status=moderation_status,
+        parent_manages_child=True,
     )
     response = photos_client.get("/v1/photos/x/url", headers={"Authorization": "Bearer fake"})
     assert response.status_code == 200
 
+    authority_statement = fake_session.execute.await_args_list[-1].args[0]
+    authority_sql = str(
+        authority_statement.compile(
+            dialect=postgresql.dialect(), compile_kwargs={"literal_binds": True}
+        )
+    )
+    assert "users.parent_user_id" in authority_sql
+    assert f"users.parent_user_id = '{_PARENT_A_ID}'" in authority_sql
+    assert f"users.id = '{_USER_ID}'" in authority_sql
+    assert "memberships" not in authority_sql
 
-def test_photo_url_adult_shared_elsewhere_but_not_observation_group_is_denied(
+
+@pytest.mark.parametrize(
+    ("photo_status", "moderation_status"),
+    [("clean", "clean"), ("quarantine", "quarantine")],
+)
+def test_photo_url_group_owner_parent_b_cannot_read_parent_a_child_photo(
     monkeypatch: pytest.MonkeyPatch,
     photos_client: TestClient,
     fake_session: AsyncMock,
+    photo_status: str,
+    moderation_status: str,
 ) -> None:
-    """An unrelated shared group cannot unlock this observation's photo."""
+    """Sharing the observation group never substitutes for parent ownership."""
     _stub_token_verifier(monkeypatch)
     _wire_photo_url(
         fake_session,
-        user=_adult_row(),
-        photo=_photo_row(owner="someone-else"),
-        observation_group_id="target-group",
-        membership_pairs=[(_USER_ID, "shared-elsewhere"), ("someone-else", "shared-elsewhere")],
+        user=_adult_row(user_id=_PARENT_B_ID),
+        photo=_photo_row(owner=_USER_ID, status=photo_status),
+        moderation_status=moderation_status,
+        observation_group_id=_SHARED_GROUP_ID,
+        parent_manages_child=False,
     )
     response = photos_client.get("/v1/photos/x/url", headers={"Authorization": "Bearer fake"})
     assert response.status_code == 404
 
+    authority_statement = fake_session.execute.await_args_list[-1].args[0]
+    authority_sql = str(authority_statement.compile(dialect=postgresql.dialect()))
+    assert "users.parent_user_id" in authority_sql
+    assert "memberships" not in authority_sql
+    observation_statement = fake_session.execute.await_args_list[2].args[0]
+    observation_sql = str(observation_statement.compile(dialect=postgresql.dialect()))
+    assert "observations.group_id" in observation_sql
+    assert "memberships" not in observation_sql
 
-def test_photo_url_adult_reviewer_can_read_quarantined_photo(
+
+def test_photo_url_teacher_in_same_group_is_denied(
     monkeypatch: pytest.MonkeyPatch,
     photos_client: TestClient,
     fake_session: AsyncMock,
@@ -553,13 +583,13 @@ def test_photo_url_adult_reviewer_can_read_quarantined_photo(
     _stub_token_verifier(monkeypatch)
     _wire_photo_url(
         fake_session,
-        user=_adult_row(),
-        photo=_photo_row(owner="someone-else", status="quarantine"),
-        moderation_status="quarantine",
-        membership_pairs=[(_USER_ID, "shared"), ("someone-else", "shared")],
+        user=_adult_row(user_id=_TEACHER_ID, role="teacher"),
+        photo=_photo_row(owner=_USER_ID, status="clean"),
+        observation_group_id=_SHARED_GROUP_ID,
     )
     response = photos_client.get("/v1/photos/x/url", headers={"Authorization": "Bearer fake"})
-    assert response.status_code == 200
+    assert response.status_code == 404
+    assert fake_session.execute.await_count == 3
 
 
 def test_photo_url_peer_kid_in_same_group_is_denied(
@@ -570,12 +600,18 @@ def test_photo_url_peer_kid_in_same_group_is_denied(
     _stub_token_verifier(monkeypatch)
     _wire_photo_url(
         fake_session,
-        user=_user_row(),
-        photo=_photo_row(owner="someone-else"),
-        membership_pairs=[(_USER_ID, "shared"), ("someone-else", "shared")],
+        user=models.User(
+            id=_PEER_KID_ID,
+            firebase_uid=_FIREBASE_UID,
+            role="kid",
+            display_name="Peer Kid",
+        ),
+        photo=_photo_row(owner=_USER_ID),
+        observation_group_id=_SHARED_GROUP_ID,
     )
     response = photos_client.get("/v1/photos/x/url", headers={"Authorization": "Bearer fake"})
     assert response.status_code == 404
+    assert fake_session.execute.await_count == 3
 
 
 def test_delete_reserved_photo_tombstones_and_returns_204(

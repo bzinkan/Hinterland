@@ -74,6 +74,11 @@ def _validation_details(exc: RequestValidationError) -> Sequence[object]:
     normalized: list[object] = []
     for raw_error in exc.errors():
         error = dict(raw_error)
+        # Pydantic includes the rejected request value under ``input``. That
+        # may be a bearer-like invite/handoff/consent token, child-authored
+        # text, or another private value. Location/type/message are enough to
+        # correct a request; never reflect the supplied value.
+        error.pop("input", None)
         context = error.get("ctx")
         if isinstance(context, dict):
             error["ctx"] = {

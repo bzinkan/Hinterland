@@ -3,6 +3,7 @@ from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from fastapi import HTTPException
 from fastapi.testclient import TestClient
 from sqlalchemy import Delete
 from sqlalchemy.exc import IntegrityError
@@ -603,6 +604,17 @@ def _kid_user_row(*, disabled: bool = False) -> models.User:
     )
 
 
+def _kid_membership_row(*, session_version: int = 1) -> models.Membership:
+    return models.Membership(
+        id="01J0KIDMEMBERSHIP0000000000",
+        group_id="g1",
+        user_id="01J0KIDEXCHANGEID0000000UL",
+        role="kid",
+        status="active",
+        session_version=session_version,
+    )
+
+
 def test_kid_exchange_happy_path(
     kid_exchange_client: TestClient,
     fake_session: AsyncMock,
@@ -628,6 +640,7 @@ def test_kid_exchange_happy_path(
             "group_id": "g1",
             "parent_id": "p1",
             "token_type": "handoff",
+            "session_version": 1,
         }
 
     monkeypatch.setattr(auth_routes_module, "verify_hinterland_jwt", fake_verify)
@@ -638,7 +651,7 @@ def test_kid_exchange_happy_path(
     )
 
     kid_row_result = MagicMock()
-    kid_row_result.scalar_one_or_none = MagicMock(return_value=_kid_user_row())
+    kid_row_result.one_or_none = MagicMock(return_value=(_kid_user_row(), _kid_membership_row()))
     fake_session.execute = AsyncMock(return_value=kid_row_result)
     fake_session.add = MagicMock()
     fake_session.commit = AsyncMock()
@@ -653,6 +666,117 @@ def test_kid_exchange_happy_path(
     body = response.json()
     assert body["session_token"] == "session-jwt"
     assert body["user"]["id"] == "01J0KIDEXCHANGEID0000000UL"
+
+
+def test_kid_exchange_rejects_earlier_membership_session(
+    kid_exchange_client: TestClient,
+    fake_session: AsyncMock,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    exp_unix = int((datetime.now(UTC) + timedelta(minutes=15)).timestamp())
+    monkeypatch.setattr(
+        auth_routes_module,
+        "verify_hinterland_jwt",
+        lambda token, *, settings, expected_token_type=None: {
+            "sub": "01J0KIDEXCHANGEID0000000UL",
+            "jti": "01STALEHANDOFF0000000000000",
+            "exp": exp_unix,
+            "group_id": "g1",
+            "parent_id": "p1",
+            "token_type": "handoff",
+            "session_version": 1,
+        },
+    )
+    result = MagicMock()
+    result.one_or_none = MagicMock(
+        return_value=(_kid_user_row(), _kid_membership_row(session_version=3))
+    )
+    fake_session.execute = AsyncMock(return_value=result)
+    fake_session.add = MagicMock()
+    fake_session.commit = AsyncMock()
+
+    response = kid_exchange_client.post(
+        "/v1/auth/kid-exchange", json={"handoff_token": "old-handoff"}
+    )
+
+    assert response.status_code == 401
+    fake_session.add.assert_not_called()
+    fake_session.commit.assert_not_awaited()
+
+
+async def test_kid_request_rejects_stale_session_epoch(
+    fake_session: AsyncMock,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    cached = auth_module.CachedUserClaims(
+        user_id="kid-1",
+        display_name="Sparrow",
+        role="kid",
+        group_id="group-1",
+        disabled=False,
+        firebase_uid=None,
+        entra_oid=None,
+    )
+    monkeypatch.setattr(
+        auth_module,
+        "get_user_with_claims",
+        AsyncMock(return_value=cached),
+    )
+    version_result = MagicMock()
+    version_result.scalar_one_or_none = MagicMock(return_value=3)
+    fake_session.execute = AsyncMock(return_value=version_result)
+
+    with pytest.raises(HTTPException) as exc_info:
+        await auth_module._resolve_hinterland(
+            {
+                "sub": "kid-1",
+                "group_id": "group-1",
+                "session_version": 1,
+                "token_type": "session",
+            },
+            fake_session,
+            Settings(env="local", app_version="test"),
+        )
+    assert exc_info.value.status_code == 401
+
+
+async def test_kid_request_accepts_legacy_missing_epoch_only_at_version_one(
+    fake_session: AsyncMock,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    cached = auth_module.CachedUserClaims(
+        user_id="kid-1",
+        display_name="Sparrow",
+        role="kid",
+        group_id="group-1",
+        disabled=False,
+        firebase_uid=None,
+        entra_oid=None,
+    )
+    monkeypatch.setattr(
+        auth_module,
+        "get_user_with_claims",
+        AsyncMock(return_value=cached),
+    )
+    version_result = MagicMock()
+    version_result.scalar_one_or_none = MagicMock(return_value=1)
+    fake_session.execute = AsyncMock(return_value=version_result)
+
+    resolved = await auth_module._resolve_hinterland(
+        {"sub": "kid-1", "group_id": "group-1", "token_type": "session"},
+        fake_session,
+        Settings(env="local", app_version="test"),
+    )
+    assert resolved.group_id == "group-1"
+
+
+def test_validation_errors_never_reflect_secret_request_input(
+    kid_exchange_client: TestClient,
+) -> None:
+    secret = "NEVER-REFLECT-THIS-HANDOFF"
+    response = kid_exchange_client.post("/v1/auth/kid-exchange", json={"handoff_token": [secret]})
+    assert response.status_code == 422
+    assert secret not in response.text
 
 
 def test_kid_exchange_rejects_replayed_jti(
@@ -684,8 +808,13 @@ def test_kid_exchange_rejects_replayed_jti(
             "group_id": "g1",
             "parent_id": "p1",
             "token_type": "handoff",
+            "session_version": 1,
         },
     )
+
+    kid_row_result = MagicMock()
+    kid_row_result.one_or_none = MagicMock(return_value=(_kid_user_row(), _kid_membership_row()))
+    fake_session.execute = AsyncMock(return_value=kid_row_result)
 
     fake_session.add = MagicMock()
     # Simulate the unique-constraint violation that a replay would trip.

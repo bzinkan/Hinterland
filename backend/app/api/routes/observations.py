@@ -38,7 +38,7 @@ from typing import Annotated, Literal
 import structlog
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Response, status
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
-from sqlalchemy import desc, func, select, text, update
+from sqlalchemy import desc, func, or_, select, text, update
 from sqlalchemy.exc import IntegrityError
 from ulid import ULID
 
@@ -46,6 +46,11 @@ from app.core.auth import CurrentUserDep, resolve_current_user_row
 from app.core.config import Settings, get_request_settings
 from app.core.errors import api_error_detail
 from app.core.geospatial import encode_geohash, normalize_geohash4
+from app.core.parent_consent import (
+    CURRENT_PARENT_CONSENT_REQUIRED_MESSAGE,
+    CurrentParentConsentRequiredError,
+    require_linked_current_parent_consent,
+)
 from app.core.storage import SignedUrlGeneratorDep
 from app.db import models
 from app.db.session import DbSessionDep
@@ -56,6 +61,11 @@ from app.dispatcher.types import Context, Reward
 from app.inat.client import InatClientDep, InatUnavailable
 from app.inat.cv import score_image
 from app.models.ecology_tags import normalize_ecology_tags
+from app.moderation.review_service import ReviewResolutionConflict
+from app.moderation.revocation import (
+    PhotoRevocationPending,
+    revoke_and_reject_review_item,
+)
 from app.observation.photo_finalize import (
     PhotoUploadMissing,
     PhotoValidationError,
@@ -574,6 +584,7 @@ async def create_observation(
         .where(
             models.Membership.user_id == user_id,
             models.Membership.group_id == group_id,
+            models.Membership.status == "active",
         )
         .values(
             observation_count=models.Membership.observation_count + 1,
@@ -1262,6 +1273,79 @@ class IdentificationUpdateResponse(BaseModel):
     rebuild_status: str
 
 
+async def _require_parent_mutation_consent(
+    session: DbSessionDep,
+    parent_user_id: str,
+) -> None:
+    """Require the exact current receipt before an adult mutates child data."""
+
+    try:
+        await require_linked_current_parent_consent(
+            session,
+            parent_user_id=parent_user_id,
+        )
+    except CurrentParentConsentRequiredError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=CURRENT_PARENT_CONSENT_REQUIRED_MESSAGE,
+        ) from exc
+
+
+async def _authorized_observation_subject_id(
+    session: DbSessionDep,
+    *,
+    observation_id: str,
+    caller: models.User,
+    parent_only: bool = False,
+) -> str | None:
+    """Return the child subject without leaking another family's record.
+
+    Kids may correct only their own observation. Adults receive authority only
+    through the child's canonical ``parent_user_id``; group ownership and
+    ordinary group membership are deliberately absent from this query.
+    """
+
+    if caller.role == "kid" and not parent_only:
+        return caller.id
+    if caller.role != "parent":
+        return None
+    return (
+        await session.execute(
+            select(models.Observation.user_id)
+            .join(models.User, models.User.id == models.Observation.user_id)
+            .where(
+                models.Observation.id == observation_id,
+                models.User.role == "kid",
+                models.User.parent_user_id == caller.id,
+            )
+        )
+    ).scalar_one_or_none()
+
+
+async def _lock_authorized_observation(
+    session: DbSessionDep,
+    *,
+    observation_id: str,
+    subject_user_id: str,
+    caller: models.User,
+) -> models.Observation | None:
+    """Recheck canonical ownership while taking the observation row lock."""
+
+    statement = select(models.Observation).where(
+        models.Observation.id == observation_id,
+        models.Observation.user_id == subject_user_id,
+    )
+    if caller.role == "parent":
+        statement = statement.join(
+            models.User,
+            models.User.id == models.Observation.user_id,
+        ).where(
+            models.User.role == "kid",
+            models.User.parent_user_id == caller.id,
+        )
+    return (await session.execute(statement.with_for_update())).scalar_one_or_none()
+
+
 @router.post(
     "/{observation_id}/identification",
     response_model=IdentificationUpdateResponse,
@@ -1273,20 +1357,25 @@ async def update_identification(
     session: DbSessionDep,
 ) -> IdentificationUpdateResponse:
     user_row = await resolve_current_user_row(session, current_user)
+    if user_row.role == "parent":
+        await _require_parent_mutation_consent(session, user_row.id)
+    subject_user_id = await _authorized_observation_subject_id(
+        session,
+        observation_id=observation_id,
+        caller=user_row,
+    )
+    if subject_user_id is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Observation not found")
     # Rebuild and every derived-state writer take the user advisory lock
     # before row locks. Keep the same global order to prevent a correction
     # racing a rebuild from deadlocking observation-row -> user-lock.
-    await acquire_user_lock(session, user_row.id)
-    observation = (
-        await session.execute(
-            select(models.Observation)
-            .where(
-                models.Observation.id == observation_id,
-                models.Observation.user_id == user_row.id,
-            )
-            .with_for_update()
-        )
-    ).scalar_one_or_none()
+    await acquire_user_lock(session, subject_user_id)
+    observation = await _lock_authorized_observation(
+        session,
+        observation_id=observation_id,
+        subject_user_id=subject_user_id,
+        caller=user_row,
+    )
     if observation is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Observation not found")
     if observation.rejected_at is not None or observation.moderation_status == "rejected":
@@ -1354,7 +1443,7 @@ async def update_identification(
 
     rebuild = await enqueue_rebuild(
         session,
-        user_id=user_row.id,
+        user_id=subject_user_id,
         trigger_observation_id=observation.id,
     )
     await session.commit()
@@ -1372,3 +1461,134 @@ async def update_identification(
         rebuild_id=rebuild.id,
         rebuild_status=rebuild.status,
     )
+
+
+# ---------------------------------------------------------------------------
+# DELETE /v1/observations/{id}
+# ---------------------------------------------------------------------------
+
+
+@router.delete("/{observation_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_observation(
+    observation_id: str,
+    current_user: CurrentUserDep,
+    session: DbSessionDep,
+    storage: SignedUrlGeneratorDep,
+) -> Response:
+    """Tombstone one own-child observation through durable revocation.
+
+    Deletion is intentionally not a SQL ``DELETE`` and never decrements a
+    counter in place. The existing revocation service first persists the
+    signed-URL deny gate, verifies byte relocation, then rejects the review
+    and queues the child's deterministic derived-state rebuild.
+    """
+
+    parent = await resolve_current_user_row(
+        session,
+        current_user,
+        allowed_roles={"parent"},
+    )
+    await _require_parent_mutation_consent(session, parent.id)
+    subject_user_id = await _authorized_observation_subject_id(
+        session,
+        observation_id=observation_id,
+        caller=parent,
+        parent_only=True,
+    )
+    if subject_user_id is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Observation not found")
+
+    # Match rebuild/review ordering: child advisory lock before any row lock.
+    # This also serializes two parent-delete requests before either can create
+    # a synthetic review row.
+    await acquire_user_lock(session, subject_user_id)
+    observation = await _lock_authorized_observation(
+        session,
+        observation_id=observation_id,
+        subject_user_id=subject_user_id,
+        caller=parent,
+    )
+    if observation is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Observation not found")
+    if observation.rejected_at is not None or observation.moderation_status == "rejected":
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
+    if observation.inat_observation_id is not None or observation.submitted_to_inat_at is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="A publicly submitted observation cannot be deleted here",
+        )
+
+    review = (
+        await session.execute(
+            select(models.ReviewQueueItem).where(
+                or_(
+                    models.ReviewQueueItem.observation_id == observation.id,
+                    models.ReviewQueueItem.photo_id == observation.photo_id,
+                )
+            )
+        )
+    ).scalar_one_or_none()
+    if review is None:
+        review = models.ReviewQueueItem(
+            id=str(ULID()),
+            group_id=observation.group_id,
+            photo_id=observation.photo_id,
+            observation_id=observation.id,
+            status="pending",
+            reason="parent_delete",
+        )
+        session.add(review)
+        await session.flush()
+    elif review.status not in {"pending", "approved"}:
+        # A terminal review paired with a non-tombstoned observation is a
+        # state mismatch. Never report deletion success until the durable
+        # rejection state itself is authoritative.
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Observation deletion state is inconsistent",
+        )
+    elif review.photo_id != observation.photo_id or (
+        review.observation_id is not None and review.observation_id != observation.id
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Observation deletion state is inconsistent",
+        )
+    elif review.observation_id is None:
+        # Legacy review rows could name only the photo. Link the already
+        # one-photo/one-observation pair before the shared rejection service
+        # so its tombstone and rebuild cannot stop at the photo row.
+        review.observation_id = observation.id
+        await session.flush()
+
+    claim_review_status = "approved" if review.status == "approved" else "pending"
+    try:
+        await revoke_and_reject_review_item(
+            session,
+            storage=storage,
+            review=review,
+            reviewer_user_id=parent.id,
+            source="parent_delete",
+            claim_review_status=claim_review_status,
+        )
+    except ReviewResolutionConflict as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Observation deletion is already being resolved",
+        ) from exc
+    except PhotoRevocationPending as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=(
+                "Photo is private and deletion is awaiting operator repair"
+                if exc.terminal
+                else "Photo is private and deletion will retry"
+            ),
+        ) from exc
+
+    log.info(
+        "observations.parent_deleted",
+        source="parent_delete",
+        result="tombstoned",
+    )
+    return Response(status_code=status.HTTP_204_NO_CONTENT)

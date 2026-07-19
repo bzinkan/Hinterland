@@ -39,8 +39,13 @@ class ObservationCapabilities(BaseModel):
     photo_helper_enabled: bool
 
 
+class GroupCapabilities(BaseModel):
+    shared_groups_enabled: bool
+
+
 class ApiCapabilities(BaseModel):
     observation: ObservationCapabilities
+    groups: GroupCapabilities
 
 
 class ApiMetaResponse(BaseModel):
@@ -117,6 +122,9 @@ def meta(settings: SettingsDep) -> ApiMetaResponse:
         capabilities=ApiCapabilities(
             observation=ObservationCapabilities(
                 photo_helper_enabled=settings.photo_helper_enabled,
-            )
+            ),
+            groups=GroupCapabilities(
+                shared_groups_enabled=settings.shared_groups_enabled,
+            ),
         ),
     )

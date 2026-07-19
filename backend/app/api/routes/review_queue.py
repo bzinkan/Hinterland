@@ -1,12 +1,11 @@
-"""Teacher / parent review queue.
+"""Canonical-parent review queue.
 
 `GET /v1/review-queue`              -> pending items for caller's groups
 `POST /v1/review-queue/{id}/approve` -> move quarantine -> observations
 `POST /v1/review-queue/{id}/reject`  -> tombstone and queue deterministic rebuild
 
-Only adult roles (parent / teacher) can list or resolve review items.
-The caller must be a member (with adult role) of the item's group --
-checked via the `memberships` join.
+Only a child's canonical parent can list or resolve that child's items.
+Ordinary group ownership or adult membership never grants photo authority.
 """
 
 from __future__ import annotations
@@ -18,7 +17,7 @@ from typing import Annotated, Literal
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
-from sqlalchemy import desc, select, update
+from sqlalchemy import and_, desc, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.auth import CurrentUser, CurrentUserDep, resolve_current_user_row
@@ -28,14 +27,15 @@ from app.db import models
 from app.db.session import DbSessionDep
 from app.dispatcher.handlers.dex import promote_clean_representative
 from app.inat.enqueue import enqueue_inat_submit
-from app.moderation.review_service import ReviewResolutionConflict
+from app.moderation.review_service import (
+    ReviewResolutionConflict,
+    lock_linked_review_subject,
+)
 from app.moderation.revocation import PhotoRevocationPending, revoke_and_reject_review_item
 
 router = APIRouter(prefix="/v1/review-queue", tags=["review_queue"])
 
 log = structlog.get_logger()
-
-_ADULT_ROLES: frozenset[str] = frozenset({"parent", "teacher"})
 
 _DEFAULT_LIMIT = 20
 _MAX_LIMIT = 50
@@ -67,21 +67,16 @@ class ReviewQueueListResponse(BaseModel):
 
 
 async def _resolve_adult_user(session: AsyncSession, current_user: CurrentUser) -> models.User:
-    user = await resolve_current_user_row(session, current_user)
-    if user.role not in _ADULT_ROLES:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Review queue is parent/teacher only",
-        )
-    return user
+    return await resolve_current_user_row(session, current_user, allowed_roles={"parent"})
 
 
-async def _adult_groups(session: AsyncSession, user_id: str) -> list[str]:
+async def _parent_active_groups(session: AsyncSession, user_id: str) -> list[str]:
     rows = (
         await session.execute(
             select(models.Membership.group_id).where(
                 models.Membership.user_id == user_id,
-                models.Membership.role.in_(_ADULT_ROLES),
+                models.Membership.role == "parent",
+                models.Membership.status == "active",
             )
         )
     ).all()
@@ -104,13 +99,27 @@ async def list_pending(
     ] = "pending",
 ) -> ReviewQueueListResponse:
     user = await _resolve_adult_user(session, current_user)
-    group_ids = await _adult_groups(session, user.id)
-    if not group_ids:
-        return ReviewQueueListResponse(items=[], next_cursor=None)
-
-    stmt = select(models.ReviewQueueItem).where(
-        models.ReviewQueueItem.group_id.in_(group_ids),
-        models.ReviewQueueItem.status == review_status,
+    stmt = (
+        select(models.ReviewQueueItem)
+        .join(models.Photo, models.Photo.id == models.ReviewQueueItem.photo_id)
+        .join(
+            models.Observation,
+            and_(
+                models.Observation.photo_id == models.Photo.id,
+                models.Observation.user_id == models.Photo.user_id,
+                models.Observation.group_id == models.ReviewQueueItem.group_id,
+                or_(
+                    models.ReviewQueueItem.observation_id.is_(None),
+                    models.ReviewQueueItem.observation_id == models.Observation.id,
+                ),
+            ),
+        )
+        .join(models.User, models.User.id == models.Photo.user_id)
+        .where(
+            models.User.role == "kid",
+            models.User.parent_user_id == user.id,
+            models.ReviewQueueItem.status == review_status,
+        )
     )
     if before is not None:
         stmt = stmt.where(models.ReviewQueueItem.id < before)
@@ -152,24 +161,33 @@ async def _load_review_for_resolution(
     lock: bool = True,
     expected_status: Literal["pending", "approved"] = "pending",
 ) -> models.ReviewQueueItem:
+    # Candidate and authorization reads remain unlocked so every mutation
+    # path can take the child advisory lock before any row lock.
     statement = select(models.ReviewQueueItem).where(models.ReviewQueueItem.id == review_id)
-    if lock:
-        statement = statement.with_for_update()
     review = (await session.execute(statement)).scalar_one_or_none()
     if review is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Review item not found")
 
-    membership = (
+    subject_observation_id = (
         await session.execute(
-            select(models.Membership.id).where(
-                models.Membership.user_id == user.id,
-                models.Membership.group_id == review.group_id,
-                models.Membership.role.in_(_ADULT_ROLES),
+            select(models.Observation.id)
+            .join(models.Photo, models.Photo.id == models.Observation.photo_id)
+            .join(models.User, models.User.id == models.Photo.user_id)
+            .where(
+                models.Photo.id == review.photo_id,
+                models.Observation.user_id == models.Photo.user_id,
+                models.Observation.group_id == review.group_id,
+                (
+                    models.Observation.id == review.observation_id
+                    if review.observation_id is not None
+                    else models.Observation.photo_id == review.photo_id
+                ),
+                models.User.role == "kid",
+                models.User.parent_user_id == user.id,
             )
         )
     ).scalar_one_or_none()
-    if membership is None:
-        # Not in this group as an adult -> 404 like missing (no enumeration).
+    if subject_observation_id is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Review item not found")
 
     if review.status != expected_status:
@@ -178,7 +196,19 @@ async def _load_review_for_resolution(
             detail=f"Review item is already {review.status}",
         )
 
-    return review
+    if not lock:
+        return review
+    try:
+        return (
+            await lock_linked_review_subject(
+                session,
+                review=review,
+                expected_status=expected_status,
+                canonical_parent_user_id=user.id,
+            )
+        ).review
+    except ReviewResolutionConflict as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
 
 
 # ---------------------------------------------------------------------------
@@ -467,9 +497,9 @@ async def list_rebuilds(
     session: DbSessionDep,
     group_id: Annotated[str | None, Query(min_length=26, max_length=26)] = None,
 ) -> RebuildStatusResponse:
-    """Adult-only status for rebuilds affecting one of the caller's groups."""
+    """Parent-only status for rebuilds affecting the caller's own children."""
     user = await _resolve_adult_user(session, current_user)
-    group_ids = await _adult_groups(session, user.id)
+    group_ids = await _parent_active_groups(session, user.id)
     if group_id is not None:
         if group_id not in group_ids:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Group not found")
@@ -482,10 +512,16 @@ async def list_rebuilds(
             await session.execute(
                 select(models.DerivedStateRebuild)
                 .join(
-                    models.Membership,
-                    models.Membership.user_id == models.DerivedStateRebuild.user_id,
+                    models.User,
+                    models.User.id == models.DerivedStateRebuild.user_id,
                 )
-                .where(models.Membership.group_id.in_(group_ids))
+                .join(models.Membership, models.Membership.user_id == models.User.id)
+                .where(
+                    models.User.role == "kid",
+                    models.User.parent_user_id == user.id,
+                    models.Membership.group_id.in_(group_ids),
+                    models.Membership.status == "active",
+                )
                 .distinct()
                 .order_by(desc(models.DerivedStateRebuild.created_at))
                 .limit(100)

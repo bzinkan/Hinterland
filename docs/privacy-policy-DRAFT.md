@@ -3,7 +3,7 @@
 > **STATUS: DRAFT, NOT FOR PUBLICATION.** This captures the Azure-era product
 > facts. Counsel must review the final text before closed/public store release.
 
-Last updated: 2026-07-11 (draft)
+Last updated: 2026-07-18 (draft)
 
 ## What Hinterland is
 
@@ -12,7 +12,9 @@ People photograph real outdoor organisms, build a personal Dex, and complete
 Expeditions. Public iNaturalist contribution is not enabled for W1 or closed
 beta and requires a separate consent/geoprivacy decision.
 
-A parent or teacher creates the kid account. Kids do not enter email addresses,
+A parent creates and manages their own kid account. The adult who creates a
+group manages the group, but does not gain authority over another parent's
+child. Kids do not enter email addresses,
 do not see ads, and do not communicate through public chat, direct messages, or
 kid-to-kid free text.
 
@@ -32,10 +34,12 @@ kid-to-kid free text.
 We do not collect kid email, phone number, last name, exact birth date,
 advertising IDs, contacts, microphone, calendar, SMS, or behavioral ad data.
 
-## What we collect from a parent or teacher account
+## What we collect from a parent account
 
 - Email address for sign-in through Microsoft Entra External Identities.
-- Display name, owned groups, provisioned kid accounts, consent records.
+- Display name, group membership/ownership, parent-created kid accounts,
+  consent records, and adult-invitation state. Invitation tokens are stored
+  only as one-way digests.
 - Standard service logs for debugging and security.
 
 ## Where data is stored
@@ -69,9 +73,17 @@ are served from Azure Static Web Apps.
   text are not logged.
 
 Photo containers are private. A child can receive a signed URL only for their
-own clean photo; peer children cannot. Authorized managing adults may access a
-clean photo and authorized reviewers may access a quarantined photo. Pending,
+own clean photo; peer children cannot. A parent may manage only their own
+child. Group ownership or ordinary adult group membership never grants access
+to another family's QR codes, photos, observations, reviews, corrections,
+deletion, or private child metadata. Explicitly authorized reviewers may access
+a quarantined photo. Pending,
 pilot-private, failed, rejected, and deleted photos receive no signed URL.
+
+Children do not receive adult rosters, invitation or join material, peer names
+or age bands, individual peer progress, observations, or photos. The group
+owner may manage group settings and adult membership, but is not treated as the
+guardian of every child in the group.
 
 ## What we do not do
 

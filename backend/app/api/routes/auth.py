@@ -54,7 +54,16 @@ _CURRENT_POLICY_VERSION = CURRENT_PARENT_CONSENT_POLICY_VERSION
 class ParentSignupRequest(BaseModel):
     display_name: str = Field(..., min_length=1, max_length=80)
     consent_id: str = Field(..., min_length=26, max_length=26)
-    consent_nonce: str = Field(..., pattern=r"^[0-9a-f]{64}$")
+    # Secret proof: route-level validation prevents Pydantic from echoing it.
+    consent_nonce: str
+
+
+def _require_valid_consent_nonce(value: str) -> None:
+    if len(value) != 64 or any(char not in "0123456789abcdef" for char in value):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Consent proof is invalid.",
+        )
 
 
 class UserResponse(BaseModel):
@@ -204,6 +213,8 @@ async def parent_signup(
     caller has no Entra OID -- this keeps existing test stubs working until the
     column is removed by a future audited migration.
     """
+    _require_valid_consent_nonce(request_body.consent_nonce)
+
     # Resolve the Entra OID. In production this comes from the verified
     # token; legacy/test paths may put the compatibility uid into
     # current_user.uid with entra_oid=None.
@@ -341,7 +352,8 @@ async def parent_signup(
 
 
 class KidExchangeRequest(BaseModel):
-    handoff_token: str = Field(..., min_length=1, max_length=4096)
+    # Secret proof: route-level validation prevents Pydantic from echoing it.
+    handoff_token: str
 
 
 class KidExchangeResponse(BaseModel):
@@ -370,6 +382,12 @@ async def kid_exchange(
     on the JWT's `jti` claim: a unique-violation means the token was already
     redeemed and we return 409 Conflict.
     """
+    if not 1 <= len(payload.handoff_token) <= 4096:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Handoff token is invalid.",
+        )
+
     # 1. Verify the JWT signature + claims (issuer, audience, expiry, type).
     try:
         claims = verify_hinterland_jwt(
@@ -380,7 +398,7 @@ async def kid_exchange(
     except InvalidHinterlandJwt as exc:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail=f"Invalid handoff token: {exc}",
+            detail="Invalid handoff token",
             headers={"WWW-Authenticate": "Bearer"},
         ) from exc
 
@@ -401,8 +419,52 @@ async def kid_exchange(
     parent_id = parent_id_claim if isinstance(parent_id_claim, str) else ""
     group_id_claim = claims.get("group_id")
     group_id = group_id_claim if isinstance(group_id_claim, str) else ""
+    session_version_claim = claims.get("session_version")
+    session_version = (
+        session_version_claim
+        if isinstance(session_version_claim, int) and not isinstance(session_version_claim, bool)
+        else 1
+    )
 
-    # 2. Atomic single-use: INSERT the jti. Unique-PK collision means
+    # 2. Revalidate the canonical parent and active group relationship before
+    #    consuming the handoff. An old QR cannot revive a removed membership.
+    kid_row = (
+        await session.execute(
+            select(models.User, models.Membership)
+            .join(models.Membership, models.Membership.user_id == models.User.id)
+            .join(models.Group, models.Group.id == models.Membership.group_id)
+            .where(
+                models.User.id == kid_user_id,
+                models.User.role == "kid",
+                models.User.parent_user_id == parent_id,
+                models.User.disabled_at.is_(None),
+                models.Membership.group_id == group_id,
+                models.Membership.role == "kid",
+                models.Membership.status == "active",
+                models.Group.archived_at.is_(None),
+            )
+        )
+    ).one_or_none()
+    if kid_row is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Handoff no longer authorizes an active child membership",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    kid, membership = kid_row
+    if kid.disabled_at is not None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Kid account disabled",
+        )
+    if membership.session_version != session_version:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Handoff was issued for an earlier child membership session",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    # 3. Atomic single-use: INSERT the jti. Unique-PK collision means
     #    this handoff was already redeemed (replay attempt).
     jti_row = models.KidHandoffJti(
         jti=jti,
@@ -422,25 +484,12 @@ async def kid_exchange(
             headers={"WWW-Authenticate": "Bearer"},
         ) from exc
 
-    # 3. Load the kid's users row.
-    kid_result = await session.execute(select(models.User).where(models.User.id == kid_user_id))
-    kid = kid_result.scalar_one_or_none()
-    if kid is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Kid user not found.",
-        )
-    if kid.disabled_at is not None:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="User disabled.",
-        )
-
     # 4. Mint the session JWT (30 days by default; settings-driven).
     session_token = mint_session_token(
         kid_user_id=kid.id,
         parent_id=parent_id,
         group_id=group_id,
+        session_version=membership.session_version,
         settings=settings,
     )
     session_expires_at = datetime.now(UTC) + timedelta(
@@ -522,7 +571,9 @@ def _dev_login_available(settings: Settings) -> bool:
     return True
 
 
-async def _get_or_create_dev_rows(session: AsyncSession, dev_login_key: str) -> models.User:
+async def _get_or_create_dev_rows(
+    session: AsyncSession, dev_login_key: str
+) -> tuple[models.User, models.Membership]:
     """Get-or-create the fixed dev sandbox lineage; returns the dev kid row.
 
     Each row is looked up by its well-known PK and only inserted when
@@ -549,7 +600,11 @@ async def _get_or_create_dev_rows(session: AsyncSession, dev_login_key: str) -> 
     elif parent.disabled_at is not None:
         parent.disabled_at = None
 
-    group = await session.get(models.Group, DEV_GROUP_ID)
+    # Existing groups participate in the same lifecycle lock order as every
+    # production membership mutator: Group first, then Membership. The dev
+    # lineage is synthetic and self-healing, so an archived sandbox group is
+    # explicitly reopened while that lock is held before memberships heal.
+    group = await session.get(models.Group, DEV_GROUP_ID, with_for_update=True)
     if group is None:
         group = models.Group(
             id=DEV_GROUP_ID,
@@ -559,6 +614,8 @@ async def _get_or_create_dev_rows(session: AsyncSession, dev_login_key: str) -> 
         )
         session.add(group)
         await session.flush()
+    elif group.archived_at is not None:
+        group.archived_at = None
 
     kid = await session.get(models.User, DEV_KID_USER_ID)
     if kid is None:
@@ -591,6 +648,10 @@ async def _get_or_create_dev_rows(session: AsyncSession, dev_login_key: str) -> 
             role="kid",
         )
         session.add(membership)
+    elif membership.status == "left":
+        membership.status = "active"
+        membership.left_at = None
+        membership.session_version += 1
 
     # Organic create_group gives the owner a Membership row too; group
     # listing and role checks assume it exists.
@@ -603,12 +664,17 @@ async def _get_or_create_dev_rows(session: AsyncSession, dev_login_key: str) -> 
             role="parent",
         )
         session.add(parent_membership)
+    elif parent_membership.status == "left":
+        parent_membership.status = "active"
+        parent_membership.left_at = None
 
     await session.commit()
-    return kid
+    return kid, membership
 
 
-async def _ensure_dev_sandbox(session: AsyncSession, dev_login_key: str) -> models.User:
+async def _ensure_dev_sandbox(
+    session: AsyncSession, dev_login_key: str
+) -> tuple[models.User, models.Membership]:
     """Idempotently provision the dev sandbox, tolerating a concurrent first call."""
     try:
         return await _get_or_create_dev_rows(session, dev_login_key)
@@ -657,12 +723,13 @@ async def dev_login(
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    kid = await _ensure_dev_sandbox(session, configured_key)
+    kid, membership = await _ensure_dev_sandbox(session, configured_key)
 
     session_token = mint_session_token(
         kid_user_id=DEV_KID_USER_ID,
         parent_id=DEV_PARENT_USER_ID,
         group_id=DEV_GROUP_ID,
+        session_version=membership.session_version,
         settings=settings,
     )
     session_expires_at = datetime.now(UTC) + timedelta(
@@ -732,7 +799,8 @@ class ConsentRequest(BaseModel):
     email: str = Field(..., pattern=r"^[^@\s]+@[^@\s]+\.[^@\s]+$", max_length=320)
     kid_display_name: str | None = Field(default=None, max_length=80)
     policy_version: str = Field(..., min_length=1, max_length=64)
-    consent_nonce: str = Field(..., pattern=r"^[0-9a-f]{64}$")
+    # Secret proof: route-level validation prevents Pydantic from echoing it.
+    consent_nonce: str
 
 
 class ConsentResponse(BaseModel):
@@ -805,6 +873,7 @@ async def record_consent(
     signup must present the exact response ID and raw nonce; email alone can
     never claim a receipt.
     """
+    _require_valid_consent_nonce(payload.consent_nonce)
     if payload.policy_version != _CURRENT_POLICY_VERSION:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import uuid
 from datetime import datetime
 
 from sqlalchemy import (
@@ -69,25 +70,100 @@ class Group(TimestampMixin, Base):
     join_code: Mapped[str] = mapped_column(String(6), nullable=False)
     owner_user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), nullable=False)
     archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # Durable one-way marker: once invitation-based sharing starts, the
+    # legacy reusable join code can never be re-enabled for this group merely
+    # by rolling back a feature flag.
+    shared_groups_enabled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 class Membership(TimestampMixin, Base):
     __tablename__ = "memberships"
     __table_args__ = (
         UniqueConstraint("group_id", "user_id", name="uq_memberships_group_user"),
+        UniqueConstraint("management_ref", name="uq_memberships_management_ref"),
         CheckConstraint("role in ('parent', 'teacher', 'kid')", name="ck_memberships_role"),
         CheckConstraint("observation_count >= 0", name="ck_memberships_observation_count"),
         CheckConstraint("dex_count >= 0", name="ck_memberships_dex_count"),
+        CheckConstraint("status in ('active', 'left')", name="ck_memberships_status"),
+        CheckConstraint("session_version >= 1", name="ck_memberships_session_version"),
+        CheckConstraint(
+            "(status = 'active' AND left_at IS NULL) OR (status = 'left' AND left_at IS NOT NULL)",
+            name="ck_memberships_status_left_at",
+        ),
+        Index(
+            "uq_memberships_active_kid_user",
+            "user_id",
+            unique=True,
+            postgresql_where=text("role = 'kid' AND status = 'active'"),
+        ),
     )
 
     id: Mapped[str] = mapped_column(String(26), primary_key=True)
     group_id: Mapped[str] = mapped_column(ForeignKey("groups.id"), nullable=False)
     user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), nullable=False)
     role: Mapped[str] = mapped_column(String(16), nullable=False)
+    status: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="active", server_default="active"
+    )
+    left_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # Opaque selector exposed only to a group owner for adult removal. It is
+    # deliberately distinct from the internal membership primary key.
+    management_ref: Mapped[str] = mapped_column(
+        String(32),
+        nullable=False,
+        default=lambda: uuid.uuid4().hex,
+        server_default=text("md5(random()::text || clock_timestamp()::text)"),
+    )
+    # Epoch embedded in every kid handoff/session JWT. Any membership
+    # lifecycle transition increments it so a token can never become valid
+    # again after a child leaves and later rejoins the same group.
+    session_version: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=1, server_default="1"
+    )
     observation_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     dex_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     rarest_tier: Mapped[str | None] = mapped_column(String(24))
     last_observed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class GroupAdultInvite(TimestampMixin, Base):
+    """One-time, owner-issued invitation for an adult to join a group."""
+
+    __tablename__ = "group_adult_invites"
+    __table_args__ = (
+        UniqueConstraint("token_sha256", name="uq_group_adult_invites_token_sha256"),
+        CheckConstraint(
+            "NOT (redeemed_at IS NOT NULL AND revoked_at IS NOT NULL)",
+            name="ck_group_adult_invites_terminal_state",
+        ),
+        CheckConstraint(
+            "(redeemed_at IS NULL) = (redeemed_by_user_id IS NULL)",
+            name="ck_group_adult_invites_redeemed_pair",
+        ),
+        CheckConstraint(
+            "(revoked_at IS NULL) = (revoked_by_user_id IS NULL)",
+            name="ck_group_adult_invites_revoked_pair",
+        ),
+        Index("ix_group_adult_invites_group_expires", "group_id", "expires_at"),
+    )
+
+    id: Mapped[str] = mapped_column(String(26), primary_key=True)
+    group_id: Mapped[str] = mapped_column(
+        ForeignKey("groups.id", ondelete="CASCADE"), nullable=False
+    )
+    created_by_user_id: Mapped[str] = mapped_column(
+        ForeignKey("users.id", ondelete="RESTRICT"), nullable=False
+    )
+    token_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    redeemed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    redeemed_by_user_id: Mapped[str | None] = mapped_column(
+        ForeignKey("users.id", ondelete="RESTRICT")
+    )
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    revoked_by_user_id: Mapped[str | None] = mapped_column(
+        ForeignKey("users.id", ondelete="RESTRICT")
+    )
 
 
 class Photo(TimestampMixin, Base):

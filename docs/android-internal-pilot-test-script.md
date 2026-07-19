@@ -80,9 +80,13 @@ Internal testing track. No classroom rollout. No public release.
   fresh setup must fail closed if the tab-scoped proof is missing. The native
   `play-internal` build does not use native adult password sign-in.
 - [ ] Create the group from the parent account in the parents web app. The
-  parent-account group-create flow returns a 6-character join code
-  (same flow exercised by `scripts/smoke_azure_parent_kid.py`).
+  creator becomes the group owner and manages group settings and adult
+  invitations/removal. Group ownership does not grant authority over another
+  parent's child. Reusable six-character join codes are not part of the
+  Group-first product surface.
 - [ ] Create the kid account from the parent account in the parents web app.
+  The requesting parent must become the child's canonical parent; another adult
+  in the group must not be able to manage or hand off that child.
   The kid-create flow renders a QR handoff modal whose payload is
   `hinterland.kid-handoff.v1` per Phase 7. Have the kid's device ready
   to scan.
@@ -161,8 +165,9 @@ the tapping.
 
 Switch back to the parent's device.
 
-- [ ] Open the **Adult tools** section on the Settings tab and tap
-  the review-queue link.
+- [ ] Using an explicitly authorized reviewer account, open the **Adult tools**
+  section on the Settings tab and tap the review-queue link. Ordinary group
+  membership must not grant review access.
 - [ ] Confirm review queue renders without 500s. Empty is expected: W1 NoOp is
   `pilot_private`, not clean/quarantine, and grants no thumbnail.
 - [ ] Operator canary confirms `pilot_private`, no signed-photo URL, and no

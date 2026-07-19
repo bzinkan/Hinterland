@@ -85,6 +85,7 @@ def test_v1_meta_returns_versioned_api_metadata(client: TestClient) -> None:
         "version": "test",
         "capabilities": {
             "observation": {"photo_helper_enabled": False},
+            "groups": {"shared_groups_enabled": False},
         },
     }
 
@@ -128,6 +129,24 @@ def test_v1_meta_keeps_photo_helper_disabled_without_provider_credentials() -> N
 
     assert response.json()["capabilities"]["observation"] == {
         "photo_helper_enabled": False,
+    }
+
+
+def test_v1_meta_reports_only_the_global_shared_groups_rollout() -> None:
+    app = create_app(
+        Settings(
+            env="local",
+            app_version="test",
+            shared_groups_enabled=True,
+            shared_groups_canary_group_ids=["01CANARYGROUP0000000000000"],
+        )
+    )
+
+    with TestClient(app) as test_client:
+        response = test_client.get("/v1/meta")
+
+    assert response.json()["capabilities"]["groups"] == {
+        "shared_groups_enabled": True,
     }
 
 

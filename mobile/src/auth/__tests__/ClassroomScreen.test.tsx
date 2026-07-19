@@ -33,12 +33,83 @@ jest.mock("@tanstack/react-query", () => ({
 }));
 
 jest.mock("@/src/api/groups", () => ({
+  archiveGroup: jest.fn(),
+  createAdultInvitation: jest.fn(),
   createGroup: jest.fn(),
   createKid: jest.fn(),
+  listAdultInvitations: jest.fn(),
   listGroupMembers: jest.fn(),
   listGroups: jest.fn(),
+  listOwnedChildren: jest.fn(),
+  placeOwnedChildInGroup: jest.fn(),
+  removeAdultMember: jest.fn(),
   reissueKidHandoff: jest.fn(),
+  revokeAdultInvitation: jest.fn(),
+  updateGroup: jest.fn(),
 }));
+
+jest.mock("@/src/groups/invitationToken", () => ({
+  copyInvitationUrl: jest.fn(),
+  validateInvitationUrl: jest.fn(() => true),
+}));
+
+const mockedCreateAdultInvitation = jest.requireMock("@/src/api/groups")
+  .createAdultInvitation as jest.Mock;
+
+const ownerGroup = {
+  id: "group-1",
+  name: "First Group",
+  is_owner: true,
+  adult_count: 2,
+  child_count: 2,
+  own_children_count: 1,
+  permissions: {
+    can_rename: true,
+    can_archive: true,
+    can_invite_parents: true,
+    can_manage_invitations: true,
+    can_remove_adults: true,
+    can_add_child: true,
+  },
+};
+
+const secondOwnerGroup = { ...ownerGroup, id: "group-2", name: "Second Group" };
+let ownerGroups = [ownerGroup, secondOwnerGroup];
+let ownedChildrenByUser: Record<
+  string,
+  Array<{
+    id: string;
+    display_name: string;
+    age_band: string | null;
+    active_group_id: string | null;
+  }>
+> = {};
+let rosterChildrenByUserGroup: Record<
+  string,
+  Array<{
+    user_id: string;
+    display_name: string;
+    age_band: string | null;
+    status: string;
+    observation_count: number;
+    dex_count: number;
+    rarest_tier: string | null;
+    last_observed_at: string | null;
+  }>
+> = {};
+
+const joinedGroup = {
+  ...ownerGroup,
+  is_owner: false,
+  permissions: {
+    can_rename: false,
+    can_archive: false,
+    can_invite_parents: false,
+    can_manage_invitations: false,
+    can_remove_adults: false,
+    can_add_child: true,
+  },
+};
 
 function textChild(control: ReactTestInstance, value: string): ReactTestInstance {
   return control.findAllByType(Text).find((node) => node.props.children === value)!;
@@ -53,13 +124,14 @@ function handoffModal(tree: renderer.ReactTestRenderer): ReactTestInstance {
 type MutationOptions = {
   mutationKey?: readonly unknown[];
   gcTime?: number;
-  onSuccess?: (value: unknown) => void;
+  onSuccess?: (value: unknown, variables?: unknown) => void | Promise<void>;
 };
 
 function mutationOptions(key: string): MutationOptions {
   return mockUseMutation.mock.calls
     .map(([options]) => options as MutationOptions)
-    .find((options) => options.mutationKey?.[0] === key)!;
+    .filter((options) => options.mutationKey?.[0] === key)
+    .at(-1)!;
 }
 
 describe("GroupsScreen presentation contract", () => {
@@ -67,6 +139,9 @@ describe("GroupsScreen presentation contract", () => {
     jest.useFakeTimers();
     jest.clearAllMocks();
     mockColorScheme = "light";
+    ownerGroups = [ownerGroup, secondOwnerGroup];
+    ownedChildrenByUser = {};
+    rosterChildrenByUserGroup = {};
     mockUseMutation.mockImplementation(() => ({
       isPending: false,
       mutate: mockMutate,
@@ -81,51 +156,81 @@ describe("GroupsScreen presentation contract", () => {
     mockUseQuery.mockImplementation(
       (options: { queryKey: [string, ...unknown[]] }) => {
         if (options.queryKey[0] === "groups") {
+          const joined = options.queryKey[1] === "parent-2";
+          const teacher = options.queryKey[1] === "teacher-1";
           return {
             isPending: false,
             isError: false,
             data: {
-              items: [
-                {
-                  id: "group-1",
-                  name: "First Group",
-                  join_code: "ABC123",
-                  owner_user_id: "parent-1",
-                },
-                {
-                  id: "group-2",
-                  name: "Second Group",
-                  join_code: "DEF456",
-                  owner_user_id: "parent-1",
-                },
-              ],
+              items: teacher ? [] : joined ? [joinedGroup] : ownerGroups,
             },
           };
         }
+        if (options.queryKey[0] === "group-adult-invitations") {
+          return {
+            isPending: false,
+            isError: false,
+            data: { items: [] },
+          };
+        }
+        if (options.queryKey[0] === "owned-children") {
+          const userId = String(options.queryKey[1]);
+          return {
+            isPending: false,
+            isError: false,
+            data: { items: ownedChildrenByUser[userId] ?? [] },
+          };
+        }
+        const userId = String(options.queryKey[1]);
+        const groupId = String(options.queryKey[2]);
+        const joined = userId === "parent-2";
         return {
           isPending: false,
           isError: false,
           data: {
-            items: [
+            group: joined ? joinedGroup : ownerGroup,
+            adults: joined
+              ? []
+              : [
               {
-                user_id: "parent-1",
-                membership_id: "member-parent",
+                removal_ref: null,
                 display_name: "Test Parent",
-                role: "parent",
-                age_band: null,
-                observation_count: 0,
-                dex_count: 0,
+                is_owner: true,
+                status: "active",
               },
               {
-                user_id: "kid-1",
-                membership_id: "member-1",
-                display_name: "Test Kid",
-                role: "kid",
-                age_band: "9-10",
-                observation_count: 0,
-                dex_count: 0,
+                removal_ref: "opaque-remove-parent-2",
+                display_name: "Other Parent",
+                is_owner: false,
+                status: "active",
               },
             ],
+            own_children: rosterChildrenByUserGroup[`${userId}:${groupId}`] ?? (joined
+              ? [
+                  {
+                    user_id: "kid-2",
+                    display_name: "Other Parent Kid",
+                    age_band: "9-10",
+                    status: "active",
+                    observation_count: 0,
+                    dex_count: 0,
+                    rarest_tier: null,
+                    last_observed_at: null,
+                  },
+                ]
+              : [
+                  {
+                    user_id: "kid-1",
+                    display_name: "Test Kid",
+                    age_band: "9-10",
+                    status: "active",
+                    observation_count: 0,
+                    dex_count: 0,
+                    rarest_tier: null,
+                    last_observed_at: null,
+                  },
+                ]),
+            other_child_count: 1,
           },
         };
       },
@@ -190,6 +295,232 @@ describe("GroupsScreen presentation contract", () => {
       (mockUseQuery.mock.calls[0][0] as { enabled: boolean }).enabled,
     ).toBe(false);
 
+    act(() => tree.unmount());
+  });
+
+  it("shows owner administration using only opaque removal references", () => {
+    let tree!: renderer.ReactTestRenderer;
+    act(() => {
+      tree = renderer.create(<GroupsScreen />);
+    });
+
+    expect(tree.root.findAllByProps({ testID: "groups-owner-controls" }).length).toBeGreaterThan(0);
+    expect(tree.root.findAllByProps({ testID: "groups-create-invitation" }).length).toBeGreaterThan(0);
+    expect(tree.root.findAllByProps({ testID: "groups-rename-button" }).length).toBeGreaterThan(0);
+    expect(tree.root.findAllByProps({ testID: "groups-archive-button" }).length).toBeGreaterThan(0);
+    expect(
+      tree.root.findAllByProps({ testID: "groups-remove-adult-opaque-remove-parent-2" }),
+    ).not.toHaveLength(0);
+    expect(JSON.stringify(tree.toJSON())).not.toContain("membership_id");
+    act(() => tree.unmount());
+  });
+
+  it("keeps revocation controls available during a sharing rollout rollback", () => {
+    ownerGroup.permissions.can_invite_parents = false;
+    ownerGroup.permissions.can_manage_invitations = true;
+    let tree!: renderer.ReactTestRenderer;
+    act(() => {
+      tree = renderer.create(<GroupsScreen />);
+    });
+
+    const invitationQuery = mockUseQuery.mock.calls
+      .map(([options]) => options as { queryKey: [string, ...unknown[]]; enabled?: boolean })
+      .find((options) => options.queryKey[0] === "group-adult-invitations");
+    expect(invitationQuery?.enabled).toBe(true);
+    expect(JSON.stringify(tree.toJSON())).toContain("Parent invitations");
+    expect(tree.root.findAllByProps({ testID: "groups-create-invitation" })).toHaveLength(0);
+    expect(
+      tree.root.findAllByProps({ testID: "groups-remove-adult-opaque-remove-parent-2" }),
+    ).not.toHaveLength(0);
+
+    act(() => tree.unmount());
+    ownerGroup.permissions.can_invite_parents = true;
+  });
+
+  it("shows a joined parent only their own child plus an aggregate peer count", () => {
+    useAuthSession.getState().setAuthenticated({
+      id: "parent-2",
+      entra_oid: "entra-2",
+      role: "parent",
+      display_name: "Other Parent",
+    });
+    let tree!: renderer.ReactTestRenderer;
+    act(() => {
+      tree = renderer.create(<GroupsScreen />);
+    });
+
+    const rendered = JSON.stringify(tree.toJSON());
+    expect(rendered).toContain("Other Parent Kid");
+    expect(rendered).toContain("other child is");
+    expect(rendered).not.toContain("Test Kid");
+    expect(tree.root.findAllByProps({ testID: "groups-owner-controls" })).toHaveLength(0);
+    expect(tree.root.findAllByProps({ testID: "groups-create-invitation" })).toHaveLength(0);
+    expect(
+      tree.root.findAllByProps({ testID: "classroom-add-kid-button" }).length,
+    ).toBeGreaterThan(0);
+    act(() => tree.unmount());
+  });
+
+  it("shows only ungrouped owned children and places one in the selected eligible group", async () => {
+    ownedChildrenByUser["parent-1"] = [
+      {
+        id: "child-ungrouped",
+        display_name: "Finch",
+        age_band: "9-10",
+        active_group_id: null,
+      },
+      {
+        id: "child-grouped",
+        display_name: "Already Grouped",
+        age_band: "11-12",
+        active_group_id: "group-1",
+      },
+    ];
+    let tree!: renderer.ReactTestRenderer;
+    act(() => {
+      tree = renderer.create(<GroupsScreen />);
+    });
+
+    const rendered = JSON.stringify(tree.toJSON());
+    expect(rendered).toContain("Children not in a group");
+    expect(rendered).toContain("Finch");
+    expect(rendered).not.toContain("Already Grouped");
+
+    act(() => {
+      tree.root
+        .findByProps({ testID: "groups-place-child-group-child-ungrouped-group-2" })
+        .props.onPress();
+    });
+    act(() => {
+      tree.root.findByProps({ testID: "groups-place-child-child-ungrouped" }).props.onPress();
+    });
+    expect(mockMutate).toHaveBeenLastCalledWith({
+      childId: "child-ungrouped",
+      groupId: "group-2",
+    });
+    expect(mutationOptions("place-owned-child").gcTime).toBe(0);
+
+    await act(async () => {
+      await mutationOptions("place-owned-child").onSuccess?.(undefined, {
+        childId: "child-ungrouped",
+        groupId: "group-2",
+      });
+    });
+    expect(mockInvalidateQueries).toHaveBeenCalledWith({
+      queryKey: ["owned-children", "parent-1"],
+    });
+    expect(mockInvalidateQueries).toHaveBeenCalledWith({
+      queryKey: ["group-members", "parent-1", "group-2"],
+    });
+    expect(
+      tree.root.findByProps({ testID: "classroom-group-tab-group-2" }).props
+        .accessibilityState.selected,
+    ).toBe(true);
+
+    ownedChildrenByUser["parent-1"][0].active_group_id = "group-2";
+    rosterChildrenByUserGroup["parent-1:group-2"] = [
+      {
+        user_id: "child-ungrouped",
+        display_name: "Finch",
+        age_band: "9-10",
+        status: "active",
+        observation_count: 0,
+        dex_count: 0,
+        rarest_tier: null,
+        last_observed_at: null,
+      },
+    ];
+    act(() => {
+      tree.update(<GroupsScreen />);
+    });
+    expect(tree.root.findAllByProps({ testID: "groups-ungrouped-children" })).toHaveLength(0);
+    expect(
+      tree.root.findAllByProps({ testID: "classroom-reissue-kid-child-ungrouped" }).length,
+    ).toBeGreaterThan(0);
+    act(() => tree.unmount());
+  });
+
+  it("drops ungrouped-child presentation and target selection on account switch", () => {
+    ownedChildrenByUser["parent-1"] = [
+      {
+        id: "child-a",
+        display_name: "Finch",
+        age_band: "9-10",
+        active_group_id: null,
+      },
+    ];
+    ownedChildrenByUser["parent-2"] = [
+      {
+        id: "child-b",
+        display_name: "Wren",
+        age_band: "11-12",
+        active_group_id: null,
+      },
+    ];
+    let tree!: renderer.ReactTestRenderer;
+    act(() => {
+      tree = renderer.create(<GroupsScreen />);
+    });
+    act(() => {
+      tree.root
+        .findByProps({ testID: "groups-place-child-group-child-a-group-2" })
+        .props.onPress();
+    });
+
+    act(() => {
+      useAuthSession.getState().setAuthenticated({
+        id: "parent-2",
+        entra_oid: "entra-2",
+        role: "parent",
+        display_name: "Other Parent",
+      });
+    });
+
+    const rendered = JSON.stringify(tree.toJSON());
+    expect(rendered).toContain("Wren");
+    expect(rendered).not.toContain("Finch");
+    expect(tree.root.findAllByProps({ testID: "groups-place-child-group-child-b-group-2" })).toHaveLength(0);
+    expect(
+      tree.root.findByProps({ testID: "groups-place-child-group-child-b-group-1" }).props
+        .accessibilityState.selected,
+    ).toBe(true);
+    act(() => tree.unmount());
+  });
+
+  it("does not grant compatibility teacher accounts group creation", () => {
+    useAuthSession.getState().setAuthenticated({
+      id: "teacher-1",
+      entra_oid: "entra-teacher",
+      role: "teacher",
+      display_name: "Teacher",
+    });
+    let tree!: renderer.ReactTestRenderer;
+    act(() => {
+      tree = renderer.create(<GroupsScreen />);
+    });
+
+    expect(JSON.stringify(tree.toJSON())).toContain("compatibility account cannot create groups");
+    expect(tree.root.findAllByProps({ testID: "classroom-new-group-button" })).toHaveLength(0);
+    expect(tree.root.findAllByProps({ testID: "classroom-create-first-group-button" })).toHaveLength(0);
+    act(() => tree.unmount());
+  });
+
+  it("clears a selected group when it is archived or disappears", () => {
+    let tree!: renderer.ReactTestRenderer;
+    act(() => {
+      tree = renderer.create(<GroupsScreen />);
+    });
+    act(() => {
+      tree.root.findByProps({ testID: "classroom-group-tab-group-2" }).props.onPress();
+    });
+    expect(JSON.stringify(tree.toJSON())).toContain("Second Group");
+
+    ownerGroups = [ownerGroup];
+    act(() => {
+      tree.update(<GroupsScreen />);
+    });
+    expect(JSON.stringify(tree.toJSON())).toContain("First Group");
+    expect(tree.root.findAllByProps({ testID: "classroom-group-tab-group-2" })).toHaveLength(0);
     act(() => tree.unmount());
   });
 
@@ -274,7 +605,7 @@ describe("GroupsScreen presentation contract", () => {
       jest.runOnlyPendingTimers();
     });
 
-    const roster = tree.root.findByProps({ testID: "classroom-roster-row-member-1" });
+    const roster = tree.root.findByProps({ testID: "classroom-roster-row-kid-1" });
     expect(StyleSheet.flatten(roster.props.style)).toMatchObject({
       borderBottomColor: "rgba(255,255,255,0.1)",
     });
@@ -447,6 +778,40 @@ describe("GroupsScreen presentation contract", () => {
       tree.root.findAllByProps({ testID: "classroom-reissue-kid-kid-1" }),
     ).toHaveLength(0);
 
+    act(() => tree.unmount());
+  });
+
+  it("drops the copy-only invitation when the authenticated account changes", async () => {
+    mockedCreateAdultInvitation.mockResolvedValue({
+      id: "invite-1",
+      state: "pending",
+      created_at: "2026-07-18T12:00:00Z",
+      expires_at: "2026-07-21T12:00:00Z",
+      redeemed_at: null,
+      revoked_at: null,
+      invite_url: `https://parents.example/group-invite#token=${"A".repeat(48)}`,
+    });
+    let tree!: renderer.ReactTestRenderer;
+    act(() => {
+      tree = renderer.create(<GroupsScreen />);
+    });
+    await act(async () => {
+      tree.root.findByProps({ testID: "groups-create-invitation" }).props.onPress();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(tree.root.findAllByType(Modal).filter((node) => node.props.visible)).toHaveLength(1);
+
+    act(() => {
+      useAuthSession.getState().setAuthenticated({
+        id: "parent-2",
+        entra_oid: "entra-2",
+        role: "parent",
+        display_name: "Other Parent",
+      });
+    });
+    expect(tree.root.findAllByType(Modal).filter((node) => node.props.visible)).toHaveLength(0);
+    expect(tree.root.findAllByProps({ testID: "groups-copy-invitation" })).toHaveLength(0);
     act(() => tree.unmount());
   });
 

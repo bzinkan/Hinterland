@@ -4,9 +4,9 @@ name: Deploy parents web to Azure Static Web Apps (dev)
 # ships it to Azure Static Web Apps site `hinterland-parents-swa`.
 
 on:
-  push:
-    branches:
-      - main
+  # Parent releases are intentionally operator-dispatched. The Groups API
+  # migration and API revision must be live at this exact commit before the
+  # web client is uploaded; an automatic push deploy could race them.
   workflow_dispatch:
 
 concurrency:
@@ -30,6 +30,29 @@ jobs:
           set -euo pipefail
           test "${GITHUB_REF}" = "refs/heads/main"
           test "${GITHUB_SHA}" = "$(git rev-parse HEAD)"
+
+      - name: Require migrated API at this exact commit
+        run: |
+          set -euo pipefail
+          ready=false
+          for attempt in $(seq 1 12); do
+            if response="$(curl --fail --silent --show-error \
+              --connect-timeout 10 --max-time 20 \
+              https://api.thehinterlandguide.app/ready)" &&
+              jq -e --arg sha "${GITHUB_SHA}" '
+                .status == "ready" and
+                .version == $sha and
+                any(.checks[]; .name == "database" and .status == "ok")
+              ' <<<"${response}" >/dev/null; then
+              ready=true
+              break
+            fi
+            sleep 10
+          done
+          if [[ "${ready}" != true ]]; then
+            echo "The migrated API is not ready at ${GITHUB_SHA}; parent deploy blocked." >&2
+          fi
+          test "${ready}" = true
 
       - uses: actions/setup-node@v4
         with:

@@ -125,6 +125,11 @@ add a broad `navigationFallback`: unknown parent paths must continue to return
 checks the source contract, and the parent deployment checks the exported
 contract before upload and the two live origins after upload. Both the live
 parent deployment and protected promotion hard-reject non-`main` refs.
+The parent deployment is manual and additionally requires public `/ready` to
+report the same commit with a ready database before any bundle upload. For a
+Groups schema/API release, run the migration-first ordinary API deployment at
+the exact commit, then the parent deployment, then this protected promotion;
+keep shared Groups default-off until the isolated canary begins.
 
 The workflow artifact is intentionally sanitized. It contains the commit,
 image digest, Central primary revision, East rollback revision, their verified

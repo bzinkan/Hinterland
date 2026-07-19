@@ -40,6 +40,16 @@ class Settings(BaseSettings):
     env: Environment = "local"
     log_level: LogLevel = "INFO"
     cors_origins: list[str] = Field(default_factory=_default_cors_origins)
+    parent_web_base_url: str = "https://parents.thehinterlandguide.app"
+
+    # Privacy-safe multi-family Groups ship default-deny. The global flag is
+    # the eventual rollout switch; canary IDs let operators exercise one
+    # explicitly selected group without exposing invitations everywhere.
+    shared_groups_enabled: bool = False
+    shared_groups_canary_group_ids: list[str] = Field(default_factory=list)
+
+    def shared_groups_allowed_for(self, group_id: str) -> bool:
+        return self.shared_groups_enabled or group_id in self.shared_groups_canary_group_ids
 
     photos_bucket: str = "photos"
     # W1 pilot environments require the same ULID on presign and finalization.

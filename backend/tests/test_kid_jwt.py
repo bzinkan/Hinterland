@@ -102,6 +102,7 @@ def test_mint_handoff_returns_token_and_jti(
         kid_user_id="01J0KIDID0000000000000ULID",
         parent_id="01J0PARENTID0000000000ULID",
         group_id="01J0GROUPID00000000000ULID",
+        session_version=1,
         settings=settings,
     )
     assert isinstance(token, str) and token.count(".") == 2
@@ -119,6 +120,7 @@ def test_mint_handoff_token_contains_expected_claims(
         kid_user_id="01J0KIDID0000000000000ULID",
         parent_id="01J0PARENTID0000000000ULID",
         group_id="01J0GROUPID00000000000ULID",
+        session_version=7,
         settings=settings,
     )
     decoded = pyjwt.decode(token, options={"verify_signature": False})
@@ -126,6 +128,7 @@ def test_mint_handoff_token_contains_expected_claims(
     assert decoded["sub"] == "01J0KIDID0000000000000ULID"
     assert decoded["parent_id"] == "01J0PARENTID0000000000ULID"
     assert decoded["group_id"] == "01J0GROUPID00000000000ULID"
+    assert decoded["session_version"] == 7
     assert decoded["role"] == "kid"
     assert decoded["token_type"] == "handoff"
     assert decoded["jti"] == jti
@@ -150,6 +153,7 @@ def test_mint_session_token_uses_session_ttl(
         kid_user_id="01J0KIDID0000000000000ULID",
         parent_id="01J0PARENTID0000000000ULID",
         group_id="01J0GROUPID00000000000ULID",
+        session_version=1,
         settings=settings,
     )
     decoded = pyjwt.decode(token, options={"verify_signature": False})
@@ -166,6 +170,7 @@ def test_verify_round_trip_succeeds(
         kid_user_id="01J0KIDID0000000000000ULID",
         parent_id="01J0PARENTID0000000000ULID",
         group_id="01J0GROUPID00000000000ULID",
+        session_version=1,
         settings=settings,
     )
 
@@ -177,6 +182,35 @@ def test_verify_round_trip_succeeds(
     assert claims["sub"] == "01J0KIDID0000000000000ULID"
     assert claims["jti"] == jti
     assert claims["token_type"] == "handoff"
+
+
+def test_verify_legacy_token_without_epoch_defaults_to_one(
+    patch_key_vault: tuple[bytes, bytes],
+    settings: Settings,
+) -> None:
+    import jwt as pyjwt
+
+    kid_jwt = _kid_jwt_or_skip()
+    private_pem, _ = patch_key_vault
+    now = datetime.now(UTC)
+    payload = {
+        "iss": settings.hinterland_jwt_issuer,
+        "aud": settings.hinterland_jwt_audience,
+        "sub": "kid-1",
+        "iat": int(now.timestamp()),
+        "exp": int((now + timedelta(minutes=15)).timestamp()),
+        "jti": "01LEGACYHANDOFF000000000000",
+        "token_type": "handoff",
+    }
+    token = pyjwt.encode(
+        payload,
+        private_pem,
+        algorithm="RS256",
+        headers={"kid": settings.hinterland_jwt_kid},
+    )
+
+    claims = kid_jwt.verify_hinterland_jwt(token, settings=settings, expected_token_type="handoff")
+    assert claims["session_version"] == 1
 
 
 def test_verify_rejects_expired_token(
@@ -193,6 +227,7 @@ def test_verify_rejects_expired_token(
         kid_user_id="01J0KIDID0000000000000ULID",
         parent_id="01J0PARENTID0000000000ULID",
         group_id="01J0GROUPID00000000000ULID",
+        session_version=1,
         settings=settings,
     )
 
@@ -275,6 +310,7 @@ def test_verify_rejects_bad_signature(
         kid_user_id="01J0KIDID0000000000000ULID",
         parent_id="01J0PARENTID0000000000ULID",
         group_id="01J0GROUPID00000000000ULID",
+        session_version=1,
         settings=settings,
     )
     # Flip the last 8 chars of the signature to make it invalid but still
@@ -296,6 +332,7 @@ def test_verify_rejects_mismatched_token_type(
         kid_user_id="01J0KIDID0000000000000ULID",
         parent_id="01J0PARENTID0000000000ULID",
         group_id="01J0GROUPID00000000000ULID",
+        session_version=1,
         settings=settings,
     )
 

@@ -23,6 +23,10 @@ import {
   refreshCurrentAdultSession,
   signIn as msalSignIn,
 } from "@/src/auth/msal";
+import {
+  consumeParentReturnPath,
+  type ParentReturnPath,
+} from "@/src/auth/parentReturnPath";
 import { useAuthSession } from "@/src/auth/session";
 
 const IS_WEB = Platform.OS === "web";
@@ -87,11 +91,19 @@ export function ParentWebSignIn() {
     readPendingParentConsentProof(),
   );
   const existingAdultLinkInFlight = useRef(false);
+  const returnPath = useRef<ParentReturnPath | null>(null);
+
+  function consumeReturnPathOnce(): ParentReturnPath {
+    if (returnPath.current == null) {
+      returnPath.current = consumeParentReturnPath();
+    }
+    return returnPath.current;
+  }
 
   useEffect(() => {
     if (!isCanonicalAdult) return;
     if (!pendingProof) {
-      router.replace("/groups");
+      router.replace(consumeReturnPathOnce());
       return;
     }
     if (existingAdultLinkInFlight.current) return;
@@ -103,7 +115,7 @@ export function ParentWebSignIn() {
         try {
           clearPendingParentConsentProof(pendingProof);
           setPendingProof(null);
-          router.replace("/groups");
+          router.replace(consumeReturnPathOnce());
         } catch (error) {
           existingAdultLinkInFlight.current = false;
           setResolving(false);
@@ -242,7 +254,7 @@ export function ParentWebSignIn() {
                     try {
                       clearPendingParentConsentProof(pendingProof);
                       setPendingProof(null);
-                      router.replace("/groups");
+                      router.replace(consumeReturnPathOnce());
                     } catch (error) {
                       existingAdultLinkInFlight.current = false;
                       setResolving(false);

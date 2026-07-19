@@ -1,8 +1,8 @@
 # Hinterland Landing Deploy Runbook
 
 This runbook verifies that the public landing/legal surface is deployable,
-live at `https://thehinterlandguide.app`, and suitable for Google Play Console,
-parent, guardian, and teacher review once legal copy is finalized.
+live at `https://thehinterlandguide.app`, and suitable for Google Play Console
+and parent/guardian review once legal copy is finalized.
 
 The public pages are static HTML/CSS. Do not add analytics, ad SDKs, tracking
 pixels, chat widgets, Play service-account credentials, or secrets to this
@@ -23,11 +23,13 @@ surface.
 
 The parents web deploy is separate. `.github/workflows/deploy-parents-swa.yml`
 uses `HINTERLAND_PARENTS_SWA_TOKEN` and deploys the Expo web bundle to
-`hinterland-parents-swa`. Both Static Web Apps workflows run on every `main`
-commit and stamp `/.well-known/hinterland-build.json`; their final checks fail
-unless the current Azure hostname and public custom domains serve that exact
-commit. This prevents a stale deployment token from producing a false-green
-run against a retired Static Web Apps resource.
+`hinterland-parents-swa`. The landing workflow runs on `main`; the parents
+workflow is manually dispatched only after the migration-first API deployment
+has made the same commit database-ready. Both stamp
+`/.well-known/hinterland-build.json`; their final checks fail unless the
+current Azure hostname and public custom domains serve that exact commit. This
+prevents a stale deployment token or an API/web contract race from producing a
+false-green run against a retired resource.
 
 ## Public URLs
 

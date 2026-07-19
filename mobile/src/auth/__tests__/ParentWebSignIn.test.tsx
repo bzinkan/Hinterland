@@ -2,6 +2,7 @@ import { act, create, type ReactTestRenderer } from "react-test-renderer";
 
 import { ParentWebSignIn, safeParentSetupError } from "@/app/sign-in";
 import { ApiError } from "@/src/api/client";
+import { rememberParentReturnPath } from "@/src/auth/parentReturnPath";
 import { useAuthSession } from "@/src/auth/session";
 
 const mockParentSignup = jest.fn();
@@ -14,6 +15,16 @@ const mockPendingConsentProof = {
   policyVersion: "2026-07-11-W1-INTERNAL",
 };
 let mockStoredConsentProof: typeof mockPendingConsentProof | null = mockPendingConsentProof;
+
+class MemoryStorage implements Storage {
+  private readonly values = new Map<string, string>();
+  get length() { return this.values.size; }
+  clear() { this.values.clear(); }
+  getItem(key: string) { return this.values.get(key) ?? null; }
+  key(index: number) { return Array.from(this.values.keys())[index] ?? null; }
+  removeItem(key: string) { this.values.delete(key); }
+  setItem(key: string, value: string) { this.values.set(key, value); }
+}
 const mockClearConsentProof = jest.fn((_proof: typeof mockPendingConsentProof) => {
   mockStoredConsentProof = null;
 });
@@ -58,6 +69,10 @@ async function renderReady(): Promise<ReactTestRenderer> {
 describe("ParentWebSignIn", () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    Object.defineProperty(globalThis, "window", {
+      configurable: true,
+      value: { sessionStorage: new MemoryStorage() },
+    });
     mockStoredConsentProof = mockPendingConsentProof;
     useAuthSession.getState().setAnonymous();
     mockGetSignedInAdultProfile.mockResolvedValue({
@@ -216,6 +231,29 @@ describe("ParentWebSignIn", () => {
 
     expect(mockSignIn).toHaveBeenCalledTimes(1);
     expect(mockParentSignup).not.toHaveBeenCalled();
+    act(() => tree.unmount());
+  });
+
+  it("consumes an invitation return path once across identity rerenders", async () => {
+    mockStoredConsentProof = null;
+    rememberParentReturnPath("/group-invite");
+    useAuthSession.getState().setAuthenticated({
+      id: "existing-parent",
+      entra_oid: "entra-existing",
+      role: "parent",
+      display_name: "Existing Parent",
+    });
+    let tree!: ReactTestRenderer;
+    await act(async () => {
+      tree = create(<ParentWebSignIn />);
+      await Promise.resolve();
+      tree.update(<ParentWebSignIn />);
+      await Promise.resolve();
+    });
+
+    expect(mockedRouter.replace).toHaveBeenCalled();
+    expect(mockedRouter.replace.mock.calls.every(([path]) => path === "/group-invite")).toBe(true);
+    expect(window.sessionStorage.length).toBe(0);
     act(() => tree.unmount());
   });
 

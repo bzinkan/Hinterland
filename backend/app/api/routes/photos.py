@@ -253,27 +253,23 @@ async def presign_photo(
     )
 
 
-async def _adult_manages_group(
+async def _parent_manages_child(
     session: AsyncSession,
     *,
     caller_user_id: str,
-    observation_group_id: str,
+    child_user_id: str,
 ) -> bool:
-    """Require an adult-role membership in this observation's group.
-
-    Sharing some unrelated group with the photo owner is not authorization for
-    this observation; families and teachers may manage multiple isolated groups.
-    """
-    membership_id = (
+    """Return true only for the child's canonical parent relationship."""
+    managed_child_id = (
         await session.execute(
-            select(models.Membership.id).where(
-                models.Membership.user_id == caller_user_id,
-                models.Membership.group_id == observation_group_id,
-                models.Membership.role.in_({"parent", "teacher"}),
+            select(models.User.id).where(
+                models.User.id == child_user_id,
+                models.User.role == "kid",
+                models.User.parent_user_id == caller_user_id,
             )
         )
     ).scalar_one_or_none()
-    return membership_id is not None
+    return managed_child_id is not None
 
 
 @router.get("/{photo_id}/url", response_model=PhotoUrlResponse)
@@ -309,7 +305,7 @@ async def photo_get_url(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Photo not found")
     (
         moderation_status,
-        observation_group_id,
+        _observation_group_id,
         observation_user_id,
         revocation_active,
     ) = observation_access
@@ -321,15 +317,15 @@ async def photo_get_url(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Photo not found")
 
     is_owner = user_row.id == photo.user_id
-    is_adult = user_row.role in {"parent", "teacher"}
-    adult_manager = is_adult and await _adult_manages_group(
+    is_parent = user_row.role == "parent"
+    parent_manager = is_parent and await _parent_manages_child(
         session,
         caller_user_id=user_row.id,
-        observation_group_id=observation_group_id,
+        child_user_id=observation_user_id,
     )
     allowed = photo.attachment_status == "attached" and (
-        (photo.status == "clean" and moderation_status == "clean" and (is_owner or adult_manager))
-        or (photo.status == "quarantine" and moderation_status == "quarantine" and adult_manager)
+        (photo.status == "clean" and moderation_status == "clean" and (is_owner or parent_manager))
+        or (photo.status == "quarantine" and moderation_status == "quarantine" and parent_manager)
     )
     if not allowed:
         # All lifecycle and authorization denials look absent to prevent ID

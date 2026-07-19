@@ -9,6 +9,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy.dialects import postgresql
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import Settings
@@ -24,6 +25,9 @@ _REVIEW_ID = "01J0REVIEWID0000000000ULID"
 _PHOTO_ID = "01J0PHOTOID00000000000ULID"
 _OBS_ID = "01J0OBSID00000000000000ULID"
 _KID_ID = "01J0KIDID0000000000000ULID"
+_PARENT_B_ID = "01J0PARENTB00000000000ULID"
+_TEACHER_ID = "01J0TEACHER00000000000ULID"
+_PEER_KID_ID = "01J0PEERKID00000000000ULID"
 
 
 class _StubStorage:
@@ -86,18 +90,18 @@ def fake_session() -> AsyncMock:
     return AsyncMock(spec=AsyncSession)
 
 
-def _adult_user(role: str = "parent") -> models.User:
+def _adult_user(*, user_id: str = _USER_ID, role: str = "parent") -> models.User:
     return models.User(
-        id=_USER_ID,
+        id=user_id,
         firebase_uid=_FIREBASE_UID,
         role=role,
         display_name="Parent",
     )
 
 
-def _kid_user() -> models.User:
+def _kid_user(*, user_id: str = _PEER_KID_ID) -> models.User:
     return models.User(
-        id=_USER_ID,
+        id=user_id,
         firebase_uid=_FIREBASE_UID,
         role="kid",
         display_name="Kid",
@@ -146,21 +150,17 @@ def _wire_list(
     fake_session: AsyncMock,
     *,
     user: models.User,
-    group_ids: list[str],
     rows: list[models.ReviewQueueItem],
 ) -> None:
     user_result = MagicMock()
     user_result.scalar_one_or_none = MagicMock(return_value=user)
-
-    groups_result = MagicMock()
-    groups_result.all = MagicMock(return_value=[(gid,) for gid in group_ids])
 
     list_result = MagicMock()
     scalars_result = MagicMock()
     scalars_result.all = MagicMock(return_value=rows)
     list_result.scalars = MagicMock(return_value=scalars_result)
 
-    fake_session.execute = AsyncMock(side_effect=[user_result, groups_result, list_result])
+    fake_session.execute = AsyncMock(side_effect=[user_result, list_result])
 
 
 def test_list_requires_bearer(fake_session: AsyncMock) -> None:
@@ -173,7 +173,7 @@ def test_list_403_when_user_role_is_kid(
     monkeypatch: pytest.MonkeyPatch, fake_session: AsyncMock
 ) -> None:
     _stub_token_verifier(monkeypatch)
-    _wire_list(fake_session, user=_kid_user(), group_ids=[], rows=[])
+    _wire_list(fake_session, user=_kid_user(), rows=[])
 
     for client in _build_client(fake_session):
         response = client.get(
@@ -183,11 +183,25 @@ def test_list_403_when_user_role_is_kid(
         assert response.status_code == 403
 
 
-def test_list_returns_empty_when_no_adult_groups(
+def test_list_403_when_user_role_is_teacher(
     monkeypatch: pytest.MonkeyPatch, fake_session: AsyncMock
 ) -> None:
     _stub_token_verifier(monkeypatch)
-    _wire_list(fake_session, user=_adult_user(), group_ids=[], rows=[])
+    _wire_list(fake_session, user=_adult_user(user_id=_TEACHER_ID, role="teacher"), rows=[])
+
+    for client in _build_client(fake_session):
+        response = client.get(
+            "/v1/review-queue",
+            headers={"Authorization": "Bearer fake"},
+        )
+        assert response.status_code == 403
+
+
+def test_list_returns_empty_when_parent_has_no_managed_reviews(
+    monkeypatch: pytest.MonkeyPatch, fake_session: AsyncMock
+) -> None:
+    _stub_token_verifier(monkeypatch)
+    _wire_list(fake_session, user=_adult_user(user_id=_PARENT_B_ID), rows=[])
 
     for client in _build_client(fake_session):
         response = client.get(
@@ -199,14 +213,23 @@ def test_list_returns_empty_when_no_adult_groups(
         assert body["items"] == []
         assert body["next_cursor"] is None
 
+    list_statement = fake_session.execute.await_args_list[1].args[0]
+    list_sql = str(
+        list_statement.compile(dialect=postgresql.dialect(), compile_kwargs={"literal_binds": True})
+    )
+    assert "users.parent_user_id" in list_sql
+    assert f"users.parent_user_id = '{_PARENT_B_ID}'" in list_sql
+    assert "memberships" not in list_sql
+    assert "groups" not in list_sql
 
-def test_list_returns_pending_items_for_caller_groups(
+
+def test_list_returns_pending_review_for_canonical_parent(
     monkeypatch: pytest.MonkeyPatch, fake_session: AsyncMock
 ) -> None:
     _stub_token_verifier(monkeypatch)
     review = _review_row()
     review.created_at = datetime(2026, 5, 10, 10, 0, 0, tzinfo=UTC)
-    _wire_list(fake_session, user=_adult_user(), group_ids=[_GROUP_ID], rows=[review])
+    _wire_list(fake_session, user=_adult_user(), rows=[review])
 
     for client in _build_client(fake_session):
         response = client.get(
@@ -221,6 +244,11 @@ def test_list_returns_pending_items_for_caller_groups(
         assert item["status"] == "pending"
         assert item["reason"] == '{"adult":"LIKELY"}'
 
+    list_statement = fake_session.execute.await_args_list[1].args[0]
+    list_sql = str(list_statement.compile(dialect=postgresql.dialect()))
+    assert "users.parent_user_id" in list_sql
+    assert "memberships" not in list_sql
+
 
 # ---------------------------------------------------------------------------
 # POST /v1/review-queue/{id}/approve
@@ -232,7 +260,7 @@ def _wire_resolve(
     *,
     user: models.User,
     review: models.ReviewQueueItem | None,
-    membership_present: bool,
+    managed_photo: bool,
     photo: models.Photo | None,
     observation: models.Observation | None = None,
     approve_outbox: bool = False,
@@ -241,7 +269,7 @@ def _wire_resolve(
 ) -> None:
     """Sequence the session.execute side_effects for the approve / reject flows.
 
-    Both flows: user lookup -> review lookup -> membership check. Approval then
+    Both flows: user lookup -> review lookup -> canonical-parent check. Approval then
     reads the photo. Rejection resolves the subject without a row lock, takes
     the user advisory lock, and only then locks review/photo/observation rows.
 
@@ -260,9 +288,9 @@ def _wire_resolve(
     review_result = MagicMock()
     review_result.scalar_one_or_none = MagicMock(return_value=review)
 
-    membership_result = MagicMock()
-    membership_result.scalar_one_or_none = MagicMock(
-        return_value="membership-id" if membership_present else None
+    managed_photo_result = MagicMock()
+    managed_photo_result.scalar_one_or_none = MagicMock(
+        return_value=_OBS_ID if managed_photo else None
     )
 
     photo_result = MagicMock()
@@ -273,26 +301,33 @@ def _wire_resolve(
         return_value=photo.id if revocation_active and photo is not None else None
     )
 
+    linked_observation = observation
+    if linked_observation is None and managed_photo:
+        linked_observation = _observation_row()
     obs_result = MagicMock()
-    obs_result.scalar_one_or_none = MagicMock(return_value=observation)
-
-    subject_result = MagicMock()
-    subject_result.scalar_one_or_none = MagicMock(
-        return_value=observation.user_id if observation is not None else None
-    )
+    obs_result.scalar_one_or_none = MagicMock(return_value=linked_observation)
 
     lock_result = MagicMock()
+    canonical_child_result = MagicMock()
+    canonical_child_result.scalar_one_or_none = MagicMock(return_value=_KID_ID)
     rebuild_result = MagicMock()
     rebuild_result.scalar_one_or_none = MagicMock(return_value=None)
     representative_update_result = MagicMock()
     outbox_update_result = MagicMock()
 
-    side_effects: list[Any] = [user_result, review_result, membership_result]
+    side_effects: list[Any] = [user_result, review_result, managed_photo_result]
     if approve_outbox:
-        # Approve flow with inat_submit_enabled=True: select(Observation)
-        # + update(InatSubmitOutbox).
+        # Approval locks the coherent photo/observation tuple under the child
+        # advisory lock before copying or mutating either row.
         side_effects.extend(
             [
+                photo_result,
+                obs_result,
+                lock_result,
+                review_result,
+                photo_result,
+                obs_result,
+                canonical_child_result,
                 photo_result,
                 revocation_result,
                 obs_result,
@@ -301,17 +336,29 @@ def _wire_resolve(
             ]
         )
     elif approve_obs_only:
-        # Approve flow with Option B inat_submit_enabled=False: only
-        # the select(Observation) lookup; no outbox write.
-        side_effects.extend(
-            [photo_result, revocation_result, obs_result, representative_update_result]
-        )
-    elif observation is not None:
-        # Reject flow: subject read, outer advisory lock, locked review/photo/
-        # observation, then enqueue_rebuild's re-entrant lock and active lookup.
+        # Same locked approval path, with no outbox status update.
         side_effects.extend(
             [
-                subject_result,
+                photo_result,
+                obs_result,
+                lock_result,
+                review_result,
+                photo_result,
+                obs_result,
+                canonical_child_result,
+                photo_result,
+                revocation_result,
+                obs_result,
+                representative_update_result,
+            ]
+        )
+    elif observation is not None:
+        # Reject flow: coherent candidate read, outer advisory lock, locked
+        # review/photo/observation, then the rebuild's re-entrant lock.
+        side_effects.extend(
+            [
+                photo_result,
+                obs_result,
                 lock_result,
                 review_result,
                 photo_result,
@@ -321,8 +368,21 @@ def _wire_resolve(
             ]
         )
     else:
-        # Approval/error paths still read the photo after authorization.
-        side_effects.extend([photo_result, revocation_result])
+        # Approval/error paths still acquire the full linkage lock before
+        # checking the durable revocation deny gate.
+        side_effects.extend(
+            [
+                photo_result,
+                obs_result,
+                lock_result,
+                review_result,
+                photo_result,
+                obs_result,
+                canonical_child_result,
+                photo_result,
+                revocation_result,
+            ]
+        )
     fake_session.execute = AsyncMock(side_effect=side_effects)
     fake_session.commit = AsyncMock()
     fake_session.flush = AsyncMock()
@@ -337,7 +397,7 @@ def test_approve_404_when_review_missing(
         fake_session,
         user=_adult_user(),
         review=None,
-        membership_present=True,
+        managed_photo=True,
         photo=None,
     )
     for client in _build_client(fake_session):
@@ -348,15 +408,15 @@ def test_approve_404_when_review_missing(
         assert response.status_code == 404
 
 
-def test_approve_404_when_caller_not_in_group(
+def test_approve_404_when_group_owner_parent_b_is_not_canonical_parent(
     monkeypatch: pytest.MonkeyPatch, fake_session: AsyncMock
 ) -> None:
     _stub_token_verifier(monkeypatch)
     _wire_resolve(
         fake_session,
-        user=_adult_user(),
+        user=_adult_user(user_id=_PARENT_B_ID),
         review=_review_row(),
-        membership_present=False,
+        managed_photo=False,
         photo=None,
     )
     for client in _build_client(fake_session):
@@ -365,6 +425,50 @@ def test_approve_404_when_caller_not_in_group(
             headers={"Authorization": "Bearer fake"},
         )
         assert response.status_code == 404
+
+    authority_statement = fake_session.execute.await_args_list[2].args[0]
+    authority_sql = str(
+        authority_statement.compile(
+            dialect=postgresql.dialect(), compile_kwargs={"literal_binds": True}
+        )
+    )
+    assert "users.parent_user_id" in authority_sql
+    assert f"users.parent_user_id = '{_PARENT_B_ID}'" in authority_sql
+    assert f"photos.id = '{_PHOTO_ID}'" in authority_sql
+    assert "memberships" not in authority_sql
+    assert "groups" not in authority_sql
+
+
+@pytest.mark.parametrize(
+    "user",
+    [
+        _adult_user(user_id=_TEACHER_ID, role="teacher"),
+        _kid_user(user_id=_PEER_KID_ID),
+    ],
+    ids=["teacher", "peer-kid"],
+)
+def test_approve_denies_non_parent_roles_before_loading_review(
+    monkeypatch: pytest.MonkeyPatch,
+    fake_session: AsyncMock,
+    user: models.User,
+) -> None:
+    _stub_token_verifier(monkeypatch)
+    _wire_resolve(
+        fake_session,
+        user=user,
+        review=_review_row(),
+        managed_photo=False,
+        photo=None,
+    )
+
+    for client in _build_client(fake_session):
+        response = client.post(
+            f"/v1/review-queue/{_REVIEW_ID}/approve",
+            headers={"Authorization": "Bearer fake"},
+        )
+
+    assert response.status_code == 403
+    assert fake_session.execute.await_count == 1
 
 
 def test_approve_409_when_already_resolved(
@@ -375,7 +479,7 @@ def test_approve_409_when_already_resolved(
         fake_session,
         user=_adult_user(),
         review=_review_row(review_status="approved"),
-        membership_present=True,
+        managed_photo=True,
         photo=None,
     )
     for client in _build_client(fake_session):
@@ -394,7 +498,7 @@ def test_approve_409_when_photo_revocation_is_active(
         fake_session,
         user=_adult_user(),
         review=_review_row(),
-        membership_present=True,
+        managed_photo=True,
         photo=_photo_row(),
         revocation_active=True,
     )
@@ -436,7 +540,7 @@ def test_approve_happy_path_moves_photo_back_and_marks_review(
         fake_session,
         user=_adult_user(),
         review=review,
-        membership_present=True,
+        managed_photo=True,
         photo=photo,
         observation=obs,
         approve_outbox=True,
@@ -486,6 +590,18 @@ def test_approve_happy_path_moves_photo_back_and_marks_review(
     # status update commit.
     assert fake_session.commit.await_count == 2
 
+    authority_statement = fake_session.execute.await_args_list[2].args[0]
+    authority_sql = str(
+        authority_statement.compile(
+            dialect=postgresql.dialect(), compile_kwargs={"literal_binds": True}
+        )
+    )
+    assert "users.parent_user_id" in authority_sql
+    assert f"users.parent_user_id = '{_USER_ID}'" in authority_sql
+    assert f"photos.id = '{_PHOTO_ID}'" in authority_sql
+    assert "memberships" not in authority_sql
+    assert "groups" not in authority_sql
+
 
 def test_approve_happy_path_option_b_skips_outbox(
     monkeypatch: pytest.MonkeyPatch, fake_session: AsyncMock
@@ -513,7 +629,7 @@ def test_approve_happy_path_option_b_skips_outbox(
         fake_session,
         user=_adult_user(),
         review=review,
-        membership_present=True,
+        managed_photo=True,
         photo=photo,
         observation=obs,
         approve_obs_only=True,
@@ -565,7 +681,7 @@ def test_reject_tombstones_observation_and_queues_rebuild(
         fake_session,
         user=_adult_user(),
         review=review,
-        membership_present=True,
+        managed_photo=True,
         photo=photo,
         observation=obs,
     )
@@ -635,7 +751,7 @@ def test_revoke_approved_review_uses_clean_revocation_contract(
         fake_session,
         user=_adult_user(),
         review=review,
-        membership_present=True,
+        managed_photo=True,
         photo=None,
     )
     captured: dict[str, object] = {}
@@ -677,7 +793,7 @@ def test_revoke_requires_an_approved_review(
         fake_session,
         user=_adult_user(),
         review=_review_row(review_status="pending"),
-        membership_present=True,
+        managed_photo=True,
         photo=None,
     )
 
