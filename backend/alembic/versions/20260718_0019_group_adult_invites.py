@@ -24,9 +24,7 @@ depends_on = None
 def upgrade() -> None:
     op.add_column(
         "groups",
-        sa.Column(
-            "shared_groups_enabled_at", sa.DateTime(timezone=True), nullable=True
-        ),
+        sa.Column("shared_groups_enabled_at", sa.DateTime(timezone=True), nullable=True),
     )
     op.add_column(
         "memberships",
@@ -47,9 +45,7 @@ def upgrade() -> None:
     )
     op.add_column(
         "memberships",
-        sa.Column(
-            "session_version", sa.Integer(), nullable=True, server_default="1"
-        ),
+        sa.Column("session_version", sa.Integer(), nullable=True, server_default="1"),
     )
     op.execute(sa.text("UPDATE memberships SET status = 'active' WHERE status IS NULL"))
     op.execute(
@@ -59,16 +55,9 @@ def upgrade() -> None:
             "WHERE management_ref IS NULL"
         )
     )
-    op.create_unique_constraint(
-        "uq_memberships_management_ref", "memberships", ["management_ref"]
-    )
+    op.create_unique_constraint("uq_memberships_management_ref", "memberships", ["management_ref"])
     op.alter_column("memberships", "management_ref", nullable=False)
-    op.execute(
-        sa.text(
-            "UPDATE memberships SET session_version = 1 "
-            "WHERE session_version IS NULL"
-        )
-    )
+    op.execute(sa.text("UPDATE memberships SET session_version = 1 WHERE session_version IS NULL"))
     op.alter_column("memberships", "session_version", nullable=False)
     op.create_check_constraint(
         "ck_memberships_session_version",
@@ -105,8 +94,7 @@ def upgrade() -> None:
     op.create_check_constraint(
         "ck_memberships_status_left_at",
         "memberships",
-        "(status = 'active' AND left_at IS NULL) OR "
-        "(status = 'left' AND left_at IS NOT NULL)",
+        "(status = 'active' AND left_at IS NULL) OR (status = 'left' AND left_at IS NOT NULL)",
     )
     op.create_index(
         "uq_memberships_active_kid_user",
@@ -145,18 +133,10 @@ def upgrade() -> None:
             "(revoked_at IS NULL) = (revoked_by_user_id IS NULL)",
             name="ck_group_adult_invites_revoked_pair",
         ),
-        sa.ForeignKeyConstraint(
-            ["group_id"], ["groups.id"], ondelete="CASCADE"
-        ),
-        sa.ForeignKeyConstraint(
-            ["created_by_user_id"], ["users.id"], ondelete="RESTRICT"
-        ),
-        sa.ForeignKeyConstraint(
-            ["redeemed_by_user_id"], ["users.id"], ondelete="RESTRICT"
-        ),
-        sa.ForeignKeyConstraint(
-            ["revoked_by_user_id"], ["users.id"], ondelete="RESTRICT"
-        ),
+        sa.ForeignKeyConstraint(["group_id"], ["groups.id"], ondelete="CASCADE"),
+        sa.ForeignKeyConstraint(["created_by_user_id"], ["users.id"], ondelete="RESTRICT"),
+        sa.ForeignKeyConstraint(["redeemed_by_user_id"], ["users.id"], ondelete="RESTRICT"),
+        sa.ForeignKeyConstraint(["revoked_by_user_id"], ["users.id"], ondelete="RESTRICT"),
         sa.PrimaryKeyConstraint("id"),
         sa.UniqueConstraint("token_sha256", name="uq_group_adult_invites_token_sha256"),
     )
@@ -168,17 +148,11 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    op.drop_index(
-        "ix_group_adult_invites_group_expires", table_name="group_adult_invites"
-    )
+    op.drop_index("ix_group_adult_invites_group_expires", table_name="group_adult_invites")
     op.drop_table("group_adult_invites")
     op.drop_index("uq_memberships_active_kid_user", table_name="memberships")
-    op.drop_constraint(
-        "uq_memberships_management_ref", "memberships", type_="unique"
-    )
-    op.drop_constraint(
-        "ck_memberships_session_version", "memberships", type_="check"
-    )
+    op.drop_constraint("uq_memberships_management_ref", "memberships", type_="unique")
+    op.drop_constraint("ck_memberships_session_version", "memberships", type_="check")
     op.drop_constraint("ck_memberships_status_left_at", "memberships", type_="check")
     op.drop_constraint("ck_memberships_status", "memberships", type_="check")
     op.drop_column("memberships", "left_at")
