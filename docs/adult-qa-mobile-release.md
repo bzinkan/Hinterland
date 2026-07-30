@@ -26,6 +26,14 @@ provisioning output:
 
 They are identifiers, not credentials. No development-login key is embedded.
 
+The QA parent web records disclosure version
+`2026-07-30-ADULT-QA-EGRESS-V1`. It states that Azure Content Safety receives
+canonical QA photos, iNaturalist CV receives only clean/adult-approved photos
+after a tester asks for suggestions, public publication is disabled, and only
+adult-owned non-sensitive photos with synthetic child profiles are permitted.
+The API and moderation worker require that exact linked receipt before
+provider egress.
+
 ## Fail-closed release handshake
 
 Before starting authentication, queues, or normal API requests, the app calls

@@ -1,8 +1,10 @@
 import {
+  ADULT_QA_CONSENT_POLICY_VERSION,
   clearPendingParentConsentProof,
   generateParentConsentNonce,
   readPendingParentConsentProof,
   storePendingParentConsentProof,
+  consentPolicyForEnvironment,
   W1_CONSENT_POLICY_VERSION,
   type ParentConsentProof,
 } from "@/src/auth/consentProof";
@@ -86,5 +88,17 @@ describe("parent consent proof", () => {
 
     expect(readPendingParentConsentProof()).toBeNull();
     expect(globalThis.sessionStorage.length).toBe(0);
+  });
+
+  it("selects a distinct exact disclosure for Adult QA", () => {
+    expect(consentPolicyForEnvironment("adult-qa")).toBe(
+      ADULT_QA_CONSENT_POLICY_VERSION,
+    );
+    expect(consentPolicyForEnvironment("play-internal")).toBe(
+      W1_CONSENT_POLICY_VERSION,
+    );
+    expect(ADULT_QA_CONSENT_POLICY_VERSION).not.toBe(
+      W1_CONSENT_POLICY_VERSION,
+    );
   });
 });
