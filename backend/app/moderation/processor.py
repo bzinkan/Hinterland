@@ -228,12 +228,12 @@ async def process_pending_photo(
         parent_user_id = (
             owner.parent_user_id
             if owner is not None and owner.role == "kid"
-            else owner.id if owner is not None else None
+            else owner.id
+            if owner is not None
+            else None
         )
         if parent_user_id is None:
-            raise ModerationWorkInvalid(
-                "Adult QA moderation requires a canonical parent"
-            )
+            raise ModerationWorkInvalid("Adult QA moderation requires a canonical parent")
         try:
             await require_linked_parent_consent_for_policy(
                 session,
@@ -241,9 +241,7 @@ async def process_pending_photo(
                 policy_version=settings.adult_qa_consent_policy_version,
             )
         except CurrentParentConsentRequiredError as exc:
-            raise ModerationWorkInvalid(
-                "Adult QA provider disclosure is not active"
-            ) from exc
+            raise ModerationWorkInvalid("Adult QA provider disclosure is not active") from exc
 
     image_bytes = await asyncio.to_thread(
         storage.fetch_object_bytes,

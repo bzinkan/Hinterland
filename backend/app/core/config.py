@@ -51,9 +51,9 @@ class Settings(BaseSettings):
     log_level: LogLevel = "INFO"
     cors_origins: list[str] = Field(default_factory=_default_cors_origins)
     parent_web_base_url: str = "https://parents.thehinterlandguide.app"
-    adult_qa_consent_policy_version: Literal[
+    adult_qa_consent_policy_version: Literal["2026-07-30-ADULT-QA-EGRESS-V1"] = (
         "2026-07-30-ADULT-QA-EGRESS-V1"
-    ] = "2026-07-30-ADULT-QA-EGRESS-V1"
+    )
 
     # Privacy-safe multi-family Groups ship default-deny. The global flag is
     # the eventual rollout switch; canary IDs let operators exercise one

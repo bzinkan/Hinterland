@@ -1069,9 +1069,7 @@ async def identify_observation(
         )
 
     if settings.release_lane == "adult_qa":
-        parent_user_id = (
-            user_row.parent_user_id if user_row.role == "kid" else user_row.id
-        )
+        parent_user_id = user_row.parent_user_id if user_row.role == "kid" else user_row.id
         if parent_user_id is None:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
