@@ -189,7 +189,9 @@ export default function ObserveSubmitScreen() {
           const merged = mergeTaxonResults(localResults, response.items);
           setSearchResults(merged);
           if (merged.length === 0) {
-            setSearchMessage("No catalog matches yet. You can save Unknown or type a note.");
+            setSearchMessage(
+              "No catalog matches yet. You can save Unknown or enter a manual identification.",
+            );
           }
         })
         .catch(() => {
@@ -592,7 +594,7 @@ export default function ObserveSubmitScreen() {
 
             {!showManual ? (
               <Pressable style={[styles.suggestion, styles.suggestionGhost]} onPress={() => setShowManual(true)}>
-                <Text style={styles.suggestionName}>Type a note instead</Text>
+                <Text style={styles.suggestionName}>Enter a manual identification</Text>
                 <FontAwesome name="pencil" size={15} color="#f0b44c" />
               </Pressable>
             ) : (
@@ -602,7 +604,7 @@ export default function ObserveSubmitScreen() {
                   value={manualText}
                   onChangeText={setManualText}
                   maxLength={200}
-                  placeholder="Your organism note"
+                  placeholder="Your identification"
                   placeholderTextColor="#9aa39d"
                 />
                 <Pressable
@@ -610,7 +612,7 @@ export default function ObserveSubmitScreen() {
                   disabled={!manualText.trim()}
                   onPress={() => setIdentification({ source: "manual_text", taxonId: null, speciesName: manualText.trim() })}
                 >
-                  <Text style={styles.buttonText}>Use note</Text>
+                  <Text style={styles.buttonText}>Use identification</Text>
                 </Pressable>
               </View>
             )}

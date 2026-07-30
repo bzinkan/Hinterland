@@ -15,7 +15,6 @@ import { Text, View } from "@/components/Themed";
 import { ApiError } from "@/src/api/client";
 import {
   approveReview,
-  getPhotoUrl,
   listReviewQueue,
   rejectReview,
   type ReviewQueueItem,
@@ -25,6 +24,8 @@ import {
   ImperativeRequestSupersededError,
   runImperativeRequest,
 } from "@/src/auth/requestBoundary";
+import { isUrlUsable } from "@/src/observation/journalLogic";
+import { usePhotoUrl } from "@/src/observation/usePhotoUrl";
 
 export default function ReviewQueueScreen() {
   const queryClient = useQueryClient();
@@ -39,6 +40,12 @@ export default function ReviewQueueScreen() {
   });
 
   function invalidate() {
+    // A review can relocate or delete the underlying object. Drop every
+    // reviewer photo URL for this adult before the list refetches so a
+    // previously issued SAS is never handed back to a remounted image.
+    queryClient.removeQueries({
+      queryKey: ["photo-url", ownerUserId ?? "anonymous"],
+    });
     void queryClient.invalidateQueries({
       queryKey: ["review-queue", ownerUserId ?? "anonymous"],
     });
@@ -143,7 +150,6 @@ export default function ReviewQueueScreen() {
         renderItem={({ item }) => (
           <ReviewCard
             item={item}
-            ownerUserId={ownerUserId}
             onApprove={() => approve.mutate(item.id)}
             onReject={() => reject.mutate(item.id)}
             busy={
@@ -159,31 +165,27 @@ export default function ReviewQueueScreen() {
 
 function ReviewCard({
   item,
-  ownerUserId,
   onApprove,
   onReject,
   busy,
 }: {
   item: ReviewQueueItem;
-  ownerUserId: string;
   onApprove: () => void;
   onReject: () => void;
   busy: boolean;
 }) {
-  const url = useQuery({
-    queryKey: ["photo-url", ownerUserId, item.photo_id],
-    queryFn: ({ signal }) => getPhotoUrl(item.photo_id, signal),
-    // Signed URLs expire in 5 min; refetch a bit before that.
-    staleTime: 4 * 60 * 1000,
-  });
+  const url = usePhotoUrl(item.photo_id, true);
+  const usablePhotoUrl =
+    url.data && isUrlUsable(url.data.expires_at) ? url.data.url : null;
 
   return (
     <View style={styles.card}>
-      {url.data ? (
+      {usablePhotoUrl ? (
         <Image
+          testID="review-queue-photo-image"
           accessibilityRole="image"
           accessibilityLabel="Observation photo awaiting adult review"
-          source={{ uri: url.data.url }}
+          source={{ uri: usablePhotoUrl }}
           style={styles.thumb}
           resizeMode="cover"
         />
