@@ -1,4 +1,5 @@
 import {
+  fetchReleaseLaneProbe,
   ReleaseLaneConfigurationError,
   requireReleaseLaneHeader,
   verifyReleaseLaneMeta,
@@ -118,5 +119,40 @@ describe("Adult QA release-lane verification", () => {
         "adult_qa",
       ),
     ).rejects.toThrow("Public iNaturalist contribution");
+  });
+
+  test("fails closed instead of spinning forever when the QA API does not respond", async () => {
+    jest.useFakeTimers();
+    const originalFetch = global.fetch;
+    global.fetch = jest.fn(
+      (_input: RequestInfo | URL, init?: RequestInit) =>
+        new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener(
+            "abort",
+            () => reject(new Error("aborted")),
+            { once: true },
+          );
+        }),
+    ) as typeof fetch;
+
+    try {
+      const result = fetchReleaseLaneProbe(
+        "https://qa-api.example.invalid",
+        "adult_qa",
+        undefined,
+        25,
+      );
+      const expectation = expect(result).rejects.toMatchObject({
+        name: "ReleaseLaneConfigurationError",
+        expected: "adult_qa",
+        reported: null,
+        message: expect.stringContaining("timed out"),
+      });
+      await jest.advanceTimersByTimeAsync(25);
+      await expectation;
+    } finally {
+      global.fetch = originalFetch;
+      jest.useRealTimers();
+    }
   });
 });

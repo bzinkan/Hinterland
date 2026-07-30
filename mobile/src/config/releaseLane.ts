@@ -1,6 +1,7 @@
 import { env, type ReleaseLane } from "@/src/config/env";
 
 export const RELEASE_LANE_HEADER = "X-Hinterland-Release-Lane";
+export const RELEASE_LANE_PROBE_TIMEOUT_MS = 15_000;
 
 const RELEASE_LANES = new Set<ReleaseLane>([
   "local",
@@ -57,23 +58,56 @@ export async function probeReleaseLane(
     };
   }
 
+  return fetchReleaseLaneProbe(
+    env.apiBaseUrl,
+    env.expectedApiLane,
+    signal,
+  );
+}
+
+export async function fetchReleaseLaneProbe(
+  apiBaseUrl: string,
+  expected: ReleaseLane,
+  signal?: AbortSignal,
+  timeoutMs = RELEASE_LANE_PROBE_TIMEOUT_MS,
+): Promise<ReleaseLaneProbe> {
+  const controller = new AbortController();
+  let timedOut = false;
+  const abortFromCaller = () => controller.abort();
+  signal?.addEventListener("abort", abortFromCaller, { once: true });
+  const timeout = setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, timeoutMs);
+
   let response: Response;
   try {
-    response = await fetch(`${env.apiBaseUrl}/v1/meta`, {
+    response = await fetch(`${apiBaseUrl}/v1/meta`, {
       method: "GET",
       headers: { Accept: "application/json" },
-      signal,
+      signal: controller.signal,
     });
   } catch (error) {
     if (error instanceof ReleaseLaneConfigurationError) throw error;
+    if (signal?.aborted) throw error;
+    if (timedOut) {
+      throw new ReleaseLaneConfigurationError(
+        "The Adult QA server verification timed out. Capture and submission remain locked.",
+        expected,
+        null,
+      );
+    }
     throw new ReleaseLaneConfigurationError(
       "The Adult QA server could not be verified. Capture and submission remain locked.",
-      env.expectedApiLane,
+      expected,
       null,
     );
+  } finally {
+    clearTimeout(timeout);
+    signal?.removeEventListener("abort", abortFromCaller);
   }
 
-  return verifyReleaseLaneMeta(response, env.expectedApiLane);
+  return verifyReleaseLaneMeta(response, expected);
 }
 
 export async function verifyReleaseLaneMeta(
