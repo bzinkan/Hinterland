@@ -96,6 +96,10 @@ def test_v1_meta_returns_versioned_api_metadata(client: TestClient) -> None:
         "capabilities": {
             "observation": {"photo_helper_enabled": False},
             "groups": {"shared_groups_enabled": False},
+            "integrations": {
+                "content_safety_enabled": False,
+                "public_inat_submission_enabled": False,
+            },
         },
     }
 
@@ -184,6 +188,29 @@ def test_v1_meta_keeps_photo_helper_disabled_without_real_content_safety() -> No
 
     assert response.json()["capabilities"]["observation"] == {
         "photo_helper_enabled": False,
+    }
+
+
+def test_v1_meta_reports_integration_egress_gates() -> None:
+    app = create_app(
+        Settings(
+            env="local",
+            app_version="test",
+            moderation_provider="azure_content_safety",
+            content_safety_endpoint="https://content-safety.example.test",
+            content_safety_key="configured-key",
+            inat_submit_enabled=True,
+            inat_submit_token="dedicated-submit-token",
+            inat_base_url="https://api.inaturalist.org/v1",
+        )
+    )
+
+    with TestClient(app) as test_client:
+        response = test_client.get("/v1/meta")
+
+    assert response.json()["capabilities"]["integrations"] == {
+        "content_safety_enabled": True,
+        "public_inat_submission_enabled": True,
     }
 
 
