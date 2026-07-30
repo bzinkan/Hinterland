@@ -374,6 +374,14 @@ Opaque, malformed, missing-exp, expired, or near-expiry tokens fail closed.
 Only canonical photos marked clean by Azure or an adult approval, with no
 active revocation, can reach CV.
 
+Before benchmark approval, Adult QA may use the bounded
+`HINTERLAND_INAT_CV_QUALIFICATION_ENABLED` mode with a separate high-entropy
+`HINTERLAND_INAT_CV_QUALIFICATION_KEY`. The benchmark sends that key in an
+operator-only header. The mode is rejected outside `adult_qa`, never
+advertises the kid-facing photo-helper capability, and is mutually exclusive
+with benchmark approval. Remove the key and disable qualification immediately
+after the aggregate benchmark result is recorded.
+
 If any gate flips unexpectedly:
 
 1. stop/disable producer and consumer jobs;

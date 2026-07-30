@@ -108,6 +108,53 @@ def test_cv_requires_enable_disclosure_and_benchmark_gates() -> None:
     assert settings.inat_cv_egress_allowed is True
 
 
+def test_adult_qa_cv_qualification_does_not_advertise_photo_helper() -> None:
+    settings = Settings(
+        release_lane="adult_qa",
+        inat_cv_enabled=True,
+        inat_cv_disclosure_approved=True,
+        inat_cv_benchmark_approved=False,
+        inat_cv_qualification_enabled=True,
+        inat_cv_qualification_key="q" * 32,
+        inat_cv_token=_jwt_with_exp(4_102_444_800),
+        moderation_provider="azure_content_safety",
+        content_safety_endpoint="https://content-safety.example.test",
+        content_safety_key="configured-key",
+    )
+
+    assert settings.inat_cv_qualification_ready is True
+    assert settings.photo_helper_enabled is False
+    assert settings.accepts_inat_cv_qualification_key("q" * 32) is True
+    assert settings.accepts_inat_cv_qualification_key("wrong") is False
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        {"release_lane": "w1_internal"},
+        {"inat_cv_enabled": False},
+        {"inat_cv_disclosure_approved": False},
+        {"inat_cv_benchmark_approved": True},
+        {"inat_cv_qualification_key": "short"},
+    ],
+)
+def test_cv_qualification_misconfiguration_fails_startup(
+    overrides: dict[str, object],
+) -> None:
+    values: dict[str, object] = {
+        "release_lane": "adult_qa",
+        "inat_cv_enabled": True,
+        "inat_cv_disclosure_approved": True,
+        "inat_cv_benchmark_approved": False,
+        "inat_cv_qualification_enabled": True,
+        "inat_cv_qualification_key": "q" * 32,
+    }
+    values.update(overrides)
+
+    with pytest.raises(ValidationError, match="qualification"):
+        Settings(**values)
+
+
 @pytest.mark.parametrize(
     ("token", "expected"),
     [
