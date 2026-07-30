@@ -13,6 +13,7 @@ import {
   type BearerTokenSnapshot,
 } from "@/src/auth/token";
 import { runImperativeRequest } from "@/src/auth/requestBoundary";
+import { validateReleaseLaneHeader } from "@/src/config/releaseLane";
 
 export type ApiErrorBody = {
   error: {
@@ -102,6 +103,10 @@ async function performApiRequest<T>(
       body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
       signal: combined.signal,
     });
+    // Adult QA is a separate trust lane. Validate every response before
+    // parsing data or applying an authentication side effect so a DNS,
+    // proxy, or deployment mix-up fails closed.
+    validateReleaseLaneHeader(res);
 
     if (!res.ok) {
       let body: ApiErrorBody | null = null;

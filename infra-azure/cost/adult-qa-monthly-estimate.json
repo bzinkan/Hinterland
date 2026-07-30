@@ -1,0 +1,56 @@
+{
+  "schema_version": 1,
+  "currency": "USD",
+  "classification": "planning-estimate-not-a-quote",
+  "assumptions": [
+    "Adult QA has low traffic and scales Container Apps to zero where supported.",
+    "The existing ACR, Log Analytics workspace, and PostgreSQL server are shared.",
+    "The QA database may increase shared PostgreSQL storage and backup use.",
+    "Azure prices, taxes, credits, and regional availability can change."
+  ],
+  "items": [
+    {
+      "service": "Container Apps environment, API, workers, and jobs",
+      "monthly_min": 25,
+      "monthly_max": 65
+    },
+    {
+      "service": "QA Blob Storage and lifecycle operations",
+      "monthly_min": 1,
+      "monthly_max": 3
+    },
+    {
+      "service": "QA Key Vault",
+      "monthly_min": 0,
+      "monthly_max": 2
+    },
+    {
+      "service": "QA Service Bus and DLQ operations",
+      "monthly_min": 0,
+      "monthly_max": 5
+    },
+    {
+      "service": "Azure AI Content Safety qualification traffic",
+      "monthly_min": 0,
+      "monthly_max": 15
+    },
+    {
+      "service": "Shared PostgreSQL incremental storage and backup",
+      "monthly_min": 0,
+      "monthly_max": 10
+    },
+    {
+      "service": "Shared Log Analytics incremental ingestion",
+      "monthly_min": 0,
+      "monthly_max": 10
+    },
+    {
+      "service": "Static Web App, Entra, DNS subdomains, and shared ACR pull",
+      "monthly_min": 0,
+      "monthly_max": 5
+    }
+  ],
+  "monthly_total_min": 26,
+  "monthly_total_max": 115,
+  "approval_phrase": "APPROVE_HINTERLAND_ADULT_QA_COSTS"
+}

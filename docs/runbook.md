@@ -213,16 +213,37 @@ mixed real-handler dispatcher-p95 probe against disposable PostgreSQL 16. The
 protected workflow separately verifies deployed Azure p95; localhost timing is
 not accepted as release evidence.
 
+## Release Lane Contract
+
+`HINTERLAND_RELEASE_LANE` accepts only `local`, `w1_internal`, `adult_qa`, or
+`production`. Local/test configuration defaults to `local` for compatibility.
+Every deployed lane must set its value explicitly: Adult QA uses `adult_qa`,
+W1 uses `w1_internal`, and production uses `production`.
+
+Verify both unauthenticated contracts before sign-in or worker startup:
+
+```bash
+curl -i https://api.thehinterlandguide.app/v1/meta
+```
+
+The JSON `release_lane` and `X-Hinterland-Release-Lane` response header must
+exist and match. The header is CORS-exposed for the parents web client. An
+invalid configured value prevents settings validation/startup; a missing or
+mismatched expected deployment lane is a client-side release stop.
+
 ## W1 Internal Testing Configuration
 
 Effective configuration must remain:
 
 ```text
+HINTERLAND_RELEASE_LANE=w1_internal
 HINTERLAND_MODERATION_PROVIDER=noop
 HINTERLAND_INAT_CV_ENABLED=false
 HINTERLAND_INAT_CV_DISCLOSURE_APPROVED=false
 HINTERLAND_INAT_CV_BENCHMARK_APPROVED=false
+HINTERLAND_INAT_CV_TOKEN=
 HINTERLAND_INAT_SUBMIT_ENABLED=false
+HINTERLAND_INAT_SUBMIT_TOKEN=
 HINTERLAND_OBSERVATION_IDEMPOTENCY_REQUIRED=true
 ```
 
@@ -337,6 +358,33 @@ celebration or notification.
 Public submission stays disabled for W1 and closed beta. Optional post-clean CV
 also stays disabled until disclosure/legal approval and the reviewed 50-image
 benchmark. A configured token is not permission to enable either feature.
+
+CV and public submission use distinct settings and HTTP clients:
+`HINTERLAND_INAT_CV_TOKEN` and `HINTERLAND_INAT_SUBMIT_TOKEN`. The service
+rejects equal non-empty credentials at startup. The retired shared
+`HINTERLAND_INAT_OAUTH_TOKEN` is ignored; it never falls back to either path.
+Public taxonomy and rarity reads are unauthenticated.
+
+Photo-helper capability additionally requires Azure Content Safety as the real,
+fully configured moderation provider, all three CV approval gates, and a
+dedicated JWT token with a numeric `exp` more than
+`HINTERLAND_INAT_CV_TOKEN_EXPIRY_SAFETY_SECONDS` (default 1800) seconds away.
+This local payload parse is only a freshness gate, not signature verification.
+Opaque, malformed, missing-exp, expired, or near-expiry tokens fail closed.
+Only canonical photos marked clean by Azure or an adult approval, with no
+active revocation, can reach CV.
+
+Before benchmark approval, Adult QA may use the bounded
+`HINTERLAND_INAT_CV_QUALIFICATION_ENABLED` mode with a separate high-entropy
+`HINTERLAND_INAT_CV_QUALIFICATION_KEY`, a fresh run ULID, exact manifest
+SHA-256, an expiry within 24 hours, and an exact 50-case observation-to-photo
+hash allowlist. The benchmark sends the key and manifest digest only on its
+identify calls. The mode is rejected outside `adult_qa`, never advertises the
+kid-facing photo-helper capability, bypasses the ordinary cache through a
+run-scoped durable key, and is mutually exclusive with benchmark approval.
+Replayed/cached cases do not count as provider calls. Remove the grant and
+disable qualification immediately after the aggregate benchmark result is
+recorded.
 
 If any gate flips unexpectedly:
 

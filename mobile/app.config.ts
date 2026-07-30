@@ -9,7 +9,8 @@ type AppEnv =
   | "development"
   | "preview"
   | "production"
-  | "play-internal";
+  | "play-internal"
+  | "adult-qa";
 
 const APP_ENV: AppEnv =
   (process.env.APP_ENV as AppEnv | undefined) ?? "development";
@@ -17,19 +18,23 @@ const APP_ENV: AppEnv =
 // Existing EAS project owned by the `thehinterlandguides-team` Expo
 // organization. Its dashboard display name is `hinterland`; the immutable
 // project ID is what binds builds and credentials to the correct project.
-const EAS_PROJECT_ID = "278f4a33-e1b1-4468-8d02-a51defe03267";
+const W1_EAS_PROJECT_ID = "278f4a33-e1b1-4468-8d02-a51defe03267";
 
 type EntraConfig = {
   clientId: string;
   authority: string;
   redirectUri: string;
+  scope: string;
 };
 
 type EnvConfig = {
   apiBaseUrl: string;
+  parentWebBaseUrl: string;
   androidPackage: string;
   iosBundleIdentifier: string;
   updatesChannel: string;
+  expectedApiLane: "local" | "w1_internal" | "adult_qa" | "production";
+  enforceReleaseLane: boolean;
   entra: EntraConfig;
 };
 
@@ -42,28 +47,38 @@ const ENTRA_DEV: EntraConfig = {
   authority:
     "https://login.microsoftonline.com/18dbd7fa-c411-49bc-82fc-9ccaa26e3404",
   redirectUri: "https://parents.thehinterlandguide.app/auth/callback",
+  scope: "api://hinterland-api/user.access",
 };
 
 const ENV: Record<AppEnv, EnvConfig> = {
   development: {
     apiBaseUrl: "https://api.thehinterlandguide.app",
+    parentWebBaseUrl: "https://parents.thehinterlandguide.app",
     androidPackage: "app.thehinterlandguide.dev",
     iosBundleIdentifier: "app.thehinterlandguide.dev",
     updatesChannel: "development",
+    expectedApiLane: "w1_internal",
+    enforceReleaseLane: false,
     entra: ENTRA_DEV,
   },
   preview: {
     apiBaseUrl: "https://api.thehinterlandguide.app",
+    parentWebBaseUrl: "https://parents.thehinterlandguide.app",
     androidPackage: "app.thehinterlandguide.staging",
     iosBundleIdentifier: "app.thehinterlandguide.staging",
     updatesChannel: "preview",
+    expectedApiLane: "w1_internal",
+    enforceReleaseLane: false,
     entra: ENTRA_DEV,
   },
   production: {
     apiBaseUrl: "https://api.thehinterlandguide.app",
+    parentWebBaseUrl: "https://parents.thehinterlandguide.app",
     androidPackage: "app.thehinterlandguide",
     iosBundleIdentifier: "app.thehinterlandguide",
     updatesChannel: "production",
+    expectedApiLane: "production",
+    enforceReleaseLane: false,
     entra: ENTRA_DEV,
   },
   // play-internal uses the FINAL package name `app.thehinterlandguide`
@@ -73,17 +88,43 @@ const ENV: Record<AppEnv, EnvConfig> = {
   // the dev API since no staging API exists yet.
   "play-internal": {
     apiBaseUrl: "https://api.thehinterlandguide.app",
+    parentWebBaseUrl: "https://parents.thehinterlandguide.app",
     androidPackage: "app.thehinterlandguide",
     iosBundleIdentifier: "app.thehinterlandguide",
     updatesChannel: "play-internal",
+    expectedApiLane: "w1_internal",
+    enforceReleaseLane: false,
     entra: ENTRA_DEV,
+  },
+  "adult-qa": {
+    apiBaseUrl: "https://qa-api.thehinterlandguide.app",
+    parentWebBaseUrl: "https://qa-parents.thehinterlandguide.app",
+    androidPackage: "app.thehinterlandguide.qa",
+    iosBundleIdentifier: "app.thehinterlandguide.qa",
+    updatesChannel: "adult-qa",
+    expectedApiLane: "adult_qa",
+    enforceReleaseLane: true,
+    entra: {
+      clientId: requiredQaUuid("HINTERLAND_QA_ENTRA_CLIENT_ID"),
+      authority: `https://login.microsoftonline.com/${requiredQaUuid(
+        "HINTERLAND_QA_ENTRA_TENANT_ID",
+      )}`,
+      redirectUri: "https://qa-parents.thehinterlandguide.app/auth/callback",
+      scope: `api://${requiredQaUuid(
+        "HINTERLAND_QA_ENTRA_API_AUDIENCE",
+      )}/user.access`,
+    },
   },
 };
 
 const env = ENV[APP_ENV];
 const isPlayInternal = APP_ENV === "play-internal";
-const isStoreBuild = isPlayInternal || APP_ENV === "production";
+const isAdultQa = APP_ENV === "adult-qa";
+const isStoreBuild = isPlayInternal || isAdultQa || APP_ENV === "production";
 const devLoginKey = process.env.HINTERLAND_DEV_AUTH_TOKEN ?? null;
+const easProjectId = isAdultQa
+  ? requiredQaUuid("HINTERLAND_QA_EAS_PROJECT_ID")
+  : W1_EAS_PROJECT_ID;
 
 // Sanctuary 2.5D diorama build flag (ADR 0011/0012). Build-time default
 // only -- runtime overrides (screen reader, Simple view, renderer crash
@@ -95,7 +136,24 @@ const devLoginKey = process.env.HINTERLAND_DEV_AUTH_TOKEN ?? null;
 const SANCTUARY_DIORAMA =
   process.env.SANCTUARY_DIORAMA !== undefined
     ? process.env.SANCTUARY_DIORAMA === "1"
-    : APP_ENV === "development";
+    : APP_ENV === "development" || isAdultQa;
+
+function requiredQaUuid(name: string): string {
+  if (APP_ENV !== "adult-qa") {
+    return "";
+  }
+  const value = process.env[name]?.trim() ?? "";
+  if (
+    !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+      value,
+    )
+  ) {
+    throw new Error(
+      `${name} must be a valid UUID for the isolated Adult QA release.`,
+    );
+  }
+  return value;
+}
 
 function displayName(appEnv: AppEnv): string {
   switch (appEnv) {
@@ -103,6 +161,8 @@ function displayName(appEnv: AppEnv): string {
       return "The Hinterland Guide";
     case "play-internal":
       return "The Hinterland Guide Internal";
+    case "adult-qa":
+      return "The Hinterland Guide QA";
     default:
       return `The Hinterland Guide ${appEnv}`;
   }
@@ -110,7 +170,7 @@ function displayName(appEnv: AppEnv): string {
 
 const config: ExpoConfig = {
   name: displayName(APP_ENV),
-  slug: "hinterland",
+  slug: isAdultQa ? "hinterland-qa" : "hinterland",
   owner: "thehinterlandguides-team",
   version: "0.1.0",
   runtimeVersion: {
@@ -118,16 +178,16 @@ const config: ExpoConfig = {
   },
   updates: {
     enabled: true,
-    url: `https://u.expo.dev/${EAS_PROJECT_ID}`,
+    url: `https://u.expo.dev/${easProjectId}`,
     // W1 must always execute the embedded bundle proven by the exact AAB.
     // The real EAS channel is retained for identity/evidence, but no remote
     // update is fetched automatically during the pilot.
-    checkAutomatically: isPlayInternal ? "NEVER" : "ON_LOAD",
+    checkAutomatically: isPlayInternal || isAdultQa ? "NEVER" : "ON_LOAD",
     fallbackToCacheTimeout: 0,
   },
   orientation: "portrait",
   icon: "./assets/images/icon.png",
-  scheme: "hinterland",
+  scheme: isAdultQa ? "hinterland-qa" : "hinterland",
   userInterfaceStyle: "automatic",
   newArchEnabled: true,
   splash: {
@@ -158,7 +218,7 @@ const config: ExpoConfig = {
           "android.permission.WRITE_EXTERNAL_STORAGE",
           // W1 ships with Sanctuary/audio disabled. Avoid Play foreground-
           // service declarations until playback is separately qualified.
-          ...(isPlayInternal
+          ...(isPlayInternal || isAdultQa
             ? [
                 "android.permission.FOREGROUND_SERVICE",
                 "android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK",
@@ -221,11 +281,14 @@ const config: ExpoConfig = {
   },
   extra: {
     eas: {
-      projectId: EAS_PROJECT_ID,
+      projectId: easProjectId,
     },
     appEnv: APP_ENV,
     apiBaseUrl: env.apiBaseUrl,
+    parentWebBaseUrl: env.parentWebBaseUrl,
     updatesChannel: env.updatesChannel,
+    expectedApiLane: env.expectedApiLane,
+    enforceReleaseLane: env.enforceReleaseLane,
     entra: env.entra,
     // Shared key for the silent dev auto-login (POST /v1/auth/dev-login).
     // Baked in ONLY for development/preview builds, and only when the

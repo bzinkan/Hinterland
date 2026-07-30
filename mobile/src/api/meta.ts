@@ -1,8 +1,10 @@
 import { apiRequest } from "@/src/api/client";
+import type { ReleaseLane } from "@/src/config/env";
 
 export type ApiMeta = {
   name: string;
   env: string;
+  release_lane: ReleaseLane;
   version: string;
   capabilities?: {
     observation?: {
@@ -10,6 +12,10 @@ export type ApiMeta = {
     };
     groups?: {
       shared_groups_enabled?: boolean;
+    };
+    integrations?: {
+      content_safety_enabled?: boolean;
+      public_inat_submission_enabled?: boolean;
     };
   };
 };

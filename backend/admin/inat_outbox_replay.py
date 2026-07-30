@@ -64,7 +64,7 @@ async def replay(session: AsyncSession, settings: Settings) -> int:
     flipped from `pending` to `enqueued`). Rows whose enqueue still
     fails stay in `pending` with `retry_count` + `last_error` bumped.
     """
-    if not settings.inat_submit_enabled:
+    if not settings.inat_submit_egress_allowed:
         log.info("inat_outbox_replay.disabled")
         return 0
 

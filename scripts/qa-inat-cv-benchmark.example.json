@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "consent_policy_version": "2026-07-30-ADULT-QA-EGRESS-V1",
+  "entries": [
+    {
+      "observation_id": "01REPLACEWITHQAOBSERVATION01",
+      "photo_sha256": "replace-with-the-64-character-canonical-photo-sha256",
+      "accepted_taxon_ids": [12345]
+    }
+  ]
+}

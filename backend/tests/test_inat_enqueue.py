@@ -28,11 +28,23 @@ _OBS_ID = "01J0OBSID00000000000000ULID"
 
 
 def _settings_with_sb(*, namespace: str = "hinterland-sb-test.servicebus.windows.net") -> Settings:
-    return Settings(env="local", service_bus_namespace=namespace, inat_submit_enabled=True)
+    return Settings(
+        env="local",
+        release_lane="adult_qa",
+        service_bus_namespace=namespace,
+        inat_submit_enabled=True,
+        inat_submit_token="dedicated-submit-token",
+    )
 
 
 def _settings_without_sb() -> Settings:
-    return Settings(env="local", service_bus_namespace="", inat_submit_enabled=True)
+    return Settings(
+        env="local",
+        release_lane="adult_qa",
+        service_bus_namespace="",
+        inat_submit_enabled=True,
+        inat_submit_token="dedicated-submit-token",
+    )
 
 
 async def test_returns_disabled_before_service_bus_check() -> None:
@@ -40,6 +52,17 @@ async def test_returns_disabled_before_service_bus_check() -> None:
         env="local",
         service_bus_namespace="hinterland-sb-test.servicebus.windows.net",
         inat_submit_enabled=False,
+    )
+    result = await enqueue_inat_submit(_OBS_ID, settings=settings)
+    assert result == InatEnqueueResult(success=False, reason="disabled")
+
+
+async def test_w1_configuration_drift_never_enqueues_public_submission() -> None:
+    settings = Settings(
+        release_lane="w1_internal",
+        service_bus_namespace="hinterland-sb-test.servicebus.windows.net",
+        inat_submit_enabled=True,
+        inat_submit_token="dedicated-submit-token",
     )
     result = await enqueue_inat_submit(_OBS_ID, settings=settings)
     assert result == InatEnqueueResult(success=False, reason="disabled")

@@ -106,6 +106,14 @@ def test_active_workflow_migrates_before_api_and_removes_retired_aliases() -> No
     assert "HINTERLAND_DATABASE_PASSWORD=secretref:pg-password" in workflow
     assert "ENTRA_API_AUDIENCE: 7dd9da3c-b7d6-45d4-955b-d7561c43f209" in workflow
     assert workflow.count('HINTERLAND_ENTRA_API_AUDIENCE="${ENTRA_API_AUDIENCE}"') >= 3
+    assert workflow.count("HINTERLAND_RELEASE_LANE=w1_internal") >= 4
+    for forbidden in (
+        "HINTERLAND_INAT_CV_TOKEN",
+        "HINTERLAND_INAT_SUBMIT_TOKEN",
+        "HINTERLAND_INAT_CV_QUALIFICATION_KEY",
+    ):
+        assert workflow.count(forbidden) >= 6
+    assert 'test "${job_lane}" = w1_internal' in workflow
     assert "--remove-env-vars" in workflow
     assert "hinterland-obs-preflight" in workflow
     assert "hinterland-migrate" in workflow

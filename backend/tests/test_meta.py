@@ -1,7 +1,15 @@
+import base64
+import json
+
 from fastapi.testclient import TestClient
 
 from app.core.config import Settings
 from app.main import create_app
+
+
+def _fresh_jwt() -> str:
+    payload = base64.urlsafe_b64encode(json.dumps({"exp": 4_102_444_800}).encode())
+    return f"header.{payload.decode().rstrip('=')}.signature"
 
 
 class FakeReadyDatabase:
@@ -21,6 +29,7 @@ def test_health_returns_ok(client: TestClient) -> None:
     body = response.json()
     assert body == {"status": "ok", "env": "local", "version": "test"}
     assert "x-request-id" in response.headers
+    assert response.headers["x-hinterland-release-lane"] == "local"
 
 
 def test_ready_returns_runtime_checks(client: TestClient) -> None:
@@ -82,12 +91,38 @@ def test_v1_meta_returns_versioned_api_metadata(client: TestClient) -> None:
     assert response.json() == {
         "name": "Hinterland API",
         "env": "local",
+        "release_lane": "local",
         "version": "test",
         "capabilities": {
             "observation": {"photo_helper_enabled": False},
             "groups": {"shared_groups_enabled": False},
+            "integrations": {
+                "content_safety_enabled": False,
+                "cv_qualification_enabled": False,
+                "public_inat_submission_enabled": False,
+            },
         },
     }
+
+
+def test_v1_meta_reports_image_digest_without_exposing_it_on_health() -> None:
+    digest = f"sha256:{'a' * 64}"
+    app = create_app(
+        Settings(
+            env="local",
+            app_version="test",
+            deployment_image_digest=digest,
+        )
+    )
+
+    with TestClient(app) as test_client:
+        health_response = test_client.get("/health")
+        meta_response = test_client.get("/v1/meta")
+
+    assert health_response.status_code == 200
+    assert "image_digest" not in health_response.json()
+    assert meta_response.status_code == 200
+    assert meta_response.json()["image_digest"] == digest
 
 
 def test_v1_meta_enables_photo_helper_only_after_every_gate() -> None:
@@ -95,11 +130,15 @@ def test_v1_meta_enables_photo_helper_only_after_every_gate() -> None:
         Settings(
             env="local",
             app_version="test",
+            release_lane="adult_qa",
             inat_cv_enabled=True,
             inat_cv_disclosure_approved=True,
             inat_cv_benchmark_approved=True,
-            inat_oauth_token="configured-token",
+            inat_cv_token=_fresh_jwt(),
             inat_base_url="https://api.inaturalist.org/v1",
+            moderation_provider="azure_content_safety",
+            content_safety_endpoint="https://content-safety.example.test",
+            content_safety_key="configured-key",
         )
     )
 
@@ -120,7 +159,7 @@ def test_v1_meta_keeps_photo_helper_disabled_without_provider_credentials() -> N
             inat_cv_enabled=True,
             inat_cv_disclosure_approved=True,
             inat_cv_benchmark_approved=True,
-            inat_oauth_token="",
+            inat_cv_token="",
         )
     )
 
@@ -129,6 +168,73 @@ def test_v1_meta_keeps_photo_helper_disabled_without_provider_credentials() -> N
 
     assert response.json()["capabilities"]["observation"] == {
         "photo_helper_enabled": False,
+    }
+
+
+def test_release_lane_header_is_exposed_to_parent_web(client: TestClient) -> None:
+    response = client.get(
+        "/v1/meta",
+        headers={"Origin": "https://parents.thehinterlandguide.app"},
+    )
+
+    assert response.headers["x-hinterland-release-lane"] == "local"
+    exposed = response.headers["access-control-expose-headers"].lower()
+    assert "x-hinterland-release-lane" in exposed
+
+
+def test_meta_and_header_report_the_same_configured_release_lane() -> None:
+    app = create_app(Settings(env="local", app_version="test", release_lane="adult_qa"))
+
+    with TestClient(app) as test_client:
+        response = test_client.get("/v1/meta")
+
+    assert response.json()["release_lane"] == "adult_qa"
+    assert response.headers["x-hinterland-release-lane"] == "adult_qa"
+
+
+def test_v1_meta_keeps_photo_helper_disabled_without_real_content_safety() -> None:
+    app = create_app(
+        Settings(
+            env="local",
+            app_version="test",
+            inat_cv_enabled=True,
+            inat_cv_disclosure_approved=True,
+            inat_cv_benchmark_approved=True,
+            inat_cv_token=_fresh_jwt(),
+            moderation_provider="noop",
+        )
+    )
+
+    with TestClient(app) as test_client:
+        response = test_client.get("/v1/meta")
+
+    assert response.json()["capabilities"]["observation"] == {
+        "photo_helper_enabled": False,
+    }
+
+
+def test_v1_meta_reports_integration_egress_gates() -> None:
+    app = create_app(
+        Settings(
+            env="local",
+            app_version="test",
+            release_lane="adult_qa",
+            moderation_provider="azure_content_safety",
+            content_safety_endpoint="https://content-safety.example.test",
+            content_safety_key="configured-key",
+            inat_submit_enabled=True,
+            inat_submit_token="dedicated-submit-token",
+            inat_base_url="https://api.inaturalist.org/v1",
+        )
+    )
+
+    with TestClient(app) as test_client:
+        response = test_client.get("/v1/meta")
+
+    assert response.json()["capabilities"]["integrations"] == {
+        "content_safety_enabled": True,
+        "cv_qualification_enabled": False,
+        "public_inat_submission_enabled": True,
     }
 
 
@@ -155,6 +261,7 @@ def test_not_found_uses_error_envelope(client: TestClient) -> None:
 
     assert response.status_code == 404
     assert response.headers["x-request-id"] == "test-request-id"
+    assert response.headers["x-hinterland-release-lane"] == "local"
     assert response.json() == {
         "error": {
             "code": "not_found",

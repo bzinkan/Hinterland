@@ -2,16 +2,27 @@
 
 from __future__ import annotations
 
+import base64
+import binascii
+import json
+import math
+import re
+import secrets
+from datetime import UTC, datetime, timedelta
 from functools import lru_cache
 from typing import Literal, cast
 from urllib.parse import quote, quote_plus, urlparse
 
 from fastapi import Request
-from pydantic import Field
+from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 Environment = Literal["local", "dev", "staging", "prod"]
 LogLevel = Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
+ReleaseLane = Literal["local", "w1_internal", "adult_qa", "production"]
+_QUALIFICATION_ULID = re.compile(r"^[0-9A-HJKMNP-TV-Z]{26}$")
+_SHA256_HEX = re.compile(r"^[0-9a-f]{64}$")
+_PROVIDER_EGRESS_LANES = frozenset({"adult_qa", "production"})
 
 
 def _default_cors_origins() -> list[str]:
@@ -33,14 +44,23 @@ class Settings(BaseSettings):
         env_file=".env",
         extra="ignore",
         populate_by_name=True,
+        hide_input_in_errors=True,
     )
 
     app_name: str = "Hinterland API"
     app_version: str = "0.1.0"
+    deployment_image_digest: str = ""
     env: Environment = "local"
+    # A revision must identify the release contract it is serving. Local is
+    # the compatibility default for existing W1/tests; deployed QA, W1, and
+    # production revisions set their lane explicitly.
+    release_lane: ReleaseLane = "local"
     log_level: LogLevel = "INFO"
     cors_origins: list[str] = Field(default_factory=_default_cors_origins)
     parent_web_base_url: str = "https://parents.thehinterlandguide.app"
+    adult_qa_consent_policy_version: Literal["2026-07-30-ADULT-QA-EGRESS-V1"] = (
+        "2026-07-30-ADULT-QA-EGRESS-V1"
+    )
 
     # Privacy-safe multi-family Groups ship default-deny. The global flag is
     # the eventual rollout switch; canary IDs let operators exercise one
@@ -56,6 +76,14 @@ class Settings(BaseSettings):
         """True when any global or explicitly scoped shared-Groups rollout exists."""
 
         return self.shared_groups_enabled or bool(self.shared_groups_canary_group_ids)
+
+    @property
+    def parent_consent_policy_version(self) -> str:
+        """Return the disclosure version accepted by this isolated lane."""
+
+        if self.release_lane == "adult_qa":
+            return self.adult_qa_consent_policy_version
+        return "2026-07-11-W1-INTERNAL"
 
     photos_bucket: str = "photos"
     # W1 pilot environments require the same ULID on presign and finalization.
@@ -76,10 +104,10 @@ class Settings(BaseSettings):
     storage_provider: Literal["noop", "blob"] = "blob"
     blob_account_endpoint: str = ""
 
-    # Microsoft Entra External ID -- adult auth. The mobile client requests
-    # the api://hinterland-api/user.access scope, but Entra v2 access tokens
-    # carry the API application's client ID (GUID) in ``aud``. The verifier is
-    # JWKS-only via PyJWT; msal lives in the mobile client.
+    # Microsoft Entra External ID -- adult auth. Each release lane's mobile
+    # client requests that lane's API scope; Entra v2 access tokens carry the
+    # API application's client ID (GUID) in ``aud``. The verifier is JWKS-only
+    # via PyJWT; MSAL lives in the mobile client.
     entra_tenant_id: str = "18dbd7fa-c411-49bc-82fc-9ccaa26e3404"
     entra_api_audience: str = "7dd9da3c-b7d6-45d4-955b-d7561c43f209"
     entra_client_app_id: str = "60504e4c-6b5f-4031-a80a-3e4bdfae29b2"
@@ -159,14 +187,31 @@ class Settings(BaseSettings):
     )
 
     # iNaturalist photo egress is independently default-deny. A token alone is
-    # never permission to disclose a child's photo.
+    # never permission to disclose a child's photo. CV and public submission
+    # use distinct credentials and clients; the retired shared token is not a
+    # fallback because it could silently grant both capabilities.
     inat_base_url: str = "https://api.inaturalist.org/v1"
-    inat_oauth_token: str = ""
+    inat_cv_token: str = Field(default="", repr=False)
+    inat_submit_token: str = Field(default="", repr=False)
     inat_request_timeout_seconds: float = 8.0
     inat_cv_enabled: bool = False
     inat_cv_disclosure_approved: bool = False
     inat_cv_benchmark_approved: bool = False
+    # Adult QA qualification is a short-lived operator-only bridge used to
+    # run the required benchmark before the kid-facing capability may become
+    # true. It never advertises the photo helper and requires a separate
+    # high-entropy request key that is not shipped in the app.
+    inat_cv_qualification_enabled: bool = False
+    inat_cv_qualification_key: str = Field(default="", repr=False)
+    inat_cv_qualification_run_id: str = ""
+    inat_cv_qualification_manifest_sha256: str = ""
+    inat_cv_qualification_expires_at: datetime | None = None
+    # Exact observation -> canonical-photo-hash allowlist for one 50-case
+    # qualification run. Pydantic Settings accepts this as one JSON object in
+    # HINTERLAND_INAT_CV_QUALIFICATION_CASES.
+    inat_cv_qualification_cases: dict[str, str] = Field(default_factory=dict)
     inat_cv_model_version: str = "inat-cv-v1"
+    inat_cv_token_expiry_safety_seconds: int = Field(default=1800, ge=0)
     taxonomy_packs_bucket: str = "taxonomy-packs"
 
     # Optional non-LLM fallback when iNaturalist returns no usable species
@@ -194,6 +239,69 @@ class Settings(BaseSettings):
     #
     # CV has the separate disclosure and benchmark gates above.
     inat_submit_enabled: bool = False
+
+    @model_validator(mode="after")
+    def require_distinct_inat_egress_credentials(self) -> Settings:
+        """Reject one credential being configured for both photo-egress paths."""
+
+        cv_token = self.inat_cv_token.strip()
+        submit_token = self.inat_submit_token.strip()
+        qualification_key = self.inat_cv_qualification_key.strip()
+        configured_secrets = [
+            value for value in (cv_token, submit_token, qualification_key) if value
+        ]
+        if len(configured_secrets) != len(set(configured_secrets)):
+            raise ValueError(
+                "iNaturalist CV, submit, and qualification credentials must be distinct"
+            )
+        if self.inat_cv_qualification_enabled:
+            if self.release_lane != "adult_qa":
+                raise ValueError("iNaturalist CV qualification is Adult QA only")
+            if not self.inat_cv_enabled or not self.inat_cv_disclosure_approved:
+                raise ValueError(
+                    "iNaturalist CV qualification requires enabled CV and disclosure approval"
+                )
+            if self.inat_cv_benchmark_approved:
+                raise ValueError("disable iNaturalist CV qualification after benchmark approval")
+            if len(qualification_key) < 32:
+                raise ValueError("iNaturalist CV qualification requires a high-entropy request key")
+            if not _QUALIFICATION_ULID.fullmatch(self.inat_cv_qualification_run_id):
+                raise ValueError("iNaturalist CV qualification requires a unique run ULID")
+            if not _SHA256_HEX.fullmatch(self.inat_cv_qualification_manifest_sha256):
+                raise ValueError("iNaturalist CV qualification requires a manifest SHA-256")
+            if len(self.inat_cv_qualification_cases) != 50:
+                raise ValueError("iNaturalist CV qualification requires exactly 50 cases")
+            if any(
+                not _QUALIFICATION_ULID.fullmatch(observation_id)
+                or not _SHA256_HEX.fullmatch(photo_sha256)
+                for observation_id, photo_sha256 in self.inat_cv_qualification_cases.items()
+            ):
+                raise ValueError(
+                    "iNaturalist CV qualification cases require observation ULIDs and photo hashes"
+                )
+            if len(set(self.inat_cv_qualification_cases.values())) != 50:
+                raise ValueError("iNaturalist CV qualification photo hashes must be distinct")
+            expiry = self.inat_cv_qualification_expires_at
+            now = datetime.now(UTC)
+            if expiry is None:
+                raise ValueError("iNaturalist CV qualification requires an expiry")
+            if expiry.tzinfo is None:
+                expiry = expiry.replace(tzinfo=UTC)
+                self.inat_cv_qualification_expires_at = expiry
+            if expiry <= now or expiry > now + timedelta(hours=24):
+                raise ValueError(
+                    "iNaturalist CV qualification expiry must be within the next 24 hours"
+                )
+        if self.moderation_provider == "azure_content_safety" and not (
+            self.release_lane in _PROVIDER_EGRESS_LANES
+            and urlparse(self.content_safety_endpoint.strip()).scheme == "https"
+            and urlparse(self.content_safety_endpoint.strip()).netloc
+            and self.content_safety_key.strip()
+        ):
+            raise ValueError(
+                "Azure Content Safety requires an allowed release lane, HTTPS endpoint, and key"
+            )
+        return self
 
     # Reverse-geocoding provider. "noop" returns None for every lookup --
     # the kid sees no place_name; the observation itself still saves.
@@ -254,21 +362,140 @@ class Settings(BaseSettings):
     def inat_cv_egress_allowed(self) -> bool:
         """True only after product, disclosure, and benchmark approval."""
         return (
-            self.inat_cv_enabled
+            self.release_lane in _PROVIDER_EGRESS_LANES
+            and self.inat_cv_enabled
             and self.inat_cv_disclosure_approved
             and self.inat_cv_benchmark_approved
+        )
+
+    @property
+    def inat_cv_provider_ready(self) -> bool:
+        """True when CV provider egress is technically and legally ready."""
+
+        provider_url = urlparse(self.inat_base_url.strip())
+        return bool(
+            self.release_lane in _PROVIDER_EGRESS_LANES
+            and self.inat_cv_enabled
+            and self.inat_cv_disclosure_approved
+            and provider_url.scheme == "https"
+            and provider_url.netloc
+            and self.inat_cv_token_is_fresh()
+            and self.content_safety_configured
+        )
+
+    @property
+    def inat_cv_qualification_ready(self) -> bool:
+        """True only for the bounded pre-approval Adult QA benchmark."""
+
+        return bool(
+            self.release_lane == "adult_qa"
+            and self.inat_cv_qualification_enabled
+            and not self.inat_cv_benchmark_approved
+            and len(self.inat_cv_qualification_key.strip()) >= 32
+            and self.inat_cv_qualification_expires_at is not None
+            and self.inat_cv_qualification_expires_at > datetime.now(UTC)
+            and len(self.inat_cv_qualification_cases) == 50
+            and self.inat_cv_provider_ready
+        )
+
+    def accepts_inat_cv_qualification_case(
+        self,
+        candidate: str | None,
+        *,
+        manifest_sha256: str | None,
+        observation_id: str,
+        photo_sha256: str,
+    ) -> bool:
+        """Verify one exact operator-only benchmark case in constant time."""
+
+        if (
+            not self.inat_cv_qualification_ready
+            or not candidate
+            or not manifest_sha256
+            or not secrets.compare_digest(
+                manifest_sha256.encode("ascii", errors="ignore"),
+                self.inat_cv_qualification_manifest_sha256.encode("ascii"),
+            )
+            or not secrets.compare_digest(
+                self.inat_cv_qualification_cases.get(observation_id, "").encode("ascii"),
+                photo_sha256.encode("ascii"),
+            )
+        ):
+            return False
+        return secrets.compare_digest(
+            candidate.encode("utf-8"),
+            self.inat_cv_qualification_key.strip().encode("utf-8"),
+        )
+
+    @property
+    def inat_cv_qualification_cache_model_version(self) -> str:
+        """Run-scoped durable cache key; a replay never re-calls the provider."""
+
+        return f"qualification:{self.inat_cv_model_version}:{self.inat_cv_qualification_run_id}"
+
+    def inat_cv_token_is_fresh(self, *, now: datetime | None = None) -> bool:
+        """Check the unverified JWT ``exp`` claim without exposing the token.
+
+        This is an enablement/freshness gate, not a signature or trust claim.
+        Opaque, malformed, expired, and near-expiry tokens fail closed.
+        """
+
+        token = self.inat_cv_token.strip()
+        parts = token.split(".")
+        if len(parts) != 3 or not parts[1]:
+            return False
+
+        try:
+            padding = "=" * (-len(parts[1]) % 4)
+            payload_bytes = base64.urlsafe_b64decode(parts[1] + padding)
+            payload = json.loads(payload_bytes)
+        except (binascii.Error, UnicodeDecodeError, json.JSONDecodeError, ValueError):
+            return False
+        if not isinstance(payload, dict):
+            return False
+
+        expiry = payload.get("exp")
+        if isinstance(expiry, bool) or not isinstance(expiry, int | float):
+            return False
+        expiry_value = float(expiry)
+        if not math.isfinite(expiry_value):
+            return False
+
+        current = now or datetime.now(UTC)
+        if current.tzinfo is None:
+            current = current.replace(tzinfo=UTC)
+        return expiry_value > (current.timestamp() + self.inat_cv_token_expiry_safety_seconds)
+
+    @property
+    def content_safety_configured(self) -> bool:
+        """True only for a real, fully configured Content Safety provider."""
+
+        endpoint = urlparse(self.content_safety_endpoint.strip())
+        return bool(
+            self.release_lane in _PROVIDER_EGRESS_LANES
+            and self.moderation_provider == "azure_content_safety"
+            and endpoint.scheme == "https"
+            and endpoint.netloc
+            and self.content_safety_key.strip()
         )
 
     @property
     def photo_helper_enabled(self) -> bool:
         """Kid-facing CV capability after every disclosure/config gate."""
 
+        return bool(self.inat_cv_egress_allowed and self.inat_cv_provider_ready)
+
+    @property
+    def inat_submit_egress_allowed(self) -> bool:
+        """Public submission remains independently default-deny."""
+
         provider_url = urlparse(self.inat_base_url.strip())
         return bool(
-            self.inat_cv_egress_allowed
+            self.release_lane in _PROVIDER_EGRESS_LANES
+            and self.inat_submit_enabled
             and provider_url.scheme == "https"
             and provider_url.netloc
-            and self.inat_oauth_token.strip()
+            and self.inat_submit_token.strip()
         )
 
     database_host: str = "localhost"

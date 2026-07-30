@@ -104,10 +104,18 @@ def test_w1_promotion_order_and_containment_are_explicit() -> None:
         < publish_evidence
     )
     assert "HINTERLAND_MODERATION_PROVIDER=noop" in workflow
+    assert workflow.count("HINTERLAND_RELEASE_LANE=w1_internal") >= 8
     assert "HINTERLAND_INAT_CV_ENABLED=false" in workflow
     assert "HINTERLAND_INAT_CV_DISCLOSURE_APPROVED=false" in workflow
     assert "HINTERLAND_INAT_CV_BENCHMARK_APPROVED=false" in workflow
     assert "HINTERLAND_INAT_SUBMIT_ENABLED=false" in workflow
+    for forbidden_secret in (
+        "HINTERLAND_INAT_OAUTH_TOKEN",
+        "HINTERLAND_INAT_CV_TOKEN",
+        "HINTERLAND_INAT_SUBMIT_TOKEN",
+        "HINTERLAND_INAT_CV_QUALIFICATION_KEY",
+    ):
+        assert workflow.count(forbidden_secret) >= 4
     assert "ENTRA_API_AUDIENCE: 7dd9da3c-b7d6-45d4-955b-d7561c43f209" in workflow
     assert "ENTRA_CLIENT_APP_ID: 60504e4c-6b5f-4031-a80a-3e4bdfae29b2" in workflow
     assert 'claims.get("aud") != os.environ["ENTRA_API_AUDIENCE"]' in workflow
@@ -170,6 +178,7 @@ def test_w1_promotion_order_and_containment_are_explicit() -> None:
         "HINTERLAND_OBSERVATION_IDEMPOTENCY_REQUIRED",
         "HINTERLAND_DATABASE_PASSWORD",
         "HINTERLAND_APP_VERSION",
+        "HINTERLAND_RELEASE_LANE",
     ):
         assert workflow.count(f'select(.name != "{explicit_setting}")') >= 2
     assert workflow.count('AZURE_CLIENT_ID="${job_uami_client_id}"') >= 2
@@ -374,7 +383,8 @@ def test_parent_smoke_passes_throwaway_kid_session_in_memory() -> None:
     parent_smoke = (_ROOT / "scripts/smoke_azure_parent_kid.py").read_text(encoding="utf-8")
     observation_smoke = (_ROOT / "scripts/smoke_observation_w1.py").read_text(encoding="utf-8")
 
-    assert "run_canary(base_url=base_url, bearer=kid_session_token)" in parent_smoke
+    assert "observation_runner(base_url=base_url, bearer=kid_session_token)" in parent_smoke
+    assert 'expected_release_lane="w1_internal"' in parent_smoke
     assert "run_dispatcher_benchmark(" in parent_smoke
     assert "bearer=kid_session_token" in parent_smoke
     assert 'payload.get("id") != parent_user_id' in parent_smoke

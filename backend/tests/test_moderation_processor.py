@@ -16,6 +16,8 @@ import pytest
 from PIL import Image
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import Settings
+from app.core.parent_consent import CurrentParentConsentRequiredError
 from app.db import models
 from app.moderation.processor import (
     ModerationWorkInvalid,
@@ -53,11 +55,13 @@ class _StubStorage:
         self.copy_error = copy_error
         self.copy_calls: list[tuple[str, str, str, str]] = []
         self.delete_calls: list[tuple[str, str]] = []
+        self.fetch_calls: list[tuple[str, str]] = []
 
     def generate_put_url(self, **_: Any) -> tuple[str, Any]:
         raise NotImplementedError
 
     def fetch_object_bytes(self, *, bucket: str, object_name: str) -> bytes:
+        self.fetch_calls.append((bucket, object_name))
         return self.bytes_to_return
 
     def copy_object(
@@ -195,6 +199,46 @@ async def test_raises_when_photo_row_missing(fake_session: AsyncMock) -> None:
             bucket=_BUCKET,
             object_name=_OBJECT_NAME,
         )
+
+
+async def test_adult_qa_moderation_requires_disclosure_before_photo_read(
+    monkeypatch: pytest.MonkeyPatch,
+    fake_session: AsyncMock,
+) -> None:
+    observation = _obs_row()
+    _wire_session(fake_session, photo=_photo_row(), observation=observation)
+    fake_session.get = AsyncMock(
+        return_value=models.User(
+            id="user-id",
+            role="kid",
+            display_name="Synthetic child",
+            parent_user_id="parent-id",
+        )
+    )
+    require_consent = AsyncMock(side_effect=CurrentParentConsentRequiredError("required"))
+    monkeypatch.setattr(
+        "app.moderation.processor.require_linked_parent_consent_for_policy",
+        require_consent,
+    )
+    storage = _StubStorage()
+    moderator = AsyncMock()
+
+    with pytest.raises(ModerationWorkInvalid, match="disclosure"):
+        await process_pending_photo(
+            fake_session,
+            storage,
+            moderator,
+            bucket=_BUCKET,
+            object_name=_OBJECT_NAME,
+            settings=Settings(
+                env="local",
+                app_version="test",
+                release_lane="adult_qa",
+            ),
+        )
+
+    assert storage.fetch_calls == []
+    moderator.moderate.assert_not_awaited()
 
 
 async def test_skipped_when_photo_already_moderated(fake_session: AsyncMock) -> None:
@@ -551,7 +595,13 @@ async def test_clean_with_inat_enabled_and_disabled_sb_leaves_outbox_pending(
 
     monkeypatch.setattr("app.moderation.processor.enqueue_inat_submit", fake_enqueue)
 
-    settings = Settings(env="local", service_bus_namespace="", inat_submit_enabled=True)
+    settings = Settings(
+        env="local",
+        release_lane="adult_qa",
+        service_bus_namespace="",
+        inat_submit_enabled=True,
+        inat_submit_token="dedicated-submit-token",
+    )
 
     result = await process_pending_photo(
         fake_session,
@@ -591,8 +641,10 @@ async def test_clean_with_inat_enabled_and_successful_enqueue_flips_outbox(
 
     settings = Settings(
         env="local",
+        release_lane="adult_qa",
         service_bus_namespace="hinterland-sb-test.servicebus.windows.net",
         inat_submit_enabled=True,
+        inat_submit_token="dedicated-submit-token",
     )
 
     result = await process_pending_photo(

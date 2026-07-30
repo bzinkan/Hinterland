@@ -1,6 +1,23 @@
+import base64
+import json
+from datetime import UTC, datetime, timedelta
+
 import pytest
+from pydantic import ValidationError
 
 from app.core.config import Settings
+
+
+def _jwt_with_exp(expiry: object) -> str:
+    payload = base64.urlsafe_b64encode(json.dumps({"exp": expiry}).encode()).decode().rstrip("=")
+    return f"header.{payload}.signature"
+
+
+def _qualification_cases(observation_id: str = "01J00000000000000000000000") -> dict[str, str]:
+    cases = {observation_id: f"{0:064x}"}
+    for index in range(1, 50):
+        cases[f"01J{index:023d}"] = f"{index:064x}"
+    return cases
 
 
 def test_settings_accept_typed_environment_overrides() -> None:
@@ -18,6 +35,28 @@ def test_settings_accept_typed_environment_overrides() -> None:
     assert settings.database_port == 6543
     assert settings.database_configured is True
     assert settings.readiness_database_required is True
+
+
+def test_release_lane_defaults_to_local_when_absent(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("HINTERLAND_RELEASE_LANE", raising=False)
+    assert Settings().release_lane == "local"
+
+
+@pytest.mark.parametrize("lane", ["local", "w1_internal", "adult_qa", "production"])
+def test_release_lane_accepts_only_named_contracts(
+    monkeypatch: pytest.MonkeyPatch,
+    lane: str,
+) -> None:
+    monkeypatch.setenv("HINTERLAND_RELEASE_LANE", lane)
+    assert Settings().release_lane == lane
+
+
+def test_release_lane_rejects_malformed_configuration(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("HINTERLAND_RELEASE_LANE", "adult-qa")
+    with pytest.raises(ValidationError):
+        Settings()
 
 
 def test_default_cors_origins_are_exact_and_parent_only() -> None:
@@ -69,11 +108,184 @@ def test_entra_v2_audience_is_the_api_client_id() -> None:
 
 def test_cv_requires_enable_disclosure_and_benchmark_gates() -> None:
     settings = Settings(
+        release_lane="adult_qa",
         inat_cv_enabled=True,
         inat_cv_disclosure_approved=True,
         inat_cv_benchmark_approved=True,
     )
     assert settings.inat_cv_egress_allowed is True
+
+
+def test_adult_qa_cv_qualification_does_not_advertise_photo_helper() -> None:
+    settings = Settings(
+        release_lane="adult_qa",
+        inat_cv_enabled=True,
+        inat_cv_disclosure_approved=True,
+        inat_cv_benchmark_approved=False,
+        inat_cv_qualification_enabled=True,
+        inat_cv_qualification_key="q" * 32,
+        inat_cv_qualification_run_id="01J99999999999999999999999",
+        inat_cv_qualification_manifest_sha256="f" * 64,
+        inat_cv_qualification_expires_at=datetime.now(UTC) + timedelta(hours=1),
+        inat_cv_qualification_cases=_qualification_cases(),
+        inat_cv_token=_jwt_with_exp(4_102_444_800),
+        moderation_provider="azure_content_safety",
+        content_safety_endpoint="https://content-safety.example.test",
+        content_safety_key="configured-key",
+    )
+
+    assert settings.inat_cv_qualification_ready is True
+    assert settings.photo_helper_enabled is False
+    assert (
+        settings.accepts_inat_cv_qualification_case(
+            "q" * 32,
+            manifest_sha256="f" * 64,
+            observation_id="01J00000000000000000000000",
+            photo_sha256=f"{0:064x}",
+        )
+        is True
+    )
+    assert (
+        settings.accepts_inat_cv_qualification_case(
+            "wrong",
+            manifest_sha256="f" * 64,
+            observation_id="01J00000000000000000000000",
+            photo_sha256=f"{0:064x}",
+        )
+        is False
+    )
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        {"release_lane": "w1_internal"},
+        {"inat_cv_enabled": False},
+        {"inat_cv_disclosure_approved": False},
+        {"inat_cv_benchmark_approved": True},
+        {"inat_cv_qualification_key": "short"},
+    ],
+)
+def test_cv_qualification_misconfiguration_fails_startup(
+    overrides: dict[str, object],
+) -> None:
+    values: dict[str, object] = {
+        "release_lane": "adult_qa",
+        "inat_cv_enabled": True,
+        "inat_cv_disclosure_approved": True,
+        "inat_cv_benchmark_approved": False,
+        "inat_cv_qualification_enabled": True,
+        "inat_cv_qualification_key": "q" * 32,
+        "inat_cv_qualification_run_id": "01J99999999999999999999999",
+        "inat_cv_qualification_manifest_sha256": "f" * 64,
+        "inat_cv_qualification_expires_at": datetime.now(UTC) + timedelta(hours=1),
+        "inat_cv_qualification_cases": _qualification_cases(),
+    }
+    values.update(overrides)
+
+    with pytest.raises(ValidationError, match="qualification"):
+        Settings(**values)
+
+
+@pytest.mark.parametrize(
+    ("token", "expected"),
+    [
+        ("opaque", False),
+        ("a.b.c", False),
+        (_jwt_with_exp("4102444800"), False),
+        (_jwt_with_exp(2_000), False),
+        (_jwt_with_exp(2_801), True),
+    ],
+)
+def test_cv_token_freshness_fails_closed(token: str, expected: bool) -> None:
+    settings = Settings(
+        inat_cv_token=token,
+        inat_cv_token_expiry_safety_seconds=1800,
+    )
+    now = datetime.fromtimestamp(1_000, tz=UTC)
+    assert settings.inat_cv_token_is_fresh(now=now) is expected
+
+
+def test_inat_cv_and_submit_credentials_must_be_distinct() -> None:
+    with pytest.raises(ValidationError, match="must be distinct"):
+        Settings(inat_cv_token="same-secret", inat_submit_token="same-secret")
+
+
+def test_all_inat_egress_credentials_are_pairwise_distinct_and_redacted() -> None:
+    marker = "qualification-secret-marker-" + ("q" * 32)
+    with pytest.raises(ValidationError) as captured:
+        Settings(
+            inat_cv_token=marker,
+            inat_cv_qualification_key=marker,
+            inat_cv_qualification_enabled=True,
+            release_lane="adult_qa",
+        )
+    assert marker not in str(captured.value)
+
+    settings = Settings(
+        inat_cv_token="cv-secret-marker",
+        inat_submit_token="submit-secret-marker",
+        inat_cv_qualification_key="qualification-secret-marker",
+    )
+    rendered = repr(settings)
+    assert "cv-secret-marker" not in rendered
+    assert "submit-secret-marker" not in rendered
+    assert "qualification-secret-marker" not in rendered
+
+
+def test_retired_shared_inat_token_cannot_enable_either_path(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("HINTERLAND_INAT_OAUTH_TOKEN", _jwt_with_exp(4_102_444_800))
+    settings = Settings(
+        release_lane="adult_qa",
+        inat_cv_enabled=True,
+        inat_cv_disclosure_approved=True,
+        inat_cv_benchmark_approved=True,
+        inat_submit_enabled=True,
+        moderation_provider="azure_content_safety",
+        content_safety_endpoint="https://content-safety.example.test",
+        content_safety_key="configured-key",
+    )
+
+    assert settings.inat_cv_token == ""
+    assert settings.inat_submit_token == ""
+    assert settings.photo_helper_enabled is False
+    assert settings.inat_submit_egress_allowed is False
+
+
+def test_public_inat_submission_is_default_deny_even_with_a_token() -> None:
+    settings = Settings(release_lane="adult_qa", inat_submit_token="submit-only")
+    assert settings.inat_submit_enabled is False
+    assert settings.inat_submit_egress_allowed is False
+
+
+def test_w1_release_lane_hard_denies_all_provider_egress_despite_flag_drift() -> None:
+    settings = Settings(
+        release_lane="w1_internal",
+        inat_cv_enabled=True,
+        inat_cv_disclosure_approved=True,
+        inat_cv_benchmark_approved=True,
+        inat_cv_token=_jwt_with_exp(4_102_444_800),
+        inat_submit_enabled=True,
+        inat_submit_token="dedicated-submit-token",
+        moderation_provider="noop",
+        content_safety_endpoint="https://content-safety.example.test",
+        content_safety_key="configured-key",
+    )
+
+    assert settings.content_safety_configured is False
+    assert settings.photo_helper_enabled is False
+    assert settings.inat_submit_egress_allowed is False
+
+
+def test_adult_qa_uses_a_distinct_provider_disclosure_version() -> None:
+    w1 = Settings(release_lane="w1_internal")
+    qa = Settings(release_lane="adult_qa")
+
+    assert w1.parent_consent_policy_version == "2026-07-11-W1-INTERNAL"
+    assert qa.parent_consent_policy_version == "2026-07-30-ADULT-QA-EGRESS-V1"
+    assert qa.parent_consent_policy_version != w1.parent_consent_policy_version
 
 
 def test_hinterland_can_require_observation_idempotency(

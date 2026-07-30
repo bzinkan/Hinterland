@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 
 import structlog
-from fastapi import FastAPI
+from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.routes.auth import router as auth_router
@@ -54,12 +54,24 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.settings = active_settings
     app.state.database = database
 
+    @app.middleware("http")
+    async def add_release_lane_header(
+        request: Request,
+        call_next: Callable[[Request], Awaitable[Response]],
+    ) -> Response:
+        """Stamp every API response with the revision's release contract."""
+
+        response = await call_next(request)
+        response.headers["X-Hinterland-Release-Lane"] = active_settings.release_lane
+        return response
+
     app.add_middleware(
         CORSMiddleware,
         allow_origins=active_settings.cors_origins,
         allow_credentials=True,
         allow_methods=["GET", "POST", "PATCH", "DELETE"],
         allow_headers=["*"],
+        expose_headers=["X-Hinterland-Release-Lane", "X-Request-ID"],
     )
 
     install_exception_handlers(app)

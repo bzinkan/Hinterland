@@ -38,7 +38,7 @@ let initPromise: Promise<PublicClientApplicationType | null> | null = null;
 let listenerAttached = false;
 let sessionController: MsalSessionController | null = null;
 
-const ENTRA_SCOPES = ["api://hinterland-api/user.access"];
+const ENTRA_SCOPES = [env.entra.scope];
 
 type ParentEntraConfiguration = {
   clientId: string;

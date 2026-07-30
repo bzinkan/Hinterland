@@ -15,7 +15,12 @@ import pytest
 import respx
 
 from app.core.config import Settings
-from app.inat.client import InatUnavailable, build_inat_client
+from app.inat.client import (
+    InatUnavailable,
+    build_inat_client,
+    build_inat_cv_client,
+    build_inat_submit_client,
+)
 from app.inat.cv import score_image as _score_image
 from app.inat.observations import SpeciesCount, get_species_counts
 from app.inat.taxa import get_taxon
@@ -23,12 +28,30 @@ from app.inat.taxa import get_taxon
 
 @pytest.fixture
 def settings() -> Settings:
-    return Settings(env="local", inat_oauth_token="test-token-not-real")
+    return Settings(
+        env="local",
+        inat_cv_token="cv-token-not-real",
+        inat_submit_token="submit-token-not-real",
+    )
 
 
 @pytest.fixture
 def client(settings: Settings) -> httpx.AsyncClient:
     return build_inat_client(settings)
+
+
+async def test_inat_clients_keep_credentials_isolated(settings: Settings) -> None:
+    public_client = build_inat_client(settings)
+    cv_client = build_inat_cv_client(settings)
+    submit_client = build_inat_submit_client(settings)
+    try:
+        assert "Authorization" not in public_client.headers
+        assert cv_client.headers["Authorization"] == "Bearer cv-token-not-real"
+        assert submit_client.headers["Authorization"] == "Bearer submit-token-not-real"
+    finally:
+        await public_client.aclose()
+        await cv_client.aclose()
+        await submit_client.aclose()
 
 
 # ---------------------------------------------------------------------------
@@ -151,6 +174,28 @@ async def test_score_image_handles_empty_results(client: httpx.AsyncClient) -> N
     )
     suggestions = await score_image(client, image_bytes=b"x")
     assert suggestions == []
+
+
+@respx.mock
+@pytest.mark.parametrize(
+    "response",
+    [
+        httpx.Response(429),
+        httpx.Response(200, text="not-json"),
+        httpx.Response(200, json=[]),
+        httpx.Response(200, json={"unexpected": []}),
+        httpx.Response(200, json={"results": [{"taxon": {"id": 1}}]}),
+    ],
+)
+async def test_score_image_treats_throttled_or_malformed_success_as_unavailable(
+    client: httpx.AsyncClient,
+    response: httpx.Response,
+) -> None:
+    respx.post("https://api.inaturalist.org/v1/computervision/score_image").mock(
+        return_value=response
+    )
+    with pytest.raises(InatUnavailable):
+        await score_image(client, image_bytes=b"x")
 
 
 # ---------------------------------------------------------------------------

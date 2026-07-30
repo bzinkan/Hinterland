@@ -17,6 +17,7 @@ import {
 } from "@/src/auth/consentProof";
 import { consumeParentReturnPath } from "@/src/auth/parentReturnPath";
 import { useAuthSession } from "@/src/auth/session";
+import { env } from "@/src/config/env";
 
 type Phase =
   | { kind: "idle" }
@@ -49,6 +50,7 @@ export default function ConsentScreen() {
   // Reuse this nonce after an ambiguous network response so the server's
   // nonce idempotency returns the original receipt instead of creating one.
   const recordingNonce = useRef<string | null>(null);
+  const isAdultQa = env.appEnv === "adult-qa";
 
   const acceptsSubmission = phase.kind === "idle" || phase.kind === "error";
   const submittable =
@@ -131,11 +133,13 @@ export default function ConsentScreen() {
   return (
     <DesktopContainer>
       <ScrollView contentContainerStyle={styles.container}>
-        <Text style={styles.title}>Parental Consent</Text>
+        <Text style={styles.title}>
+          {isAdultQa ? "Adult QA Consent" : "Parental Consent"}
+        </Text>
         <Text style={styles.body}>
-          Hinterland is preparing a small, adult-supervised Android Internal
-          Testing pilot for children ages 9-12. Before a child uses it, we
-          record consent from their parent or guardian.
+          {isAdultQa
+            ? "This isolated Adult QA release is for adult testers using synthetic child profiles and adult-owned, non-sensitive outdoor photos. Before QA provider testing begins, we record the tester's exact disclosure version."
+            : "Hinterland is preparing a small, adult-supervised Android Internal Testing pilot for children ages 9-12. Before a child uses it, we record consent from their parent or guardian."}
         </Text>
 
         <View
@@ -144,12 +148,13 @@ export default function ConsentScreen() {
           darkColor="rgba(255,255,255,0.1)"
         />
 
-        <Text style={styles.sectionLabel}>What we collect from your child</Text>
+        <Text style={styles.sectionLabel}>
+          {isAdultQa ? "What Adult QA uses" : "What we collect from your child"}
+        </Text>
         <Text style={styles.body}>
-          - Photos of organisms they observe outdoors. Once uploaded and saved,
-          server-hosted W1 private-pilot photo bytes are purged after seven
-          days. Unsynced work remains only on the original device until it
-          syncs or an adult discards it
+          {isAdultQa
+            ? "- Adult-owned photos of organisms submitted through synthetic child profiles. Do not use photos of children, private places, or sensitive material"
+            : "- Photos of organisms they observe outdoors. Once uploaded and saved, server-hosted W1 private-pilot photo bytes are purged after seven days. Unsynced work remains only on the original device until it syncs or an adult discards it"}
           {"\n"}- An optional coarse area computed on the device. No location
           is valid, and precise coordinates are not stored
           {"\n"}- The catalog identification, manual label, or Unknown choice
@@ -171,11 +176,9 @@ export default function ConsentScreen() {
         </Text>
         <Text style={styles.sectionLabel}>Where the data goes</Text>
         <Text style={styles.body}>
-          W1 data stays in the isolated Hinterland Azure environment. W1 does
-          not send photos to iNaturalist, a photo-identification provider, or
-          Azure Content Safety, and it does not publish observations. Photos
-          remain unavailable to kids while the W1 private-pilot state is in
-          effect.
+          {isAdultQa
+            ? "Adult QA data stays in the isolated Hinterland QA Azure environment. Azure Content Safety receives each canonical QA photo for asynchronous safety screening. After a photo is clean or adult-approved, iNaturalist computer vision receives it only when the tester requests species suggestions. Public iNaturalist publication remains disabled."
+            : "W1 data stays in the isolated Hinterland Azure environment. W1 does not send photos to iNaturalist, a photo-identification provider, or Azure Content Safety, and it does not publish observations. Photos remain unavailable to kids while the W1 private-pilot state is in effect."}
         </Text>
         <Text style={styles.sectionLabel}>Full policy</Text>
         <Text style={styles.body}>
@@ -219,9 +222,9 @@ export default function ConsentScreen() {
             {agreed && <Text style={styles.checkboxMark}>✓</Text>}
           </View>
           <Text style={styles.checkboxLabel}>
-            I am the parent or legal guardian of the child who will use this
-            account, and I consent to Hinterland collecting the data described
-            above.
+            {isAdultQa
+              ? "I am an adult QA tester. I will use only synthetic child profiles and adult-owned, non-sensitive test photos, and I consent to the provider transmissions described above."
+              : "I am the parent or legal guardian of the child who will use this account, and I consent to Hinterland collecting the data described above."}
           </Text>
         </Pressable>
 

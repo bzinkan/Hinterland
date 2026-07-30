@@ -1,4 +1,20 @@
+import { env, type AppEnvironment } from "@/src/config/env";
+
 export const W1_CONSENT_POLICY_VERSION = "2026-07-11-W1-INTERNAL";
+export const ADULT_QA_CONSENT_POLICY_VERSION =
+  "2026-07-30-ADULT-QA-EGRESS-V1";
+
+export function consentPolicyForEnvironment(
+  appEnvironment: AppEnvironment,
+): string {
+  return appEnvironment === "adult-qa"
+    ? ADULT_QA_CONSENT_POLICY_VERSION
+    : W1_CONSENT_POLICY_VERSION;
+}
+
+export const ACTIVE_CONSENT_POLICY_VERSION = consentPolicyForEnvironment(
+  env.appEnv,
+);
 
 const CONSENT_PROOF_KEY = "hinterland.parent_consent_proof.v1";
 const NONCE_BYTE_LENGTH = 32;
@@ -77,7 +93,7 @@ function isParentConsentProof(value: unknown): value is ParentConsentProof {
     proof.receiptId.length > 0 &&
     typeof proof.nonce === "string" &&
     /^[0-9a-f]{64}$/.test(proof.nonce) &&
-    proof.policyVersion === W1_CONSENT_POLICY_VERSION
+    proof.policyVersion === ACTIVE_CONSENT_POLICY_VERSION
   );
 }
 

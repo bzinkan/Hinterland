@@ -6,6 +6,7 @@ describe("shared-Groups capability", () => {
       sharedGroupsIsEnabled({
         name: "Hinterland",
         env: "dev",
+        release_lane: "local",
         version: "test",
         capabilities: { groups: { shared_groups_enabled: true } },
       }),
@@ -17,15 +18,24 @@ describe("shared-Groups capability", () => {
       sharedGroupsIsEnabled({
         name: "Hinterland",
         env: "dev",
+        release_lane: "local",
         version: "test",
         capabilities: { groups: { shared_groups_enabled: false } },
       }),
     ).toBe(false);
-    expect(sharedGroupsIsEnabled({ name: "Hinterland", env: "dev", version: "test" })).toBe(false);
     expect(
       sharedGroupsIsEnabled({
         name: "Hinterland",
         env: "dev",
+        release_lane: "local",
+        version: "test",
+      }),
+    ).toBe(false);
+    expect(
+      sharedGroupsIsEnabled({
+        name: "Hinterland",
+        env: "dev",
+        release_lane: "local",
         version: "test",
         capabilities: { groups: { shared_groups_enabled: "yes" as unknown as boolean } },
       }),

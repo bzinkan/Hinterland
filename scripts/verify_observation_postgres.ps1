@@ -30,7 +30,8 @@ try {
 
     $ready = $false
     foreach ($attempt in 1..30) {
-        docker exec $containerName pg_isready -U hinterland -d $databaseName | Out-Null
+        docker exec $containerName psql -v ON_ERROR_STOP=1 -U hinterland `
+            -d $databaseName -c "SELECT 1" | Out-Null
         if ($LASTEXITCODE -eq 0) {
             $ready = $true
             break

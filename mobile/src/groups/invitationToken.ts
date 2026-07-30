@@ -1,7 +1,8 @@
+import { env } from "@/src/config/env";
+
 const STORAGE_KEY = "hinterland.group_invitation.v1";
 const TOKEN_MAX_AGE_MS = 72 * 60 * 60 * 1000;
 const TOKEN_PATTERN = /^[A-Za-z0-9_-]{40,128}$/;
-const CANONICAL_PARENT_ORIGIN = "https://parents.thehinterlandguide.app";
 
 type StoredInvitation = {
   token: string;
@@ -84,7 +85,7 @@ export function validateInvitationUrl(value: unknown): value is string {
   try {
     const url = new URL(value);
     if (
-      url.origin !== CANONICAL_PARENT_ORIGIN ||
+      url.origin !== new URL(env.parentWebBaseUrl).origin ||
       url.protocol !== "https:" ||
       url.pathname !== "/group-invite" ||
       url.search !== ""

@@ -304,7 +304,7 @@ async def approve_review(
                 observation=observation,
                 photo=photo,
             )
-            if settings.inat_submit_enabled:
+            if settings.inat_submit_egress_allowed:
                 session.add(
                     models.InatSubmitOutbox(
                         observation_id=observation.id,

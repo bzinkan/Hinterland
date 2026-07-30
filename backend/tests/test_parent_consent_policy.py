@@ -9,11 +9,13 @@ import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.parent_consent import (
+    ADULT_QA_CONSENT_POLICY_VERSION,
     CURRENT_PARENT_CONSENT_POLICY_VERSION,
     CurrentParentConsentRequiredError,
     acquire_current_parent_consent,
     hash_browser_consent_nonce,
     require_linked_current_parent_consent,
+    require_linked_parent_consent_for_policy,
 )
 from app.db import models
 
@@ -48,7 +50,13 @@ def _result(value: models.ParentConsentRecord | None) -> MagicMock:
 
 def _statement_values(statement: object) -> set[object]:
     compiled = statement.compile()  # type: ignore[attr-defined]
-    return set(compiled.params.values())
+    values: set[object] = set()
+    for value in compiled.params.values():
+        if isinstance(value, (list, tuple, set)):
+            values.update(value)
+        else:
+            values.add(value)
+    return values
 
 
 async def test_acquire_accepts_exact_proof_already_linked_to_same_parent() -> None:
@@ -144,8 +152,46 @@ async def test_require_linked_current_consent_filters_out_legacy_null_nonce_hash
         await require_linked_current_parent_consent(
             session,
             parent_user_id=_PARENT_ID,
+            policy_version=CURRENT_PARENT_CONSENT_POLICY_VERSION,
         )
 
     statement = session.execute.await_args.args[0]
     assert CURRENT_PARENT_CONSENT_POLICY_VERSION in _statement_values(statement)
     assert "browser_nonce_sha256 IS NOT NULL" in str(statement)
+
+
+async def test_linked_consent_never_accepts_another_release_lane_policy() -> None:
+    session = AsyncMock(spec=AsyncSession)
+    session.execute = AsyncMock(return_value=_result(None))
+
+    with pytest.raises(CurrentParentConsentRequiredError):
+        await require_linked_current_parent_consent(
+            session,
+            parent_user_id=_PARENT_ID,
+            policy_version=ADULT_QA_CONSENT_POLICY_VERSION,
+        )
+
+    values = _statement_values(session.execute.await_args.args[0])
+    assert ADULT_QA_CONSENT_POLICY_VERSION in values
+    assert CURRENT_PARENT_CONSENT_POLICY_VERSION not in values
+
+
+async def test_adult_qa_egress_requires_the_exact_disclosure_version() -> None:
+    session = AsyncMock(spec=AsyncSession)
+    linked = _record(
+        policy_version=ADULT_QA_CONSENT_POLICY_VERSION,
+        linked_parent_user_id=_PARENT_ID,
+    )
+    session.execute = AsyncMock(return_value=_result(linked))
+
+    result = await require_linked_parent_consent_for_policy(
+        session,
+        parent_user_id=_PARENT_ID,
+        policy_version=ADULT_QA_CONSENT_POLICY_VERSION,
+    )
+
+    assert result is linked
+    statement = session.execute.await_args.args[0]
+    values = _statement_values(statement)
+    assert ADULT_QA_CONSENT_POLICY_VERSION in values
+    assert CURRENT_PARENT_CONSENT_POLICY_VERSION not in values

@@ -18,7 +18,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 import app.api.routes.auth as auth_routes_module
 from app.core.config import Settings
-from app.core.parent_consent import hash_browser_consent_nonce
+from app.core.parent_consent import (
+    ADULT_QA_CONSENT_POLICY_VERSION,
+    hash_browser_consent_nonce,
+)
 from app.db import models
 from app.db.session import get_db_session
 from app.main import create_app
@@ -122,6 +125,38 @@ def test_consent_current_policy_version_applied(
     assert response.json()["policy_version"] == CURRENT_POLICY_VERSION
     row = _added_consent_row(fake_session)
     assert row.policy_version == CURRENT_POLICY_VERSION
+
+
+def test_adult_qa_accepts_only_its_provider_disclosure(
+    fake_session: AsyncMock,
+) -> None:
+    app = create_app(Settings(env="local", app_version="test", release_lane="adult_qa"))
+
+    async def override() -> AsyncIterator[AsyncSession]:
+        yield fake_session
+
+    app.dependency_overrides[get_db_session] = override
+    with TestClient(app, raise_server_exceptions=True) as test_client:
+        accepted = test_client.post(
+            "/v1/auth/consent",
+            json={
+                "email": "parent@example.com",
+                "policy_version": ADULT_QA_CONSENT_POLICY_VERSION,
+                "consent_nonce": CONSENT_NONCE,
+            },
+        )
+        rejected = test_client.post(
+            "/v1/auth/consent",
+            json={
+                "email": "parent@example.com",
+                "policy_version": CURRENT_POLICY_VERSION,
+                "consent_nonce": "b" * 64,
+            },
+        )
+
+    assert accepted.status_code == 200
+    assert accepted.json()["policy_version"] == ADULT_QA_CONSENT_POLICY_VERSION
+    assert rejected.status_code == 409
 
 
 def test_consent_requires_policy_version(consent_client: TestClient) -> None:

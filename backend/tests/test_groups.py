@@ -220,7 +220,11 @@ def test_create_group_parent_requires_linked_current_consent(
     )
 
     assert response.status_code == 409
-    require_consent.assert_awaited_once_with(fake_session, parent_user_id=_USER_ID)
+    require_consent.assert_awaited_once_with(
+        fake_session,
+        parent_user_id=_USER_ID,
+        policy_version="2026-07-11-W1-INTERNAL",
+    )
     fake_session.add.assert_not_called()
     fake_session.commit.assert_not_awaited()
 
@@ -522,7 +526,11 @@ def test_create_kid_parent_requires_linked_current_consent(
     )
 
     assert response.status_code == 409
-    require_consent.assert_awaited_once_with(fake_session, parent_user_id=_USER_ID)
+    require_consent.assert_awaited_once_with(
+        fake_session,
+        parent_user_id=_USER_ID,
+        policy_version="2026-07-11-W1-INTERNAL",
+    )
     assert fb_calls["mint_handoff"] == []
     fake_session.add.assert_not_called()
 
@@ -878,7 +886,11 @@ def test_reissue_kid_handoff_requires_current_linked_consent(
     )
 
     assert response.status_code == 409
-    require_consent.assert_awaited_once_with(fake_session, parent_user_id=_USER_ID)
+    require_consent.assert_awaited_once_with(
+        fake_session,
+        parent_user_id=_USER_ID,
+        policy_version="2026-07-11-W1-INTERNAL",
+    )
     assert calls["mint_handoff"] == []
 
 
