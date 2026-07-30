@@ -20,10 +20,6 @@ from app.db import models
 
 CURRENT_PARENT_CONSENT_POLICY_VERSION = "2026-07-11-W1-INTERNAL"
 ADULT_QA_CONSENT_POLICY_VERSION = "2026-07-30-ADULT-QA-EGRESS-V1"
-_KNOWN_PARENT_CONSENT_POLICY_VERSIONS = (
-    CURRENT_PARENT_CONSENT_POLICY_VERSION,
-    ADULT_QA_CONSENT_POLICY_VERSION,
-)
 CURRENT_PARENT_CONSENT_REQUIRED_MESSAGE = (
     "Current parental consent is required before family setup."
 )
@@ -105,13 +101,14 @@ async def require_linked_current_parent_consent(
     session: AsyncSession,
     *,
     parent_user_id: str,
+    policy_version: str,
 ) -> models.ParentConsentRecord:
-    """Require a receipt already linked to the adult and active policy."""
+    """Require a receipt linked to the adult for this lane's exact policy."""
     result = await session.execute(
         select(models.ParentConsentRecord)
         .where(
             models.ParentConsentRecord.linked_parent_user_id == parent_user_id,
-            models.ParentConsentRecord.policy_version.in_(_KNOWN_PARENT_CONSENT_POLICY_VERSIONS),
+            models.ParentConsentRecord.policy_version == policy_version,
             models.ParentConsentRecord.browser_nonce_sha256.is_not(None),
         )
         .order_by(models.ParentConsentRecord.recorded_at.desc())

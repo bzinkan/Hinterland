@@ -169,6 +169,10 @@ class AzureContentSafetyModerator:
 
 def build_moderator(settings: Settings) -> Moderator:
     if settings.moderation_provider == "azure_content_safety":
+        if not settings.content_safety_configured:
+            raise RuntimeError(
+                "Azure Content Safety is not permitted or fully configured for this release lane"
+            )
         return AzureContentSafetyModerator(
             endpoint=settings.content_safety_endpoint,
             key=settings.content_safety_key,

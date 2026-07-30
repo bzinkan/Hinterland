@@ -7,10 +7,12 @@ from typing import Any
 import httpx
 import pytest
 
+from app.core.config import Settings
 from app.moderation.provider import (
     AzureContentSafetyModerator,
     ModerationUnavailable,
     NoOpModerator,
+    build_moderator,
 )
 
 # ---------------------------------------------------------------------------
@@ -37,6 +39,26 @@ def _build_moderator(severity_threshold: int = 4) -> AzureContentSafetyModerator
         timeout=2.0,
         severity_threshold=severity_threshold,
     )
+
+
+def test_real_moderator_requires_an_explicit_provider_egress_lane() -> None:
+    with pytest.raises(ValueError, match="allowed release lane"):
+        Settings(
+            release_lane="w1_internal",
+            moderation_provider="azure_content_safety",
+            content_safety_endpoint="https://example-cs.cognitiveservices.azure.com",
+            content_safety_key="test-key",
+        )
+
+    moderator = build_moderator(
+        Settings(
+            release_lane="adult_qa",
+            moderation_provider="azure_content_safety",
+            content_safety_endpoint="https://example-cs.cognitiveservices.azure.com",
+            content_safety_key="test-key",
+        )
+    )
+    assert isinstance(moderator, AzureContentSafetyModerator)
 
 
 def _mock_transport(handler: Any) -> httpx.MockTransport:

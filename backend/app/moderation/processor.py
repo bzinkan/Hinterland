@@ -357,7 +357,7 @@ async def process_pending_photo(
             # and no outbox row is written -- the observation stays
             # entirely inside Hinterland until the kid claims it via
             # the Phase 3 age-13 iNat-claim flow.
-            if settings is not None and settings.inat_submit_enabled:
+            if settings is not None and settings.inat_submit_egress_allowed:
                 session.add(
                     models.InatSubmitOutbox(
                         observation_id=observation.id,

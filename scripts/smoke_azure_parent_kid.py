@@ -28,11 +28,10 @@ import urllib.request
 from collections.abc import Mapping
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol
 
 from smoke_observation_w1 import (
     DispatcherBenchmarkSeed,
-    ObservationCanaryEvidence,
     run_canary,
     run_dispatcher_benchmark,
 )
@@ -45,6 +44,20 @@ PARENT_NAME = os.environ.get("HINTERLAND_SMOKE_PARENT_NAME", "Smoke Test Parent"
 KID_NAME = os.environ.get("HINTERLAND_SMOKE_KID_NAME", "Sparrow")
 DISPATCHER_BENCHMARK_SAMPLES = int(os.environ.get("HINTERLAND_DISPATCHER_BENCHMARK_SAMPLES", "0"))
 _REQUEST_ID_PATTERN = re.compile(r"^[A-Za-z0-9._:-]{1,128}$")
+
+
+class ObservationSmokeEvidence(Protocol):
+    def to_public_dict(self) -> dict[str, object]: ...
+
+
+class ObservationSmokeRunner(Protocol):
+    def __call__(
+        self,
+        *,
+        base_url: str,
+        bearer: str,
+        evidence_path: str | os.PathLike[str] | None = None,
+    ) -> ObservationSmokeEvidence: ...
 
 
 def _decode_jwt_payload(token: str) -> dict[str, Any]:
@@ -141,7 +154,7 @@ def _write_evidence(
     path: str | os.PathLike[str],
     *,
     request_ids: list[str],
-    observation: ObservationCanaryEvidence,
+    observation: ObservationSmokeEvidence,
     dispatcher_benchmark: DispatcherBenchmarkSeed | None,
 ) -> None:
     destination = Path(path)
@@ -179,8 +192,11 @@ def run_parent_kid_smoke(
     kid_name: str = KID_NAME,
     evidence_path: str | os.PathLike[str] | None = None,
     dispatcher_benchmark_samples: int = DISPATCHER_BENCHMARK_SAMPLES,
-) -> ObservationCanaryEvidence:
-    """Create a throwaway kid and pass its session directly to the W1 canary."""
+    consent_policy_version: str = "2026-07-11-W1-INTERNAL",
+    observation_runner: ObservationSmokeRunner = run_canary,
+    expected_release_lane: str | None = None,
+) -> ObservationSmokeEvidence:
+    """Create a throwaway kid and pass its session directly to a canary."""
 
     base_url = base_url.strip().rstrip("/")
     parent_bearer = parent_bearer.strip()
@@ -191,6 +207,17 @@ def run_parent_kid_smoke(
     consent_nonce = secrets.token_hex(32)
     request_ids: list[str] = []
     print(f"API base: {base_url}")
+
+    if expected_release_lane:
+        status, payload, headers = request(base_url, "GET", "/v1/meta")
+        _record_request_id(headers, request_ids)
+        expect("/v1/meta", status, payload, headers=headers)
+        normalized_headers = {key.lower(): value for key, value in headers.items()}
+        if (
+            payload.get("release_lane") != expected_release_lane
+            or normalized_headers.get("x-hinterland-release-lane") != expected_release_lane
+        ):
+            raise RuntimeError("release lane did not match before stateful smoke steps")
 
     print("[1/12] GET /health...")
     status, payload, headers = request(base_url, "GET", "/health")
@@ -205,7 +232,7 @@ def run_parent_kid_smoke(
         body={
             "email": parent_email,
             "kid_display_name": kid_name,
-            "policy_version": "2026-07-11-W1-INTERNAL",
+            "policy_version": consent_policy_version,
             "consent_nonce": consent_nonce,
         },
     )
@@ -403,8 +430,8 @@ def run_parent_kid_smoke(
         )
         raise RuntimeError("backyard_starter not visible")
 
-    print("[12/12] Observation W1 canary with in-memory kid session...")
-    observation = run_canary(base_url=base_url, bearer=kid_session_token)
+    print("[12/12] Observation canary with in-memory kid session...")
+    observation = observation_runner(base_url=base_url, bearer=kid_session_token)
     dispatcher_benchmark: DispatcherBenchmarkSeed | None = None
     if dispatcher_benchmark_samples:
         print(
@@ -426,7 +453,7 @@ def run_parent_kid_smoke(
 
     print(
         "\nALL CHECKS PASSED -- Azure parent/kid handoff, Expedition content, "
-        "and Observation W1 canary work."
+        "and Observation canary work."
     )
     return observation
 
@@ -438,6 +465,7 @@ def main() -> int:
             parent_bearer=PARENT_BEARER,
             evidence_path=os.environ.get("HINTERLAND_SMOKE_EVIDENCE_PATH") or None,
             dispatcher_benchmark_samples=DISPATCHER_BENCHMARK_SAMPLES,
+            expected_release_lane="w1_internal",
         )
     except Exception as exc:
         print(f"Authenticated smoke failed: {exc}", file=sys.stderr)

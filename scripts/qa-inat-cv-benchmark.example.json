@@ -4,6 +4,7 @@
   "entries": [
     {
       "observation_id": "01REPLACEWITHQAOBSERVATION01",
+      "photo_sha256": "replace-with-the-64-character-canonical-photo-sha256",
       "accepted_taxon_ids": [12345]
     }
   ]

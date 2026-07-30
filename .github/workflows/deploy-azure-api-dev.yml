@@ -95,6 +95,45 @@ jobs:
             az containerapp job delete --name "${job}" --resource-group "${AZURE_RESOURCE_GROUP}" --yes --output none
           done
 
+          forbidden_vars=(
+            HINTERLAND_DEV_AUTH_TOKEN
+            HINTERLAND_INAT_OAUTH_TOKEN
+            HINTERLAND_INAT_CV_TOKEN
+            HINTERLAND_INAT_SUBMIT_TOKEN
+            HINTERLAND_INAT_CV_QUALIFICATION_KEY
+          )
+          for app in "${AZURE_CONTAINER_APP}" "${AZURE_ROLLBACK_CONTAINER_APP}"; do
+            env_names="$(az containerapp show --name "$app" \
+              --resource-group "${AZURE_RESOURCE_GROUP}" \
+              --query 'properties.template.containers[0].env[].name' --output tsv)"
+            present=()
+            for variable in "${forbidden_vars[@]}"; do
+              grep -Fxq "$variable" <<<"$env_names" && present+=("$variable")
+            done
+            if [[ "${#present[@]}" -gt 0 ]]; then
+              az containerapp update --name "$app" \
+                --resource-group "${AZURE_RESOURCE_GROUP}" \
+                --remove-env-vars "${present[@]}" --output none
+            fi
+          done
+          mapfile -t jobs < <(az containerapp job list \
+            --resource-group "${AZURE_RESOURCE_GROUP}" \
+            --query "[?starts_with(name, 'hinterland-')].name" --output tsv)
+          for job in "${jobs[@]}"; do
+            env_names="$(az containerapp job show --name "$job" \
+              --resource-group "${AZURE_RESOURCE_GROUP}" \
+              --query 'properties.template.containers[0].env[].name' --output tsv)"
+            present=()
+            for variable in "${forbidden_vars[@]}"; do
+              grep -Fxq "$variable" <<<"$env_names" && present+=("$variable")
+            done
+            if [[ "${#present[@]}" -gt 0 ]]; then
+              az containerapp job update --name "$job" \
+                --resource-group "${AZURE_RESOURCE_GROUP}" \
+                --remove-env-vars "${present[@]}" --output none
+            fi
+          done
+
       - name: Pin only preflight and migration jobs to this image
         run: |
           set -euo pipefail
@@ -118,6 +157,11 @@ jobs:
                 select(.name != "HINTERLAND_APP_VERSION") |
                 select(.name != "HINTERLAND_DEV_AUTH_ENABLED") |
                 select(.name != "HINTERLAND_DEV_AUTH_TOKEN") |
+                select(.name != "HINTERLAND_INAT_OAUTH_TOKEN") |
+                select(.name != "HINTERLAND_INAT_CV_TOKEN") |
+                select(.name != "HINTERLAND_INAT_SUBMIT_TOKEN") |
+                select(.name != "HINTERLAND_INAT_CV_QUALIFICATION_KEY") |
+                select(.name != "HINTERLAND_RELEASE_LANE") |
                 select(.name != "HINTERLAND_ENTRA_API_AUDIENCE") |
                 select(.secretRef | not) |
                 select(.value != null) |
@@ -134,6 +178,7 @@ jobs:
               --resource-group "${AZURE_RESOURCE_GROUP}" \
               --set-env-vars \
                 "${shared_env[@]}" \
+                HINTERLAND_RELEASE_LANE=w1_internal \
                 HINTERLAND_ENTRA_API_AUDIENCE="${ENTRA_API_AUDIENCE}" \
                 HINTERLAND_DATABASE_PASSWORD=secretref:pg-password \
               --output none
@@ -213,6 +258,11 @@ jobs:
                 select(.name != "HINTERLAND_APP_VERSION") |
                 select(.name != "HINTERLAND_DEV_AUTH_ENABLED") |
                 select(.name != "HINTERLAND_DEV_AUTH_TOKEN") |
+                select(.name != "HINTERLAND_INAT_OAUTH_TOKEN") |
+                select(.name != "HINTERLAND_INAT_CV_TOKEN") |
+                select(.name != "HINTERLAND_INAT_SUBMIT_TOKEN") |
+                select(.name != "HINTERLAND_INAT_CV_QUALIFICATION_KEY") |
+                select(.name != "HINTERLAND_RELEASE_LANE") |
                 select(.name != "HINTERLAND_ENTRA_API_AUDIENCE") |
                 select(.secretRef | not) |
                 select(.value != null) |
@@ -229,6 +279,7 @@ jobs:
               --resource-group "${AZURE_RESOURCE_GROUP}" \
               --set-env-vars \
                 "${shared_env[@]}" \
+                HINTERLAND_RELEASE_LANE=w1_internal \
                 HINTERLAND_ENTRA_API_AUDIENCE="${ENTRA_API_AUDIENCE}" \
                 HINTERLAND_DATABASE_PASSWORD=secretref:pg-password \
               --output none
@@ -284,7 +335,12 @@ jobs:
             env_names="$(az containerapp show --name "$app" \
               --resource-group "${AZURE_RESOURCE_GROUP}" \
               --query 'properties.template.containers[0].env[].name' --output tsv)"
-            for variable in HINTERLAND_DEV_AUTH_TOKEN HINTERLAND_INAT_OAUTH_TOKEN; do
+            for variable in \
+              HINTERLAND_DEV_AUTH_TOKEN \
+              HINTERLAND_INAT_OAUTH_TOKEN \
+              HINTERLAND_INAT_CV_TOKEN \
+              HINTERLAND_INAT_SUBMIT_TOKEN \
+              HINTERLAND_INAT_CV_QUALIFICATION_KEY; do
               if grep -Fxq "$variable" <<<"$env_names"; then
                 forbidden_vars+=("$variable")
               fi
@@ -302,6 +358,7 @@ jobs:
               --image "${IMAGE}" \
               --set-env-vars \
                 HINTERLAND_APP_VERSION="${GITHUB_SHA}" \
+                HINTERLAND_RELEASE_LANE=w1_internal \
                 HINTERLAND_MODERATION_PROVIDER=noop \
                 HINTERLAND_INAT_CV_ENABLED=false \
                 HINTERLAND_INAT_CV_DISCLOSURE_APPROVED=false \
@@ -436,6 +493,7 @@ jobs:
             ' <<<"$app_json")"
             test "$audience" = "${ENTRA_API_AUDIENCE}"
             for pair in \
+              HINTERLAND_RELEASE_LANE=w1_internal \
               HINTERLAND_MODERATION_PROVIDER=noop \
               HINTERLAND_INAT_CV_ENABLED=false \
               HINTERLAND_INAT_CV_DISCLOSURE_APPROVED=false \
@@ -452,7 +510,12 @@ jobs:
               ' <<<"$app_json")"
               test "$actual" = "${pair#*=}"
             done
-            for forbidden in HINTERLAND_DEV_AUTH_TOKEN HINTERLAND_INAT_OAUTH_TOKEN; do
+            for forbidden in \
+              HINTERLAND_DEV_AUTH_TOKEN \
+              HINTERLAND_INAT_OAUTH_TOKEN \
+              HINTERLAND_INAT_CV_TOKEN \
+              HINTERLAND_INAT_SUBMIT_TOKEN \
+              HINTERLAND_INAT_CV_QUALIFICATION_KEY; do
               test "$(jq -r --arg name "$forbidden" '
                 [.properties.template.containers[0].env[]
                   | select(.name == $name)] | length
@@ -490,6 +553,23 @@ jobs:
                 | .value][0] // empty
             ' <<<"$job_json")"
             test "${job_audience}" = "${ENTRA_API_AUDIENCE}"
+            job_lane="$(jq -r '
+              [.properties.template.containers[0].env[]
+                | select(.name == "HINTERLAND_RELEASE_LANE")
+                | .value][0] // empty
+            ' <<<"$job_json")"
+            test "${job_lane}" = w1_internal
+            for forbidden in \
+              HINTERLAND_DEV_AUTH_TOKEN \
+              HINTERLAND_INAT_OAUTH_TOKEN \
+              HINTERLAND_INAT_CV_TOKEN \
+              HINTERLAND_INAT_SUBMIT_TOKEN \
+              HINTERLAND_INAT_CV_QUALIFICATION_KEY; do
+              test "$(jq -r --arg name "$forbidden" '
+                [.properties.template.containers[0].env[]
+                  | select(.name == $name)] | length
+              ' <<<"$job_json")" = 0
+            done
             location="$(jq -r '.location // empty' <<<"$job_json" | normalize_location)"
             environment="$(jq -r '.properties.environmentId // empty' <<<"$job_json")"
             test "$location" = "${AZURE_JOB_LOCATION_EXPECTED}"

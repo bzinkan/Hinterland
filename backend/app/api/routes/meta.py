@@ -46,6 +46,9 @@ class GroupCapabilities(BaseModel):
 class IntegrationCapabilities(BaseModel):
     content_safety_enabled: bool
     cv_qualification_enabled: bool
+    cv_qualification_run_id: str | None = None
+    cv_qualification_manifest_sha256: str | None = None
+    cv_model_version: str | None = None
     public_inat_submission_enabled: bool
 
 
@@ -60,6 +63,7 @@ class ApiMetaResponse(BaseModel):
     env: Environment
     release_lane: ReleaseLane
     version: str
+    image_digest: str | None = None
     capabilities: ApiCapabilities
 
 
@@ -68,6 +72,7 @@ def _health_response(settings: Settings) -> HealthResponse:
         status="ok",
         env=settings.env,
         version=settings.app_version,
+        image_digest=settings.deployment_image_digest or None,
     )
 
 
@@ -120,7 +125,7 @@ async def ready(
     )
 
 
-@v1_router.get("/meta", response_model=ApiMetaResponse)
+@v1_router.get("/meta", response_model=ApiMetaResponse, response_model_exclude_none=True)
 def meta(settings: SettingsDep) -> ApiMetaResponse:
     """Versioned API metadata."""
     return ApiMetaResponse(
@@ -138,6 +143,19 @@ def meta(settings: SettingsDep) -> ApiMetaResponse:
             integrations=IntegrationCapabilities(
                 content_safety_enabled=settings.content_safety_configured,
                 cv_qualification_enabled=settings.inat_cv_qualification_ready,
+                cv_qualification_run_id=(
+                    settings.inat_cv_qualification_run_id
+                    if settings.inat_cv_qualification_ready
+                    else None
+                ),
+                cv_qualification_manifest_sha256=(
+                    settings.inat_cv_qualification_manifest_sha256
+                    if settings.inat_cv_qualification_ready
+                    else None
+                ),
+                cv_model_version=(
+                    settings.inat_cv_model_version if settings.inat_cv_qualification_ready else None
+                ),
                 public_inat_submission_enabled=settings.inat_submit_egress_allowed,
             ),
         ),
