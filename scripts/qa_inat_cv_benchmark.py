@@ -45,18 +45,11 @@ def load_manifest(path: Path) -> list[BenchmarkCase]:
     payload = json.loads(path.read_text(encoding="utf-8"))
     if not isinstance(payload, dict) or payload.get("version") != 1:
         raise BenchmarkConfigurationError("manifest version must be 1")
-    if (
-        payload.get("consent_policy_version")
-        != "2026-07-30-ADULT-QA-EGRESS-V1"
-    ):
-        raise BenchmarkConfigurationError(
-            "manifest must name the current Adult QA disclosure"
-        )
+    if payload.get("consent_policy_version") != "2026-07-30-ADULT-QA-EGRESS-V1":
+        raise BenchmarkConfigurationError("manifest must name the current Adult QA disclosure")
     entries = payload.get("entries")
     if not isinstance(entries, list) or len(entries) != _EXPECTED_CASES:
-        raise BenchmarkConfigurationError(
-            f"manifest must contain exactly {_EXPECTED_CASES} cases"
-        )
+        raise BenchmarkConfigurationError(f"manifest must contain exactly {_EXPECTED_CASES} cases")
 
     cases: list[BenchmarkCase] = []
     seen_observations: set[str] = set()
@@ -65,21 +58,15 @@ def load_manifest(path: Path) -> list[BenchmarkCase]:
             raise BenchmarkConfigurationError("each benchmark case must be an object")
         observation_id = entry.get("observation_id")
         accepted = entry.get("accepted_taxon_ids")
-        if not isinstance(observation_id, str) or not _ULID.fullmatch(
-            observation_id
-        ):
-            raise BenchmarkConfigurationError(
-                "each case requires a canonical observation ULID"
-            )
+        if not isinstance(observation_id, str) or not _ULID.fullmatch(observation_id):
+            raise BenchmarkConfigurationError("each case requires a canonical observation ULID")
         if observation_id in seen_observations:
             raise BenchmarkConfigurationError("observation IDs must be unique")
         if (
             not isinstance(accepted, list)
             or not accepted
             or any(
-                isinstance(taxon_id, bool)
-                or not isinstance(taxon_id, int)
-                or taxon_id <= 0
+                isinstance(taxon_id, bool) or not isinstance(taxon_id, int) or taxon_id <= 0
                 for taxon_id in accepted
             )
         ):
@@ -105,9 +92,7 @@ def validate_api_origin(value: str) -> str:
         or parsed.query
         or parsed.fragment
     ):
-        raise BenchmarkConfigurationError(
-            f"benchmark API must be {_EXPECTED_API_ORIGIN}"
-        )
+        raise BenchmarkConfigurationError(f"benchmark API must be {_EXPECTED_API_ORIGIN}")
     return origin
 
 
@@ -118,9 +103,7 @@ def require_fresh_bearer(token: str, *, now: datetime | None = None) -> None:
         parts = token.strip().split(".")
         if len(parts) != 3:
             raise ValueError
-        payload = json.loads(
-            base64.urlsafe_b64decode(parts[1] + "=" * (-len(parts[1]) % 4))
-        )
+        payload = json.loads(base64.urlsafe_b64decode(parts[1] + "=" * (-len(parts[1]) % 4)))
         expiry = payload["exp"]
     except (
         KeyError,
@@ -129,17 +112,13 @@ def require_fresh_bearer(token: str, *, now: datetime | None = None) -> None:
         UnicodeDecodeError,
         json.JSONDecodeError,
     ) as exc:
-        raise BenchmarkConfigurationError(
-            "QA benchmark bearer is missing a usable expiry"
-        ) from exc
+        raise BenchmarkConfigurationError("QA benchmark bearer is missing a usable expiry") from exc
     if (
         isinstance(expiry, bool)
         or not isinstance(expiry, int | float)
         or not math.isfinite(float(expiry))
     ):
-        raise BenchmarkConfigurationError(
-            "QA benchmark bearer is missing a usable expiry"
-        )
+        raise BenchmarkConfigurationError("QA benchmark bearer is missing a usable expiry")
     current = (now or datetime.now(UTC)).timestamp()
     if float(expiry) <= current + 1_800:
         raise BenchmarkConfigurationError(
@@ -152,12 +131,14 @@ async def run_benchmark(
     *,
     api_origin: str,
     bearer: str,
+    qualification_key: str,
     interval_seconds: float = 1.1,
     transport: httpx.AsyncBaseTransport | None = None,
 ) -> dict[str, object]:
     headers = {
         "Accept": "application/json",
         "Authorization": f"Bearer {bearer}",
+        "X-Hinterland-QA-CV-Qualification": qualification_key,
     }
     passed = 0
     unavailable = 0
@@ -176,16 +157,12 @@ async def run_benchmark(
             if index > 0 and interval_seconds > 0:
                 await asyncio.sleep(interval_seconds)
             try:
-                response = await client.post(
-                    f"/v1/observations/{case.observation_id}/identify"
-                )
+                response = await client.post(f"/v1/observations/{case.observation_id}/identify")
             except httpx.HTTPError:
                 unavailable += 1
                 continue
             if response.headers.get("X-Hinterland-Release-Lane") != _EXPECTED_LANE:
-                raise BenchmarkConfigurationError(
-                    "identify response lane header did not match"
-                )
+                raise BenchmarkConfigurationError("identify response lane header did not match")
             if response.status_code != 200:
                 unavailable += 1
                 continue
@@ -243,13 +220,15 @@ def _verify_qa_meta(response: httpx.Response) -> None:
     if body.get("release_lane") != _EXPECTED_LANE:
         raise BenchmarkConfigurationError("QA metadata lane did not match")
     if integrations.get("public_inat_submission_enabled") is not False:
-        raise BenchmarkConfigurationError(
-            "public iNaturalist submission must be disabled"
-        )
+        raise BenchmarkConfigurationError("public iNaturalist submission must be disabled")
     if integrations.get("content_safety_enabled") is not True:
         raise BenchmarkConfigurationError("real Content Safety must be enabled")
-    if observation.get("photo_helper_enabled") is not True:
-        raise BenchmarkConfigurationError("post-clean photo helper is not enabled")
+    if observation.get("photo_helper_enabled") is not False:
+        raise BenchmarkConfigurationError(
+            "kid-facing photo helper must remain disabled during qualification"
+        )
+    if integrations.get("cv_qualification_enabled") is not True:
+        raise BenchmarkConfigurationError("bounded CV qualification is not enabled")
 
 
 def _parse_args() -> argparse.Namespace:
@@ -271,16 +250,20 @@ def main() -> int:
         )
     bearer = os.environ.get("HINTERLAND_QA_BENCHMARK_BEARER", "").strip()
     if not bearer:
-        raise BenchmarkConfigurationError(
-            "HINTERLAND_QA_BENCHMARK_BEARER is required"
-        )
+        raise BenchmarkConfigurationError("HINTERLAND_QA_BENCHMARK_BEARER is required")
     require_fresh_bearer(bearer)
+    qualification_key = os.environ.get("HINTERLAND_QA_CV_QUALIFICATION_KEY", "").strip()
+    if len(qualification_key) < 32:
+        raise BenchmarkConfigurationError(
+            "HINTERLAND_QA_CV_QUALIFICATION_KEY must contain at least 32 characters"
+        )
     cases = load_manifest(args.manifest)
     result = asyncio.run(
         run_benchmark(
             cases,
             api_origin=validate_api_origin(args.api_base_url),
             bearer=bearer,
+            qualification_key=qualification_key,
             interval_seconds=args.interval_seconds,
         )
     )

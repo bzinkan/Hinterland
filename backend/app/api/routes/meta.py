@@ -45,6 +45,7 @@ class GroupCapabilities(BaseModel):
 
 class IntegrationCapabilities(BaseModel):
     content_safety_enabled: bool
+    cv_qualification_enabled: bool
     public_inat_submission_enabled: bool
 
 
@@ -136,6 +137,7 @@ def meta(settings: SettingsDep) -> ApiMetaResponse:
             ),
             integrations=IntegrationCapabilities(
                 content_safety_enabled=settings.content_safety_configured,
+                cv_qualification_enabled=settings.inat_cv_qualification_ready,
                 public_inat_submission_enabled=settings.inat_submit_egress_allowed,
             ),
         ),

@@ -6,6 +6,7 @@ import base64
 import binascii
 import json
 import math
+import secrets
 from datetime import UTC, datetime
 from functools import lru_cache
 from typing import Literal, cast
@@ -190,6 +191,12 @@ class Settings(BaseSettings):
     inat_cv_enabled: bool = False
     inat_cv_disclosure_approved: bool = False
     inat_cv_benchmark_approved: bool = False
+    # Adult QA qualification is a short-lived operator-only bridge used to
+    # run the required benchmark before the kid-facing capability may become
+    # true. It never advertises the photo helper and requires a separate
+    # high-entropy request key that is not shipped in the app.
+    inat_cv_qualification_enabled: bool = False
+    inat_cv_qualification_key: str = ""
     inat_cv_model_version: str = "inat-cv-v1"
     inat_cv_token_expiry_safety_seconds: int = Field(default=1800, ge=0)
     taxonomy_packs_bucket: str = "taxonomy-packs"
@@ -228,6 +235,17 @@ class Settings(BaseSettings):
         submit_token = self.inat_submit_token.strip()
         if cv_token and submit_token and cv_token == submit_token:
             raise ValueError("iNaturalist CV and submit credentials must be distinct")
+        if self.inat_cv_qualification_enabled:
+            if self.release_lane != "adult_qa":
+                raise ValueError("iNaturalist CV qualification is Adult QA only")
+            if not self.inat_cv_enabled or not self.inat_cv_disclosure_approved:
+                raise ValueError(
+                    "iNaturalist CV qualification requires enabled CV and disclosure approval"
+                )
+            if self.inat_cv_benchmark_approved:
+                raise ValueError("disable iNaturalist CV qualification after benchmark approval")
+            if len(self.inat_cv_qualification_key.strip()) < 32:
+                raise ValueError("iNaturalist CV qualification requires a high-entropy request key")
         return self
 
     # Reverse-geocoding provider. "noop" returns None for every lookup --
@@ -294,6 +312,42 @@ class Settings(BaseSettings):
             and self.inat_cv_benchmark_approved
         )
 
+    @property
+    def inat_cv_provider_ready(self) -> bool:
+        """True when CV provider egress is technically and legally ready."""
+
+        provider_url = urlparse(self.inat_base_url.strip())
+        return bool(
+            self.inat_cv_enabled
+            and self.inat_cv_disclosure_approved
+            and provider_url.scheme == "https"
+            and provider_url.netloc
+            and self.inat_cv_token_is_fresh()
+            and self.content_safety_configured
+        )
+
+    @property
+    def inat_cv_qualification_ready(self) -> bool:
+        """True only for the bounded pre-approval Adult QA benchmark."""
+
+        return bool(
+            self.release_lane == "adult_qa"
+            and self.inat_cv_qualification_enabled
+            and not self.inat_cv_benchmark_approved
+            and len(self.inat_cv_qualification_key.strip()) >= 32
+            and self.inat_cv_provider_ready
+        )
+
+    def accepts_inat_cv_qualification_key(self, candidate: str | None) -> bool:
+        """Constant-time verification for the operator-only benchmark key."""
+
+        if not self.inat_cv_qualification_ready or not candidate:
+            return False
+        return secrets.compare_digest(
+            candidate.encode("utf-8"),
+            self.inat_cv_qualification_key.strip().encode("utf-8"),
+        )
+
     def inat_cv_token_is_fresh(self, *, now: datetime | None = None) -> bool:
         """Check the unverified JWT ``exp`` claim without exposing the token.
 
@@ -343,14 +397,7 @@ class Settings(BaseSettings):
     def photo_helper_enabled(self) -> bool:
         """Kid-facing CV capability after every disclosure/config gate."""
 
-        provider_url = urlparse(self.inat_base_url.strip())
-        return bool(
-            self.inat_cv_egress_allowed
-            and provider_url.scheme == "https"
-            and provider_url.netloc
-            and self.inat_cv_token_is_fresh()
-            and self.content_safety_configured
-        )
+        return bool(self.inat_cv_egress_allowed and self.inat_cv_provider_ready)
 
     @property
     def inat_submit_egress_allowed(self) -> bool:

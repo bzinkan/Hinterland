@@ -98,6 +98,7 @@ def test_v1_meta_returns_versioned_api_metadata(client: TestClient) -> None:
             "groups": {"shared_groups_enabled": False},
             "integrations": {
                 "content_safety_enabled": False,
+                "cv_qualification_enabled": False,
                 "public_inat_submission_enabled": False,
             },
         },
@@ -210,6 +211,7 @@ def test_v1_meta_reports_integration_egress_gates() -> None:
 
     assert response.json()["capabilities"]["integrations"] == {
         "content_safety_enabled": True,
+        "cv_qualification_enabled": False,
         "public_inat_submission_enabled": True,
     }
 

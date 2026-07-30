@@ -36,7 +36,7 @@ from hashlib import sha256
 from typing import Annotated, Literal
 
 import structlog
-from fastapi import APIRouter, Depends, Header, HTTPException, Query, Response, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, Response, status
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from sqlalchemy import desc, func, or_, select, text, update
 from sqlalchemy.exc import IntegrityError
@@ -1013,6 +1013,7 @@ class IdentifyResponse(BaseModel):
 @router.post("/{observation_id}/identify", response_model=IdentifyResponse)
 async def identify_observation(
     observation_id: str,
+    request: Request,
     current_user: CurrentUserDep,
     session: DbSessionDep,
     inat_client: InatCvClientDep,
@@ -1060,7 +1061,11 @@ async def identify_observation(
             detail="Identification requires Content Safety or adult approval",
         )
 
-    if not settings.photo_helper_enabled:
+    qualification_allowed = settings.accepts_inat_cv_qualification_key(
+        request.headers.get("X-Hinterland-QA-CV-Qualification")
+    )
+    cv_egress_allowed = settings.photo_helper_enabled or qualification_allowed
+    if not cv_egress_allowed:
         log.info("observations.identify.disabled", observation_id=observation_id)
         return IdentifyResponse(
             observation_id=observation_id,
@@ -1115,7 +1120,7 @@ async def identify_observation(
             inat_client,
             image_bytes=image_bytes,
             top_k=3,
-            egress_enabled=settings.photo_helper_enabled,
+            egress_enabled=cv_egress_allowed,
         )
     except InatUnavailable as exc:
         log.warning(

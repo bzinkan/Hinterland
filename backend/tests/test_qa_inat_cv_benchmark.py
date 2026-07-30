@@ -76,14 +76,16 @@ async def test_runtime_benchmark_requires_safe_qa_meta_and_measures_top_three(
                 json={
                     "release_lane": "adult_qa",
                     "capabilities": {
-                        "observation": {"photo_helper_enabled": True},
+                        "observation": {"photo_helper_enabled": False},
                         "integrations": {
                             "content_safety_enabled": True,
+                            "cv_qualification_enabled": True,
                             "public_inat_submission_enabled": False,
                         },
                     },
                 },
             )
+        assert request.headers["X-Hinterland-QA-CV-Qualification"] == "q" * 32
         return httpx.Response(
             200,
             headers=headers,
@@ -97,6 +99,7 @@ async def test_runtime_benchmark_requires_safe_qa_meta_and_measures_top_three(
         cases,
         api_origin="https://qa-api.thehinterlandguide.app",
         bearer=_fresh_bearer(),
+        qualification_key="q" * 32,
         interval_seconds=0,
         transport=httpx.MockTransport(handler),
     )
@@ -119,9 +122,10 @@ async def test_runtime_benchmark_rejects_public_submission_enabled(
             json={
                 "release_lane": "adult_qa",
                 "capabilities": {
-                    "observation": {"photo_helper_enabled": True},
+                    "observation": {"photo_helper_enabled": False},
                     "integrations": {
                         "content_safety_enabled": True,
+                        "cv_qualification_enabled": True,
                         "public_inat_submission_enabled": True,
                     },
                 },
@@ -136,6 +140,7 @@ async def test_runtime_benchmark_rejects_public_submission_enabled(
             cases,
             api_origin="https://qa-api.thehinterlandguide.app",
             bearer=_fresh_bearer(),
+            qualification_key="q" * 32,
             interval_seconds=0,
             transport=httpx.MockTransport(handler),
         )

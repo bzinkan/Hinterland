@@ -6,7 +6,7 @@ import base64
 import json
 from collections.abc import AsyncIterator, Iterator
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
 import pytest
@@ -81,6 +81,8 @@ def _build_client(
     inat_client: httpx.AsyncClient | None = None,
     cv_enabled: bool = True,
     release_lane: ReleaseLane = "local",
+    benchmark_approved: bool | None = None,
+    qualification_enabled: bool = False,
 ) -> Iterator[TestClient]:
     app = create_app(
         Settings(
@@ -90,7 +92,11 @@ def _build_client(
             inat_cv_token=_fresh_cv_token() if inat_token is None else inat_token,
             inat_cv_enabled=cv_enabled,
             inat_cv_disclosure_approved=cv_enabled,
-            inat_cv_benchmark_approved=cv_enabled,
+            inat_cv_benchmark_approved=(
+                cv_enabled if benchmark_approved is None else benchmark_approved
+            ),
+            inat_cv_qualification_enabled=qualification_enabled,
+            inat_cv_qualification_key="q" * 32 if qualification_enabled else "",
             moderation_provider="azure_content_safety",
             content_safety_endpoint="https://content-safety.example.test",
             content_safety_key="configured-key",
@@ -317,6 +323,72 @@ def test_adult_qa_identify_requires_exact_parent_disclosure_before_photo_read(
         parent_user_id=_PARENT_ID,
         policy_version=ADULT_QA_CONSENT_POLICY_VERSION,
     )
+
+
+@respx.mock
+def test_adult_qa_benchmark_key_allows_qualification_without_enabling_helper(
+    monkeypatch: pytest.MonkeyPatch,
+    fake_session: AsyncMock,
+) -> None:
+    _stub_token_verifier(monkeypatch)
+    _wire_session(
+        fake_session,
+        user=_user_row(parent_user_id=_PARENT_ID),
+        obs_photo=_obs_with_photo(),
+    )
+    respx.post("https://api.inaturalist.org/v1/computervision/score_image").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "results": [
+                    {
+                        "combined_score": 92.5,
+                        "taxon": {
+                            "id": 12345,
+                            "name": "Cardinalis cardinalis",
+                            "preferred_common_name": "Northern Cardinal",
+                        },
+                    }
+                ]
+            },
+        )
+    )
+    storage = _StubStorage()
+    with patch(
+        "app.api.routes.observations.require_linked_parent_consent_for_policy",
+        new=AsyncMock(),
+    ):
+        for client in _build_client(
+            fake_session,
+            storage=storage,
+            release_lane="adult_qa",
+            benchmark_approved=False,
+            qualification_enabled=True,
+        ):
+            disabled = client.post(
+                f"/v1/observations/{_OBS_ID}/identify",
+                headers={"Authorization": "Bearer fake"},
+            )
+            assert disabled.status_code == 200
+            assert disabled.json()["cv_unavailable"] is True
+            assert storage.fetch_calls == []
+
+            _wire_session(
+                fake_session,
+                user=_user_row(parent_user_id=_PARENT_ID),
+                obs_photo=_obs_with_photo(),
+            )
+            qualified = client.post(
+                f"/v1/observations/{_OBS_ID}/identify",
+                headers={
+                    "Authorization": "Bearer fake",
+                    "X-Hinterland-QA-CV-Qualification": "q" * 32,
+                },
+            )
+
+    assert qualified.status_code == 200
+    assert qualified.json()["suggestions"][0]["taxon_id"] == 12345
+    assert storage.fetch_calls == [("hinterland-photos-test", f"observations/{_PHOTO_ID}.jpg")]
 
 
 def test_identify_rejects_photo_that_is_not_clean(
