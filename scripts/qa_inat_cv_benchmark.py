@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import base64
+import binascii
 import json
 import math
 import os
@@ -121,7 +122,13 @@ def require_fresh_bearer(token: str, *, now: datetime | None = None) -> None:
             base64.urlsafe_b64decode(parts[1] + "=" * (-len(parts[1]) % 4))
         )
         expiry = payload["exp"]
-    except (KeyError, ValueError, json.JSONDecodeError) as exc:
+    except (
+        KeyError,
+        ValueError,
+        binascii.Error,
+        UnicodeDecodeError,
+        json.JSONDecodeError,
+    ) as exc:
         raise BenchmarkConfigurationError(
             "QA benchmark bearer is missing a usable expiry"
         ) from exc
@@ -175,6 +182,10 @@ async def run_benchmark(
             except httpx.HTTPError:
                 unavailable += 1
                 continue
+            if response.headers.get("X-Hinterland-Release-Lane") != _EXPECTED_LANE:
+                raise BenchmarkConfigurationError(
+                    "identify response lane header did not match"
+                )
             if response.status_code != 200:
                 unavailable += 1
                 continue
@@ -227,7 +238,7 @@ def _verify_qa_meta(response: httpx.Response) -> None:
         capabilities = body["capabilities"]
         integrations = capabilities["integrations"]
         observation = capabilities["observation"]
-    except (KeyError, TypeError, ValueError) as exc:
+    except (AttributeError, KeyError, TypeError, ValueError) as exc:
         raise BenchmarkConfigurationError("QA metadata was malformed") from exc
     if body.get("release_lane") != _EXPECTED_LANE:
         raise BenchmarkConfigurationError("QA metadata lane did not match")
