@@ -110,6 +110,7 @@ def test_v1_meta_enables_photo_helper_only_after_every_gate() -> None:
         Settings(
             env="local",
             app_version="test",
+            release_lane="adult_qa",
             inat_cv_enabled=True,
             inat_cv_disclosure_approved=True,
             inat_cv_benchmark_approved=True,
@@ -197,6 +198,7 @@ def test_v1_meta_reports_integration_egress_gates() -> None:
         Settings(
             env="local",
             app_version="test",
+            release_lane="adult_qa",
             moderation_provider="azure_content_safety",
             content_safety_endpoint="https://content-safety.example.test",
             content_safety_key="configured-key",

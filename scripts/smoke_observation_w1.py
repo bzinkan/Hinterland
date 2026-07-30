@@ -19,6 +19,7 @@ import time
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 import httpx
 from PIL import Image
@@ -126,7 +127,7 @@ def _request(
     request_ids: list[str],
     method: str,
     url: str,
-    **kwargs: object,
+    **kwargs: Any,
 ) -> httpx.Response:
     try:
         response = client.request(method, url, **kwargs)

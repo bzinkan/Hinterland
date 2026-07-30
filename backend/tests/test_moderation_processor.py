@@ -595,7 +595,13 @@ async def test_clean_with_inat_enabled_and_disabled_sb_leaves_outbox_pending(
 
     monkeypatch.setattr("app.moderation.processor.enqueue_inat_submit", fake_enqueue)
 
-    settings = Settings(env="local", service_bus_namespace="", inat_submit_enabled=True)
+    settings = Settings(
+        env="local",
+        release_lane="adult_qa",
+        service_bus_namespace="",
+        inat_submit_enabled=True,
+        inat_submit_token="dedicated-submit-token",
+    )
 
     result = await process_pending_photo(
         fake_session,
@@ -635,8 +641,10 @@ async def test_clean_with_inat_enabled_and_successful_enqueue_flips_outbox(
 
     settings = Settings(
         env="local",
+        release_lane="adult_qa",
         service_bus_namespace="hinterland-sb-test.servicebus.windows.net",
         inat_submit_enabled=True,
+        inat_submit_token="dedicated-submit-token",
     )
 
     result = await process_pending_photo(

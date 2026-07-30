@@ -73,7 +73,13 @@ def _build_client(
     inat_submit_enabled: bool = False,
 ) -> Iterator[TestClient]:
     app = create_app(
-        Settings(env="local", app_version="test", inat_submit_enabled=inat_submit_enabled)
+        Settings(
+            env="local",
+            app_version="test",
+            release_lane="adult_qa" if inat_submit_enabled else "local",
+            inat_submit_enabled=inat_submit_enabled,
+            inat_submit_token="dedicated-submit-token" if inat_submit_enabled else "",
+        )
     )
     app.state.signed_url_generator = storage if storage is not None else _StubStorage()
 

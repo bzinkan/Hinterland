@@ -194,7 +194,11 @@ def test_parent_can_correct_only_own_child_and_rebuild_is_child_scoped(
 
     assert response.status_code == 200
     assert response.json()["observation"]["identification_revision"] == 2
-    consent.assert_awaited_once_with(fake_session, parent_user_id=PARENT_A_ID)
+    consent.assert_awaited_once_with(
+        fake_session,
+        parent_user_id=PARENT_A_ID,
+        policy_version="2026-07-11-W1-INTERNAL",
+    )
     enqueue.assert_awaited_once_with(
         fake_session,
         user_id=CHILD_A_ID,

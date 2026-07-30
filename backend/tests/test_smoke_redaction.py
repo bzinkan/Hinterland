@@ -11,6 +11,7 @@ _SCRIPTS = Path(__file__).resolve().parents[2] / "scripts"
 sys.path.insert(0, str(_SCRIPTS))
 
 import smoke_azure_parent_kid as parent_smoke  # noqa: E402
+import smoke_observation_adult_qa as adult_qa_smoke  # noqa: E402
 import smoke_observation_w1 as observation_smoke  # noqa: E402
 
 
@@ -55,6 +56,42 @@ def test_child_dto_rejects_raw_moderation_status() -> None:
         observation_smoke._assert_child_dto_minimized(
             {"id": "observation", "moderation_status": "pending"}
         )
+
+
+def test_adult_qa_evidence_contains_only_bounded_operational_facts(tmp_path: Path) -> None:
+    evidence = adult_qa_smoke.AdultQaObservationCanaryEvidence(
+        result="passed",
+        request_ids=["request-1"],
+        release_lane_verified=True,
+        content_safety_enabled=True,
+        public_inaturalist_submission_disabled=True,
+        block_blob_header=True,
+        idempotent_replay=True,
+        field_journal_exactly_once=True,
+        child_presentation_status="clean",
+        signed_photo_allowed=True,
+        child_dto_minimized=True,
+        photo_helper_checked=True,
+    )
+    destination = tmp_path / "adult-qa-canary.json"
+
+    adult_qa_smoke._write_evidence(destination, evidence)
+
+    written = destination.read_text(encoding="utf-8")
+    assert "request-1" in written
+    for forbidden in (
+        "Authorization",
+        "Bearer ",
+        "handoff_token",
+        "upload_url",
+        "signed_url",
+        "photo_id",
+        "observation_id",
+        "latitude",
+        "longitude",
+        "?sig=",
+    ):
+        assert forbidden not in written
 
 
 def test_dispatcher_benchmark_seeds_mixed_private_safe_workload(

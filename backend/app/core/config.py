@@ -6,8 +6,9 @@ import base64
 import binascii
 import json
 import math
+import re
 import secrets
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from functools import lru_cache
 from typing import Literal, cast
 from urllib.parse import quote, quote_plus, urlparse
@@ -19,6 +20,9 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 Environment = Literal["local", "dev", "staging", "prod"]
 LogLevel = Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
 ReleaseLane = Literal["local", "w1_internal", "adult_qa", "production"]
+_QUALIFICATION_ULID = re.compile(r"^[0-9A-HJKMNP-TV-Z]{26}$")
+_SHA256_HEX = re.compile(r"^[0-9a-f]{64}$")
+_PROVIDER_EGRESS_LANES = frozenset({"adult_qa", "production"})
 
 
 def _default_cors_origins() -> list[str]:
@@ -40,10 +44,12 @@ class Settings(BaseSettings):
         env_file=".env",
         extra="ignore",
         populate_by_name=True,
+        hide_input_in_errors=True,
     )
 
     app_name: str = "Hinterland API"
     app_version: str = "0.1.0"
+    deployment_image_digest: str = ""
     env: Environment = "local"
     # A revision must identify the release contract it is serving. Local is
     # the compatibility default for existing W1/tests; deployed QA, W1, and
@@ -185,8 +191,8 @@ class Settings(BaseSettings):
     # use distinct credentials and clients; the retired shared token is not a
     # fallback because it could silently grant both capabilities.
     inat_base_url: str = "https://api.inaturalist.org/v1"
-    inat_cv_token: str = ""
-    inat_submit_token: str = ""
+    inat_cv_token: str = Field(default="", repr=False)
+    inat_submit_token: str = Field(default="", repr=False)
     inat_request_timeout_seconds: float = 8.0
     inat_cv_enabled: bool = False
     inat_cv_disclosure_approved: bool = False
@@ -196,7 +202,14 @@ class Settings(BaseSettings):
     # true. It never advertises the photo helper and requires a separate
     # high-entropy request key that is not shipped in the app.
     inat_cv_qualification_enabled: bool = False
-    inat_cv_qualification_key: str = ""
+    inat_cv_qualification_key: str = Field(default="", repr=False)
+    inat_cv_qualification_run_id: str = ""
+    inat_cv_qualification_manifest_sha256: str = ""
+    inat_cv_qualification_expires_at: datetime | None = None
+    # Exact observation -> canonical-photo-hash allowlist for one 50-case
+    # qualification run. Pydantic Settings accepts this as one JSON object in
+    # HINTERLAND_INAT_CV_QUALIFICATION_CASES.
+    inat_cv_qualification_cases: dict[str, str] = Field(default_factory=dict)
     inat_cv_model_version: str = "inat-cv-v1"
     inat_cv_token_expiry_safety_seconds: int = Field(default=1800, ge=0)
     taxonomy_packs_bucket: str = "taxonomy-packs"
@@ -233,8 +246,14 @@ class Settings(BaseSettings):
 
         cv_token = self.inat_cv_token.strip()
         submit_token = self.inat_submit_token.strip()
-        if cv_token and submit_token and cv_token == submit_token:
-            raise ValueError("iNaturalist CV and submit credentials must be distinct")
+        qualification_key = self.inat_cv_qualification_key.strip()
+        configured_secrets = [
+            value for value in (cv_token, submit_token, qualification_key) if value
+        ]
+        if len(configured_secrets) != len(set(configured_secrets)):
+            raise ValueError(
+                "iNaturalist CV, submit, and qualification credentials must be distinct"
+            )
         if self.inat_cv_qualification_enabled:
             if self.release_lane != "adult_qa":
                 raise ValueError("iNaturalist CV qualification is Adult QA only")
@@ -244,8 +263,44 @@ class Settings(BaseSettings):
                 )
             if self.inat_cv_benchmark_approved:
                 raise ValueError("disable iNaturalist CV qualification after benchmark approval")
-            if len(self.inat_cv_qualification_key.strip()) < 32:
+            if len(qualification_key) < 32:
                 raise ValueError("iNaturalist CV qualification requires a high-entropy request key")
+            if not _QUALIFICATION_ULID.fullmatch(self.inat_cv_qualification_run_id):
+                raise ValueError("iNaturalist CV qualification requires a unique run ULID")
+            if not _SHA256_HEX.fullmatch(self.inat_cv_qualification_manifest_sha256):
+                raise ValueError("iNaturalist CV qualification requires a manifest SHA-256")
+            if len(self.inat_cv_qualification_cases) != 50:
+                raise ValueError("iNaturalist CV qualification requires exactly 50 cases")
+            if any(
+                not _QUALIFICATION_ULID.fullmatch(observation_id)
+                or not _SHA256_HEX.fullmatch(photo_sha256)
+                for observation_id, photo_sha256 in self.inat_cv_qualification_cases.items()
+            ):
+                raise ValueError(
+                    "iNaturalist CV qualification cases require observation ULIDs and photo hashes"
+                )
+            if len(set(self.inat_cv_qualification_cases.values())) != 50:
+                raise ValueError("iNaturalist CV qualification photo hashes must be distinct")
+            expiry = self.inat_cv_qualification_expires_at
+            now = datetime.now(UTC)
+            if expiry is None:
+                raise ValueError("iNaturalist CV qualification requires an expiry")
+            if expiry.tzinfo is None:
+                expiry = expiry.replace(tzinfo=UTC)
+                self.inat_cv_qualification_expires_at = expiry
+            if expiry <= now or expiry > now + timedelta(hours=24):
+                raise ValueError(
+                    "iNaturalist CV qualification expiry must be within the next 24 hours"
+                )
+        if self.moderation_provider == "azure_content_safety" and not (
+            self.release_lane in _PROVIDER_EGRESS_LANES
+            and urlparse(self.content_safety_endpoint.strip()).scheme == "https"
+            and urlparse(self.content_safety_endpoint.strip()).netloc
+            and self.content_safety_key.strip()
+        ):
+            raise ValueError(
+                "Azure Content Safety requires an allowed release lane, HTTPS endpoint, and key"
+            )
         return self
 
     # Reverse-geocoding provider. "noop" returns None for every lookup --
@@ -307,7 +362,8 @@ class Settings(BaseSettings):
     def inat_cv_egress_allowed(self) -> bool:
         """True only after product, disclosure, and benchmark approval."""
         return (
-            self.inat_cv_enabled
+            self.release_lane in _PROVIDER_EGRESS_LANES
+            and self.inat_cv_enabled
             and self.inat_cv_disclosure_approved
             and self.inat_cv_benchmark_approved
         )
@@ -318,7 +374,8 @@ class Settings(BaseSettings):
 
         provider_url = urlparse(self.inat_base_url.strip())
         return bool(
-            self.inat_cv_enabled
+            self.release_lane in _PROVIDER_EGRESS_LANES
+            and self.inat_cv_enabled
             and self.inat_cv_disclosure_approved
             and provider_url.scheme == "https"
             and provider_url.netloc
@@ -335,18 +392,46 @@ class Settings(BaseSettings):
             and self.inat_cv_qualification_enabled
             and not self.inat_cv_benchmark_approved
             and len(self.inat_cv_qualification_key.strip()) >= 32
+            and self.inat_cv_qualification_expires_at is not None
+            and self.inat_cv_qualification_expires_at > datetime.now(UTC)
+            and len(self.inat_cv_qualification_cases) == 50
             and self.inat_cv_provider_ready
         )
 
-    def accepts_inat_cv_qualification_key(self, candidate: str | None) -> bool:
-        """Constant-time verification for the operator-only benchmark key."""
+    def accepts_inat_cv_qualification_case(
+        self,
+        candidate: str | None,
+        *,
+        manifest_sha256: str | None,
+        observation_id: str,
+        photo_sha256: str,
+    ) -> bool:
+        """Verify one exact operator-only benchmark case in constant time."""
 
-        if not self.inat_cv_qualification_ready or not candidate:
+        if (
+            not self.inat_cv_qualification_ready
+            or not candidate
+            or not manifest_sha256
+            or not secrets.compare_digest(
+                manifest_sha256.encode("ascii", errors="ignore"),
+                self.inat_cv_qualification_manifest_sha256.encode("ascii"),
+            )
+            or not secrets.compare_digest(
+                self.inat_cv_qualification_cases.get(observation_id, "").encode("ascii"),
+                photo_sha256.encode("ascii"),
+            )
+        ):
             return False
         return secrets.compare_digest(
             candidate.encode("utf-8"),
             self.inat_cv_qualification_key.strip().encode("utf-8"),
         )
+
+    @property
+    def inat_cv_qualification_cache_model_version(self) -> str:
+        """Run-scoped durable cache key; a replay never re-calls the provider."""
+
+        return f"qualification:{self.inat_cv_model_version}:{self.inat_cv_qualification_run_id}"
 
     def inat_cv_token_is_fresh(self, *, now: datetime | None = None) -> bool:
         """Check the unverified JWT ``exp`` claim without exposing the token.
@@ -387,7 +472,8 @@ class Settings(BaseSettings):
 
         endpoint = urlparse(self.content_safety_endpoint.strip())
         return bool(
-            self.moderation_provider == "azure_content_safety"
+            self.release_lane in _PROVIDER_EGRESS_LANES
+            and self.moderation_provider == "azure_content_safety"
             and endpoint.scheme == "https"
             and endpoint.netloc
             and self.content_safety_key.strip()
@@ -405,7 +491,8 @@ class Settings(BaseSettings):
 
         provider_url = urlparse(self.inat_base_url.strip())
         return bool(
-            self.inat_submit_enabled
+            self.release_lane in _PROVIDER_EGRESS_LANES
+            and self.inat_submit_enabled
             and provider_url.scheme == "https"
             and provider_url.netloc
             and self.inat_submit_token.strip()

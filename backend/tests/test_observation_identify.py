@@ -5,6 +5,7 @@ from __future__ import annotations
 import base64
 import json
 from collections.abc import AsyncIterator, Iterator
+from datetime import UTC, datetime, timedelta
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -27,7 +28,7 @@ from tests.helpers.auth import stub_token_verifier
 _FIREBASE_UID = "firebase-kid-001"
 _USER_ID = "01J0KIDID0000000000000ULID"
 _GROUP_ID = "01J0GROUPID00000000000ULID"
-_OBS_ID = "01J0OBSID00000000000000ULID"
+_OBS_ID = "01J00000000000000000000000"
 _PHOTO_ID = "01J0PHOTOID00000000000ULID"
 _PARENT_ID = "01J0PARENTID0000000000ULID"
 
@@ -35,6 +36,13 @@ _PARENT_ID = "01J0PARENTID0000000000ULID"
 def _fresh_cv_token() -> str:
     payload = base64.urlsafe_b64encode(json.dumps({"exp": 4_102_444_800}).encode())
     return f"header.{payload.decode().rstrip('=')}.signature"
+
+
+def _qualification_cases() -> dict[str, str]:
+    cases = {_OBS_ID: "a" * 64}
+    for index in range(1, 50):
+        cases[f"01J{index:023d}"] = f"{index:064x}"
+    return cases
 
 
 class _StubStorage:
@@ -80,7 +88,7 @@ def _build_client(
     storage: _StubStorage | None = None,
     inat_client: httpx.AsyncClient | None = None,
     cv_enabled: bool = True,
-    release_lane: ReleaseLane = "local",
+    release_lane: ReleaseLane = "production",
     benchmark_approved: bool | None = None,
     qualification_enabled: bool = False,
 ) -> Iterator[TestClient]:
@@ -97,6 +105,14 @@ def _build_client(
             ),
             inat_cv_qualification_enabled=qualification_enabled,
             inat_cv_qualification_key="q" * 32 if qualification_enabled else "",
+            inat_cv_qualification_run_id=(
+                "01J99999999999999999999999" if qualification_enabled else ""
+            ),
+            inat_cv_qualification_manifest_sha256="f" * 64 if qualification_enabled else "",
+            inat_cv_qualification_expires_at=(
+                datetime.now(UTC) + timedelta(hours=1) if qualification_enabled else None
+            ),
+            inat_cv_qualification_cases=(_qualification_cases() if qualification_enabled else {}),
             moderation_provider="azure_content_safety",
             content_safety_endpoint="https://content-safety.example.test",
             content_safety_key="configured-key",
@@ -383,11 +399,14 @@ def test_adult_qa_benchmark_key_allows_qualification_without_enabling_helper(
                 headers={
                     "Authorization": "Bearer fake",
                     "X-Hinterland-QA-CV-Qualification": "q" * 32,
+                    "X-Hinterland-QA-CV-Manifest": "f" * 64,
                 },
             )
 
     assert qualified.status_code == 200
     assert qualified.json()["suggestions"][0]["taxon_id"] == 12345
+    assert qualified.headers["X-Hinterland-QA-CV-Provider-Call"] == "true"
+    assert qualified.headers["X-Hinterland-QA-CV-Run-ID"] == "01J99999999999999999999999"
     assert storage.fetch_calls == [("hinterland-photos-test", f"observations/{_PHOTO_ID}.jpg")]
 
 
@@ -517,6 +536,7 @@ def test_identify_happy_path_returns_top_3(
         assert body["suggestions"][0]["taxon_id"] == 12345
         assert body["suggestions"][0]["common_name"] == "Northern Cardinal"
         assert body["suggestions"][0]["score"] == 92.5
+        assert "FOR UPDATE" in str(fake_session.execute.await_args_list[1].args[0])
         # Storage WAS read with the observations photo key.
         assert storage.fetch_calls == [("hinterland-photos-test", f"observations/{_PHOTO_ID}.jpg")]
 

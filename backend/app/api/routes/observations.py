@@ -1014,6 +1014,7 @@ class IdentifyResponse(BaseModel):
 async def identify_observation(
     observation_id: str,
     request: Request,
+    response: Response,
     current_user: CurrentUserDep,
     session: DbSessionDep,
     inat_client: InatCvClientDep,
@@ -1040,6 +1041,12 @@ async def identify_observation(
                 models.Photo.status != "deleted",
                 models.Photo.attachment_status != "deleted",
             )
+            # Serialize the clean-state check and provider egress against the
+            # rejection/revocation service, which locks Photo first. If a
+            # rejection wins, PostgreSQL rechecks these predicates after the
+            # wait and this query returns no row. If CV wins, rejection waits
+            # until the bounded provider call and cache commit complete.
+            .with_for_update(of=models.Photo)
         )
     ).one_or_none()
     if obs_photo is None:
@@ -1059,18 +1066,6 @@ async def identify_observation(
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="Identification requires Content Safety or adult approval",
-        )
-
-    qualification_allowed = settings.accepts_inat_cv_qualification_key(
-        request.headers.get("X-Hinterland-QA-CV-Qualification")
-    )
-    cv_egress_allowed = settings.photo_helper_enabled or qualification_allowed
-    if not cv_egress_allowed:
-        log.info("observations.identify.disabled", observation_id=observation_id)
-        return IdentifyResponse(
-            observation_id=observation_id,
-            suggestions=[],
-            cv_unavailable=True,
         )
 
     if settings.release_lane == "adult_qa":
@@ -1098,15 +1093,41 @@ async def identify_observation(
             detail="Identification requires a verified canonical photo",
         )
 
+    qualification_allowed = settings.accepts_inat_cv_qualification_case(
+        request.headers.get("X-Hinterland-QA-CV-Qualification"),
+        manifest_sha256=request.headers.get("X-Hinterland-QA-CV-Manifest"),
+        observation_id=observation_id,
+        photo_sha256=photo.sha256,
+    )
+    cv_egress_allowed = settings.photo_helper_enabled or qualification_allowed
+    if not cv_egress_allowed:
+        log.info("observations.identify.disabled", observation_id=observation_id)
+        return IdentifyResponse(
+            observation_id=observation_id,
+            suggestions=[],
+            cv_unavailable=True,
+        )
+
+    cache_model_version = (
+        settings.inat_cv_qualification_cache_model_version
+        if qualification_allowed
+        else settings.inat_cv_model_version
+    )
     cached = (
         await session.execute(
             select(models.CvSuggestionCache).where(
                 models.CvSuggestionCache.photo_sha256 == photo.sha256,
-                models.CvSuggestionCache.model_version == settings.inat_cv_model_version,
+                models.CvSuggestionCache.model_version == cache_model_version,
             )
         )
     ).scalar_one_or_none()
     if cached is not None:
+        if qualification_allowed:
+            response.headers["X-Hinterland-QA-CV-Provider-Call"] = "false"
+            response.headers["X-Hinterland-QA-CV-Run-ID"] = settings.inat_cv_qualification_run_id
+            response.headers["X-Hinterland-QA-CV-Manifest"] = (
+                settings.inat_cv_qualification_manifest_sha256
+            )
         return IdentifyResponse(
             observation_id=observation_id,
             suggestions=[CvSuggestionDTO.model_validate(item) for item in cached.suggestions],
@@ -1135,6 +1156,7 @@ async def identify_observation(
         )
 
     catalog_by_id: dict[int, models.SpeciesCache] = {}
+    catalog_versions: list[str] = []
     if suggestions:
         catalog_rows = (
             (
@@ -1149,6 +1171,11 @@ async def identify_observation(
             .all()
         )
         catalog_by_id = {row.taxon_id: row for row in catalog_rows}
+        catalog_versions = sorted({row.catalog_version or "legacy" for row in catalog_rows})
+    if qualification_allowed:
+        response.headers["X-Hinterland-QA-CV-Catalog-Attestation"] = sha256(
+            "\n".join(catalog_versions).encode("utf-8")
+        ).hexdigest()
     suggestion_rows = [
         CvSuggestionDTO(
             taxon_id=s.taxon_id,
@@ -1162,7 +1189,7 @@ async def identify_observation(
     session.add(
         models.CvSuggestionCache(
             photo_sha256=photo.sha256,
-            model_version=settings.inat_cv_model_version,
+            model_version=cache_model_version,
             suggestions=[row.model_dump(mode="json") for row in suggestion_rows],
         )
     )
@@ -1172,6 +1199,13 @@ async def identify_observation(
         # Another request filled the same immutable hash/model cache. The
         # suggestions computed here are equivalent and safe to return.
         await session.rollback()
+
+    if qualification_allowed:
+        response.headers["X-Hinterland-QA-CV-Provider-Call"] = "true"
+        response.headers["X-Hinterland-QA-CV-Run-ID"] = settings.inat_cv_qualification_run_id
+        response.headers["X-Hinterland-QA-CV-Manifest"] = (
+            settings.inat_cv_qualification_manifest_sha256
+        )
 
     log.info(
         "observations.identify.scored",
@@ -1288,6 +1322,8 @@ class IdentificationUpdateResponse(BaseModel):
 async def _require_parent_mutation_consent(
     session: DbSessionDep,
     parent_user_id: str,
+    *,
+    policy_version: str,
 ) -> None:
     """Require the exact current receipt before an adult mutates child data."""
 
@@ -1295,6 +1331,7 @@ async def _require_parent_mutation_consent(
         await require_linked_current_parent_consent(
             session,
             parent_user_id=parent_user_id,
+            policy_version=policy_version,
         )
     except CurrentParentConsentRequiredError as exc:
         raise HTTPException(
@@ -1367,10 +1404,15 @@ async def update_identification(
     payload: IdentificationUpdate,
     current_user: CurrentUserDep,
     session: DbSessionDep,
+    settings: Annotated[Settings, Depends(get_request_settings)],
 ) -> IdentificationUpdateResponse:
     user_row = await resolve_current_user_row(session, current_user)
     if user_row.role == "parent":
-        await _require_parent_mutation_consent(session, user_row.id)
+        await _require_parent_mutation_consent(
+            session,
+            user_row.id,
+            policy_version=settings.parent_consent_policy_version,
+        )
     subject_user_id = await _authorized_observation_subject_id(
         session,
         observation_id=observation_id,
@@ -1486,6 +1528,7 @@ async def delete_observation(
     current_user: CurrentUserDep,
     session: DbSessionDep,
     storage: SignedUrlGeneratorDep,
+    settings: Annotated[Settings, Depends(get_request_settings)],
 ) -> Response:
     """Tombstone one own-child observation through durable revocation.
 
@@ -1500,7 +1543,11 @@ async def delete_observation(
         current_user,
         allowed_roles={"parent"},
     )
-    await _require_parent_mutation_consent(session, parent.id)
+    await _require_parent_mutation_consent(
+        session,
+        parent.id,
+        policy_version=settings.parent_consent_policy_version,
+    )
     subject_user_id = await _authorized_observation_subject_id(
         session,
         observation_id=observation_id,

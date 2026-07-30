@@ -152,11 +152,28 @@ async def test_require_linked_current_consent_filters_out_legacy_null_nonce_hash
         await require_linked_current_parent_consent(
             session,
             parent_user_id=_PARENT_ID,
+            policy_version=CURRENT_PARENT_CONSENT_POLICY_VERSION,
         )
 
     statement = session.execute.await_args.args[0]
     assert CURRENT_PARENT_CONSENT_POLICY_VERSION in _statement_values(statement)
     assert "browser_nonce_sha256 IS NOT NULL" in str(statement)
+
+
+async def test_linked_consent_never_accepts_another_release_lane_policy() -> None:
+    session = AsyncMock(spec=AsyncSession)
+    session.execute = AsyncMock(return_value=_result(None))
+
+    with pytest.raises(CurrentParentConsentRequiredError):
+        await require_linked_current_parent_consent(
+            session,
+            parent_user_id=_PARENT_ID,
+            policy_version=ADULT_QA_CONSENT_POLICY_VERSION,
+        )
+
+    values = _statement_values(session.execute.await_args.args[0])
+    assert ADULT_QA_CONSENT_POLICY_VERSION in values
+    assert CURRENT_PARENT_CONSENT_POLICY_VERSION not in values
 
 
 async def test_adult_qa_egress_requires_the_exact_disclosure_version() -> None:

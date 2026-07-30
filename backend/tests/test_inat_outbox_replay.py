@@ -24,13 +24,21 @@ from app.inat.enqueue import InatEnqueueResult
 def _settings_with_sb() -> Settings:
     return Settings(
         env="local",
+        release_lane="adult_qa",
         service_bus_namespace="hinterland-sb-test.servicebus.windows.net",
         inat_submit_enabled=True,
+        inat_submit_token="dedicated-submit-token",
     )
 
 
 def _settings_without_sb() -> Settings:
-    return Settings(env="local", service_bus_namespace="", inat_submit_enabled=True)
+    return Settings(
+        env="local",
+        release_lane="adult_qa",
+        service_bus_namespace="",
+        inat_submit_enabled=True,
+        inat_submit_token="dedicated-submit-token",
+    )
 
 
 def _outbox_row(

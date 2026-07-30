@@ -245,11 +245,15 @@ jobs:
 
           for app in "${AZURE_CONTAINER_APP}" "${AZURE_ROLLBACK_CONTAINER_APP}"; do
             remove_forbidden_runtime_variable "$app" HINTERLAND_INAT_OAUTH_TOKEN
+            remove_forbidden_runtime_variable "$app" HINTERLAND_INAT_CV_TOKEN
+            remove_forbidden_runtime_variable "$app" HINTERLAND_INAT_SUBMIT_TOKEN
+            remove_forbidden_runtime_variable "$app" HINTERLAND_INAT_CV_QUALIFICATION_KEY
             remove_forbidden_runtime_variable "$app" HINTERLAND_DEV_AUTH_TOKEN
             az containerapp update \
               --name "$app" \
               --resource-group "${AZURE_RESOURCE_GROUP}" \
               --set-env-vars \
+                HINTERLAND_RELEASE_LANE=w1_internal \
                 HINTERLAND_MODERATION_PROVIDER=noop \
                 HINTERLAND_INAT_CV_ENABLED=false \
                 HINTERLAND_INAT_CV_DISCLOSURE_APPROVED=false \
@@ -269,18 +273,25 @@ jobs:
             --query "[?starts_with(name, 'hinterland-')].name" --output tsv)
           for job in "${jobs[@]}"; do
             [[ -n "$job" ]] || continue
-            token_count="$(az containerapp job show \
-              --name "$job" --resource-group "${AZURE_RESOURCE_GROUP}" \
-              --query "length(properties.template.containers[0].env[?name=='HINTERLAND_INAT_OAUTH_TOKEN'])" \
-              --output tsv)"
-            if [[ "$token_count" != 0 ]]; then
-              az containerapp job update \
+            for forbidden in \
+              HINTERLAND_INAT_OAUTH_TOKEN \
+              HINTERLAND_INAT_CV_TOKEN \
+              HINTERLAND_INAT_SUBMIT_TOKEN \
+              HINTERLAND_INAT_CV_QUALIFICATION_KEY; do
+              token_count="$(az containerapp job show \
                 --name "$job" --resource-group "${AZURE_RESOURCE_GROUP}" \
-                --remove-env-vars HINTERLAND_INAT_OAUTH_TOKEN --output none
-            fi
+                --query "length(properties.template.containers[0].env[?name=='${forbidden}'])" \
+                --output tsv)"
+              if [[ "$token_count" != 0 ]]; then
+                az containerapp job update \
+                  --name "$job" --resource-group "${AZURE_RESOURCE_GROUP}" \
+                  --remove-env-vars "$forbidden" --output none
+              fi
+            done
             az containerapp job update \
               --name "$job" --resource-group "${AZURE_RESOURCE_GROUP}" \
               --set-env-vars \
+                HINTERLAND_RELEASE_LANE=w1_internal \
                 HINTERLAND_MODERATION_PROVIDER=noop \
                 HINTERLAND_INAT_CV_ENABLED=false \
                 HINTERLAND_INAT_CV_DISCLOSURE_APPROVED=false \
@@ -548,6 +559,11 @@ jobs:
               | select(.name != "HINTERLAND_APP_VERSION")
               | select(.name != "HINTERLAND_DEV_AUTH_ENABLED")
               | select(.name != "HINTERLAND_DEV_AUTH_TOKEN")
+              | select(.name != "HINTERLAND_INAT_OAUTH_TOKEN")
+              | select(.name != "HINTERLAND_INAT_CV_TOKEN")
+              | select(.name != "HINTERLAND_INAT_SUBMIT_TOKEN")
+              | select(.name != "HINTERLAND_INAT_CV_QUALIFICATION_KEY")
+              | select(.name != "HINTERLAND_RELEASE_LANE")
               | select(.name != "HINTERLAND_MODERATION_PROVIDER")
               | select(.name != "HINTERLAND_INAT_CV_ENABLED")
               | select(.name != "HINTERLAND_INAT_CV_DISCLOSURE_APPROVED")
@@ -574,6 +590,7 @@ jobs:
                 "${shared_env[@]}" \
                 AZURE_CLIENT_ID="${job_uami_client_id}" \
                 HINTERLAND_APP_VERSION="${GITHUB_SHA}" \
+                HINTERLAND_RELEASE_LANE=w1_internal \
                 HINTERLAND_MODERATION_PROVIDER=noop \
                 HINTERLAND_INAT_CV_ENABLED=false \
                 HINTERLAND_INAT_CV_DISCLOSURE_APPROVED=false \
@@ -661,6 +678,11 @@ jobs:
               | select(.name != "HINTERLAND_APP_VERSION")
               | select(.name != "HINTERLAND_DEV_AUTH_ENABLED")
               | select(.name != "HINTERLAND_DEV_AUTH_TOKEN")
+              | select(.name != "HINTERLAND_INAT_OAUTH_TOKEN")
+              | select(.name != "HINTERLAND_INAT_CV_TOKEN")
+              | select(.name != "HINTERLAND_INAT_SUBMIT_TOKEN")
+              | select(.name != "HINTERLAND_INAT_CV_QUALIFICATION_KEY")
+              | select(.name != "HINTERLAND_RELEASE_LANE")
               | select(.name != "HINTERLAND_MODERATION_PROVIDER")
               | select(.name != "HINTERLAND_INAT_CV_ENABLED")
               | select(.name != "HINTERLAND_INAT_CV_DISCLOSURE_APPROVED")
@@ -685,6 +707,7 @@ jobs:
                 "${shared_env[@]}" \
                 AZURE_CLIENT_ID="${job_uami_client_id}" \
                 HINTERLAND_APP_VERSION="${GITHUB_SHA}" \
+                HINTERLAND_RELEASE_LANE=w1_internal \
                 HINTERLAND_MODERATION_PROVIDER=noop \
                 HINTERLAND_INAT_CV_ENABLED=false \
                 HINTERLAND_INAT_CV_DISCLOSURE_APPROVED=false \
@@ -809,6 +832,7 @@ jobs:
             --image "${IMAGE}" \
             --set-env-vars \
               HINTERLAND_APP_VERSION="${GITHUB_SHA}" \
+              HINTERLAND_RELEASE_LANE=w1_internal \
               HINTERLAND_MODERATION_PROVIDER=noop \
               HINTERLAND_INAT_CV_ENABLED=false \
               HINTERLAND_INAT_CV_DISCLOSURE_APPROVED=false \
@@ -891,6 +915,7 @@ jobs:
             --image "${IMAGE}" \
             --set-env-vars \
               HINTERLAND_APP_VERSION="${GITHUB_SHA}" \
+              HINTERLAND_RELEASE_LANE=w1_internal \
               HINTERLAND_MODERATION_PROVIDER=noop \
               HINTERLAND_INAT_CV_ENABLED=false \
               HINTERLAND_INAT_CV_DISCLOSURE_APPROVED=false \
@@ -1233,6 +1258,7 @@ jobs:
           }
           for app in "${AZURE_CONTAINER_APP}" "${AZURE_ROLLBACK_CONTAINER_APP}"; do
             for pair in \
+              HINTERLAND_RELEASE_LANE=w1_internal \
               HINTERLAND_MODERATION_PROVIDER=noop \
               HINTERLAND_INAT_CV_ENABLED=false \
               HINTERLAND_INAT_CV_DISCLOSURE_APPROVED=false \
@@ -1246,12 +1272,18 @@ jobs:
               HINTERLAND_OBSERVATION_IDEMPOTENCY_REQUIRED=true; do
               assert_env app "$app" "${pair%%=*}" "${pair#*=}"
             done
-            api_token_count="$(az containerapp show \
-              --name "$app" \
-              --resource-group "${AZURE_RESOURCE_GROUP}" \
-              --query "length(properties.template.containers[0].env[?name=='HINTERLAND_INAT_OAUTH_TOKEN'])" \
-              --output tsv)"
-            test "$api_token_count" = 0
+            for forbidden in \
+              HINTERLAND_INAT_OAUTH_TOKEN \
+              HINTERLAND_INAT_CV_TOKEN \
+              HINTERLAND_INAT_SUBMIT_TOKEN \
+              HINTERLAND_INAT_CV_QUALIFICATION_KEY; do
+              api_token_count="$(az containerapp show \
+                --name "$app" \
+                --resource-group "${AZURE_RESOURCE_GROUP}" \
+                --query "length(properties.template.containers[0].env[?name=='${forbidden}'])" \
+                --output tsv)"
+              test "$api_token_count" = 0
+            done
           done
           primary_location="$(az containerapp show --name "${AZURE_CONTAINER_APP}" \
             --resource-group "${AZURE_RESOURCE_GROUP}" --query location --output tsv | \
@@ -1281,12 +1313,19 @@ jobs:
               --query "properties.template.containers[0].env[?name=='HINTERLAND_DATABASE_PASSWORD'].secretRef | [0]" \
               --output tsv)"
             test "$password_ref" = pg-password
-            token_count="$(az containerapp job show --name "$job" \
-              --resource-group "${AZURE_RESOURCE_GROUP}" \
-              --query "length(properties.template.containers[0].env[?name=='HINTERLAND_INAT_OAUTH_TOKEN'])" \
-              --output tsv)"
-            test "$token_count" = 0
+            for forbidden in \
+              HINTERLAND_INAT_OAUTH_TOKEN \
+              HINTERLAND_INAT_CV_TOKEN \
+              HINTERLAND_INAT_SUBMIT_TOKEN \
+              HINTERLAND_INAT_CV_QUALIFICATION_KEY; do
+              token_count="$(az containerapp job show --name "$job" \
+                --resource-group "${AZURE_RESOURCE_GROUP}" \
+                --query "length(properties.template.containers[0].env[?name=='${forbidden}'])" \
+                --output tsv)"
+              test "$token_count" = 0
+            done
             for pair in \
+              HINTERLAND_RELEASE_LANE=w1_internal \
               HINTERLAND_MODERATION_PROVIDER=noop \
               HINTERLAND_INAT_CV_ENABLED=false \
               HINTERLAND_INAT_CV_DISCLOSURE_APPROVED=false \

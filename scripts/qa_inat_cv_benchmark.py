@@ -18,6 +18,7 @@ import os
 import re
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from hashlib import sha256
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
@@ -38,6 +39,7 @@ class BenchmarkConfigurationError(RuntimeError):
 @dataclass(frozen=True)
 class BenchmarkCase:
     observation_id: str
+    photo_sha256: str
     accepted_taxon_ids: frozenset[int]
 
 
@@ -53,15 +55,25 @@ def load_manifest(path: Path) -> list[BenchmarkCase]:
 
     cases: list[BenchmarkCase] = []
     seen_observations: set[str] = set()
+    seen_photo_hashes: set[str] = set()
     for entry in entries:
         if not isinstance(entry, dict):
             raise BenchmarkConfigurationError("each benchmark case must be an object")
         observation_id = entry.get("observation_id")
+        photo_sha256 = entry.get("photo_sha256")
         accepted = entry.get("accepted_taxon_ids")
         if not isinstance(observation_id, str) or not _ULID.fullmatch(observation_id):
             raise BenchmarkConfigurationError("each case requires a canonical observation ULID")
         if observation_id in seen_observations:
             raise BenchmarkConfigurationError("observation IDs must be unique")
+        if (
+            not isinstance(photo_sha256, str)
+            or not re.fullmatch(r"[0-9a-f]{64}", photo_sha256)
+            or photo_sha256 in seen_photo_hashes
+        ):
+            raise BenchmarkConfigurationError(
+                "photo_sha256 must contain one unique canonical SHA-256 per case"
+            )
         if (
             not isinstance(accepted, list)
             or not accepted
@@ -74,9 +86,11 @@ def load_manifest(path: Path) -> list[BenchmarkCase]:
                 "accepted_taxon_ids must contain positive integer catalog IDs"
             )
         seen_observations.add(observation_id)
+        seen_photo_hashes.add(photo_sha256)
         cases.append(
             BenchmarkCase(
                 observation_id=observation_id,
+                photo_sha256=photo_sha256,
                 accepted_taxon_ids=frozenset(accepted),
             )
         )
@@ -132,17 +146,20 @@ async def run_benchmark(
     api_origin: str,
     bearer: str,
     qualification_key: str,
+    manifest_sha256: str,
+    dataset_sha256: str,
     interval_seconds: float = 1.1,
     transport: httpx.AsyncBaseTransport | None = None,
 ) -> dict[str, object]:
     headers = {
         "Accept": "application/json",
         "Authorization": f"Bearer {bearer}",
-        "X-Hinterland-QA-CV-Qualification": qualification_key,
     }
     passed = 0
     unavailable = 0
     malformed = 0
+    provider_calls = 0
+    catalog_attestations: set[str] = set()
 
     async with httpx.AsyncClient(
         base_url=api_origin,
@@ -151,13 +168,19 @@ async def run_benchmark(
         transport=transport,
     ) as client:
         meta_response = await client.get("/v1/meta")
-        _verify_qa_meta(meta_response)
+        meta = _verify_qa_meta(meta_response, expected_manifest_sha256=manifest_sha256)
 
         for index, case in enumerate(cases):
             if index > 0 and interval_seconds > 0:
                 await asyncio.sleep(interval_seconds)
             try:
-                response = await client.post(f"/v1/observations/{case.observation_id}/identify")
+                response = await client.post(
+                    f"/v1/observations/{case.observation_id}/identify",
+                    headers={
+                        "X-Hinterland-QA-CV-Qualification": qualification_key,
+                        "X-Hinterland-QA-CV-Manifest": manifest_sha256,
+                    },
+                )
             except httpx.HTTPError:
                 unavailable += 1
                 continue
@@ -166,6 +189,19 @@ async def run_benchmark(
             if response.status_code != 200:
                 unavailable += 1
                 continue
+            if (
+                response.headers.get("X-Hinterland-QA-CV-Provider-Call") != "true"
+                or response.headers.get("X-Hinterland-QA-CV-Run-ID") != meta["qualification_run_id"]
+                or response.headers.get("X-Hinterland-QA-CV-Manifest") != manifest_sha256
+            ):
+                malformed += 1
+                continue
+            catalog_attestation = response.headers.get("X-Hinterland-QA-CV-Catalog-Attestation", "")
+            if not re.fullmatch(r"[0-9a-f]{64}", catalog_attestation):
+                malformed += 1
+                continue
+            provider_calls += 1
+            catalog_attestations.add(catalog_attestation)
             try:
                 body = response.json()
                 suggestions = body["suggestions"]
@@ -195,6 +231,15 @@ async def run_benchmark(
         if accuracy >= _MIN_ACCURACY and unavailable == 0 and malformed == 0
         else "failed",
         "release_lane": _EXPECTED_LANE,
+        "api_revision": meta["api_revision"],
+        "image_digest": meta["image_digest"],
+        "cv_model_version": meta["cv_model_version"],
+        "qualification_run_id": meta["qualification_run_id"],
+        "manifest_sha256": manifest_sha256,
+        "dataset_photo_hashes_sha256": dataset_sha256,
+        "unique_photo_hash_count": len({case.photo_sha256 for case in cases}),
+        "provider_call_count": provider_calls,
+        "catalog_attestations": sorted(catalog_attestations),
         "case_count": len(cases),
         "top_three_passed": passed,
         "top_three_accuracy": round(accuracy, 4),
@@ -205,7 +250,11 @@ async def run_benchmark(
     }
 
 
-def _verify_qa_meta(response: httpx.Response) -> None:
+def _verify_qa_meta(
+    response: httpx.Response,
+    *,
+    expected_manifest_sha256: str,
+) -> dict[str, str]:
     if response.status_code != 200:
         raise BenchmarkConfigurationError("QA metadata probe did not succeed")
     if response.headers.get("X-Hinterland-Release-Lane") != _EXPECTED_LANE:
@@ -229,6 +278,27 @@ def _verify_qa_meta(response: httpx.Response) -> None:
         )
     if integrations.get("cv_qualification_enabled") is not True:
         raise BenchmarkConfigurationError("bounded CV qualification is not enabled")
+    run_id = integrations.get("cv_qualification_run_id")
+    manifest_sha256 = integrations.get("cv_qualification_manifest_sha256")
+    model_version = integrations.get("cv_model_version")
+    api_revision = body.get("version")
+    image_digest = body.get("image_digest")
+    if not isinstance(run_id, str) or not _ULID.fullmatch(run_id):
+        raise BenchmarkConfigurationError("qualification run ID is missing or malformed")
+    if manifest_sha256 != expected_manifest_sha256:
+        raise BenchmarkConfigurationError("qualification manifest does not match the server")
+    if not isinstance(model_version, str) or not model_version:
+        raise BenchmarkConfigurationError("CV model version is missing")
+    if not isinstance(api_revision, str) or not api_revision:
+        raise BenchmarkConfigurationError("API revision is missing")
+    if not isinstance(image_digest, str) or not re.fullmatch(r"sha256:[0-9a-f]{64}", image_digest):
+        raise BenchmarkConfigurationError("immutable image digest is missing")
+    return {
+        "qualification_run_id": run_id,
+        "cv_model_version": model_version,
+        "api_revision": api_revision,
+        "image_digest": image_digest,
+    }
 
 
 def _parse_args() -> argparse.Namespace:
@@ -258,12 +328,18 @@ def main() -> int:
             "HINTERLAND_QA_CV_QUALIFICATION_KEY must contain at least 32 characters"
         )
     cases = load_manifest(args.manifest)
+    manifest_sha256 = sha256(args.manifest.read_bytes()).hexdigest()
+    dataset_sha256 = sha256(
+        "\n".join(sorted(case.photo_sha256 for case in cases)).encode("ascii")
+    ).hexdigest()
     result = asyncio.run(
         run_benchmark(
             cases,
             api_origin=validate_api_origin(args.api_base_url),
             bearer=bearer,
             qualification_key=qualification_key,
+            manifest_sha256=manifest_sha256,
+            dataset_sha256=dataset_sha256,
             interval_seconds=args.interval_seconds,
         )
     )

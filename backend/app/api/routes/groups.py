@@ -245,6 +245,7 @@ async def create_group(
         await require_linked_current_parent_consent(
             session,
             parent_user_id=user.id,
+            policy_version=settings.parent_consent_policy_version,
         )
     except CurrentParentConsentRequiredError as exc:
         raise HTTPException(
@@ -649,6 +650,7 @@ async def create_kid(
         await require_linked_current_parent_consent(
             session,
             parent_user_id=caller.id,
+            policy_version=settings.parent_consent_policy_version,
         )
     except CurrentParentConsentRequiredError as exc:
         raise HTTPException(
@@ -780,6 +782,7 @@ async def reissue_kid_handoff(
         await require_linked_current_parent_consent(
             session,
             parent_user_id=caller.id,
+            policy_version=settings.parent_consent_policy_version,
         )
     except CurrentParentConsentRequiredError as exc:
         raise HTTPException(
@@ -869,7 +872,11 @@ async def place_existing_child_in_group(
         missing_user_status=status.HTTP_404_NOT_FOUND,
     )
     try:
-        await require_linked_current_parent_consent(session, parent_user_id=parent.id)
+        await require_linked_current_parent_consent(
+            session,
+            parent_user_id=parent.id,
+            policy_version=settings.parent_consent_policy_version,
+        )
     except CurrentParentConsentRequiredError as exc:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -1373,7 +1380,11 @@ async def redeem_adult_invitation(
             detail="Invitation token is invalid.",
         )
     try:
-        await require_linked_current_parent_consent(session, parent_user_id=parent.id)
+        await require_linked_current_parent_consent(
+            session,
+            parent_user_id=parent.id,
+            policy_version=settings.parent_consent_policy_version,
+        )
     except CurrentParentConsentRequiredError as exc:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -1538,7 +1549,11 @@ async def join_group(
 
     if user.role == "parent":
         try:
-            await require_linked_current_parent_consent(session, parent_user_id=user.id)
+            await require_linked_current_parent_consent(
+                session,
+                parent_user_id=user.id,
+                policy_version=settings.parent_consent_policy_version,
+            )
         except CurrentParentConsentRequiredError as exc:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,

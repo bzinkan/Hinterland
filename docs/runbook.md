@@ -376,11 +376,15 @@ active revocation, can reach CV.
 
 Before benchmark approval, Adult QA may use the bounded
 `HINTERLAND_INAT_CV_QUALIFICATION_ENABLED` mode with a separate high-entropy
-`HINTERLAND_INAT_CV_QUALIFICATION_KEY`. The benchmark sends that key in an
-operator-only header. The mode is rejected outside `adult_qa`, never
-advertises the kid-facing photo-helper capability, and is mutually exclusive
-with benchmark approval. Remove the key and disable qualification immediately
-after the aggregate benchmark result is recorded.
+`HINTERLAND_INAT_CV_QUALIFICATION_KEY`, a fresh run ULID, exact manifest
+SHA-256, an expiry within 24 hours, and an exact 50-case observation-to-photo
+hash allowlist. The benchmark sends the key and manifest digest only on its
+identify calls. The mode is rejected outside `adult_qa`, never advertises the
+kid-facing photo-helper capability, bypasses the ordinary cache through a
+run-scoped durable key, and is mutually exclusive with benchmark approval.
+Replayed/cached cases do not count as provider calls. Remove the grant and
+disable qualification immediately after the aggregate benchmark result is
+recorded.
 
 If any gate flips unexpectedly:
 

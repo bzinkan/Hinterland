@@ -1157,7 +1157,14 @@ async def test_concurrent_consent_retry_returns_one_browser_bound_receipt(
 
     async def submit(response: Response) -> auth_routes.ConsentResponse:
         async with pg_harness.sessions() as session:
-            return await record_consent(payload=payload, response=response, session=session)
+            return await record_consent(
+                payload=payload,
+                response=response,
+                session=session,
+                settings=Settings(
+                    parent_consent_policy_version=CURRENT_PARENT_CONSENT_POLICY_VERSION
+                ),
+            )
 
     receipts = await asyncio.gather(*(submit(response) for response in http_responses))
 
