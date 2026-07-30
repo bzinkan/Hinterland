@@ -452,6 +452,9 @@ async def kid_exchange(
             headers={"WWW-Authenticate": "Bearer"},
         )
     kid, membership = kid_row
+    # Keep this defense in depth even though the query filters disabled rows.
+    # Session minting must still fail closed if that query is later refactored
+    # or an inconsistent/mocked row reaches this boundary.
     if kid.disabled_at is not None:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,

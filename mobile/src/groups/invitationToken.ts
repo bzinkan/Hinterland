@@ -9,28 +9,35 @@ type StoredInvitation = {
 };
 
 export function captureInvitationTokenFromFragment(): string | null {
-  if (typeof window === "undefined") return null;
-  const hash = window.location.hash;
-  if (!hash) return readPendingInvitationToken();
-
-  const params = new URLSearchParams(hash.slice(1));
-  const candidate = params.get("token");
-  // Scrub before any request or user interaction, even when the fragment is malformed.
-  window.history.replaceState(
-    null,
-    document.title,
-    `${window.location.pathname}${window.location.search}`,
-  );
-  if (!candidate || !TOKEN_PATTERN.test(candidate)) {
-    clearPendingInvitationToken();
+  if (
+    typeof window === "undefined" ||
+    !window.location ||
+    !window.history ||
+    typeof window.history.replaceState !== "function"
+  ) {
     return null;
   }
-
-  const value: StoredInvitation = { token: candidate, capturedAt: Date.now() };
-  // A failed overwrite must not leave a different adult's older invitation
-  // available in this tab. Clear first, then persist the newly captured link.
-  clearPendingInvitationToken();
   try {
+    const hash = window.location.hash;
+    if (!hash) return readPendingInvitationToken();
+
+    const params = new URLSearchParams(hash.slice(1));
+    const candidate = params.get("token");
+    // Scrub before any request or user interaction, even when the fragment is malformed.
+    window.history.replaceState(
+      null,
+      typeof document === "undefined" ? "" : document.title,
+      `${window.location.pathname}${window.location.search}`,
+    );
+    if (!candidate || !TOKEN_PATTERN.test(candidate)) {
+      clearPendingInvitationToken();
+      return null;
+    }
+
+    const value: StoredInvitation = { token: candidate, capturedAt: Date.now() };
+    // A failed overwrite must not leave a different adult's older invitation
+    // available in this tab. Clear first, then persist the newly captured link.
+    clearPendingInvitationToken();
     window.sessionStorage.setItem(STORAGE_KEY, JSON.stringify(value));
     return candidate;
   } catch {

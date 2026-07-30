@@ -103,6 +103,34 @@ describe("group invitation tab-secret contract", () => {
     expect(readPendingInvitationToken()).toBeNull();
   });
 
+  it("fails closed when browser history is unavailable or address scrubbing throws", () => {
+    const originalWindow = window;
+    Object.defineProperty(globalThis, "window", {
+      configurable: true,
+      value: {
+        sessionStorage: originalWindow.sessionStorage,
+        location: originalWindow.location,
+      },
+    });
+    expect(captureInvitationTokenFromFragment()).toBeNull();
+
+    Object.defineProperty(globalThis, "window", {
+      configurable: true,
+      value: originalWindow,
+    });
+    window.sessionStorage.setItem(
+      "hinterland.group_invitation.v1",
+      JSON.stringify({ token: "B".repeat(48), capturedAt: Date.now() }),
+    );
+    window.history.replaceState(null, "", `/group-invite#token=${TOKEN}`);
+    jest.spyOn(window.history, "replaceState").mockImplementation(() => {
+      throw new Error("history unavailable");
+    });
+
+    expect(captureInvitationTokenFromFragment()).toBeNull();
+    expect(window.sessionStorage.length).toBe(0);
+  });
+
   it("accepts only the canonical public /group-invite link before copying", async () => {
     const canonical = `https://parents.thehinterlandguide.app/group-invite#token=${TOKEN}`;
     expect(validateInvitationUrl(canonical)).toBe(true);
