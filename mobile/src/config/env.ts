@@ -4,6 +4,7 @@ type EntraConfig = {
   clientId: string;
   authority: string;
   redirectUri: string;
+  scope: string;
 };
 
 export type AppEnvironment =
@@ -46,6 +47,12 @@ if (!extra?.apiBaseUrl) {
 if (!extra.entra?.clientId) {
   throw new Error(
     "expo config `extra.entra` is missing. Check app.config.ts and APP_ENV.",
+  );
+}
+
+if (!extra.entra.scope) {
+  throw new Error(
+    "expo config `extra.entra.scope` is missing. Check app.config.ts and APP_ENV.",
   );
 }
 

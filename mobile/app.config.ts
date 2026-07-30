@@ -24,6 +24,7 @@ type EntraConfig = {
   clientId: string;
   authority: string;
   redirectUri: string;
+  scope: string;
 };
 
 type EnvConfig = {
@@ -46,6 +47,7 @@ const ENTRA_DEV: EntraConfig = {
   authority:
     "https://login.microsoftonline.com/18dbd7fa-c411-49bc-82fc-9ccaa26e3404",
   redirectUri: "https://parents.thehinterlandguide.app/auth/callback",
+  scope: "api://hinterland-api/user.access",
 };
 
 const ENV: Record<AppEnv, EnvConfig> = {
@@ -108,6 +110,9 @@ const ENV: Record<AppEnv, EnvConfig> = {
         "HINTERLAND_QA_ENTRA_TENANT_ID",
       )}`,
       redirectUri: "https://qa-parents.thehinterlandguide.app/auth/callback",
+      scope: `api://${requiredQaUuid(
+        "HINTERLAND_QA_ENTRA_API_AUDIENCE",
+      )}/user.access`,
     },
   },
 };

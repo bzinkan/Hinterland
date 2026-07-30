@@ -1,6 +1,8 @@
 name: Adult QA CV qualification
 
 on:
+  schedule:
+    - cron: "17 * * * *"
   workflow_dispatch:
     inputs:
       confirmation:
@@ -21,15 +23,37 @@ on:
         type: string
 
 concurrency:
-  group: adult-qa-cv-qualification
+  group: adult-qa-runtime-mutation
   cancel-in-progress: false
 
 env:
   AZURE_RESOURCE_GROUP: hinterland-qa-rg
+  AZURE_POSTGRES_HOST: hinterland-postgres-dev.postgres.database.azure.com
+  AZURE_POSTGRES_DATABASE: hinterland_qa
+  AZURE_POSTGRES_USER: hinterland_qa_app
   AZURE_CONTAINER_APP: hinterland-api-qa
   AZURE_API_UAMI: hinterland-api-qa-mi
   AZURE_KEY_VAULT: hinterland-kv-qa
+  AZURE_STORAGE_ACCOUNT: hinterlandphotosqa
+  AZURE_PHOTOS_CONTAINER: qa-photos
+  AZURE_TAXONOMY_PACKS_CONTAINER: qa-taxonomy-packs
+  AZURE_SERVICE_BUS_NAMESPACE: hinterland-sb-qa
+  AZURE_MODERATION_QUEUE: moderation-pending-qa
+  AZURE_DISABLED_INAT_QUEUE: disabled-no-public-submit
   QA_API_ORIGIN: https://qa-api.thehinterlandguide.app
+  QA_PARENT_ORIGIN: https://qa-parents.thehinterlandguide.app
+  QA_CORS_ORIGINS: '["https://qa-parents.thehinterlandguide.app"]'
+  QA_CONSENT_POLICY_VERSION: 2026-07-30-ADULT-QA-EGRESS-V1
+  QA_KEY_VAULT_URL: https://hinterland-kv-qa.vault.azure.net/
+  QA_BLOB_ACCOUNT_ENDPOINT: https://hinterlandphotosqa.blob.core.windows.net
+  QA_KID_JWT_ISSUER: https://qa-api.thehinterlandguide.app
+  QA_KID_JWT_AUDIENCE: hinterland-api-qa
+  QA_KID_JWT_KID: k1-adult-qa-2026-07
+  QA_KID_SIGNING_SECRET: qa-kid-jwt-signing-key
+  QA_KID_PUBLIC_SECRET: qa-kid-jwt-public-key
+  QA_ENTRA_TENANT_ID: ${{ vars.HINTERLAND_QA_ENTRA_TENANT_ID }}
+  QA_ENTRA_API_AUDIENCE: ${{ vars.HINTERLAND_QA_ENTRA_API_AUDIENCE }}
+  QA_ENTRA_CLIENT_ID: ${{ vars.HINTERLAND_QA_ENTRA_CLIENT_ID }}
   QUALIFICATION_RUN_ID: ${{ inputs.qualification_run_id }}
   QUALIFICATION_MANIFEST_SHA256: ${{ inputs.manifest_sha256 }}
   QUALIFICATION_EXPIRES_AT: ${{ inputs.expires_at }}
@@ -37,6 +61,7 @@ env:
 jobs:
   qualify:
     name: Bounded post-clean iNaturalist CV qualification
+    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 90
     environment:
@@ -95,6 +120,13 @@ jobs:
           test "${CONFIRMATION}" = QUALIFY_ADULT_QA_CV
           [[ "${QUALIFICATION_RUN_ID}" =~ ^[0-9A-HJKMNP-TV-Z]{26}$ ]]
           [[ "${QUALIFICATION_MANIFEST_SHA256}" =~ ^[0-9a-f]{64}$ ]]
+          test -n "${QA_ENTRA_TENANT_ID}"
+          test -n "${QA_ENTRA_API_AUDIENCE}"
+          test -n "${QA_ENTRA_CLIENT_ID}"
+          test "${QA_ENTRA_API_AUDIENCE}" != \
+            "7dd9da3c-b7d6-45d4-955b-d7561c43f209"
+          test "${QA_ENTRA_CLIENT_ID}" != \
+            "60504e4c-6b5f-4031-a80a-3e4bdfae29b2"
           test -n "${HINTERLAND_QA_CV_BENCHMARK_MANIFEST_B64}"
           test -n "${HINTERLAND_QA_BENCHMARK_BEARER}"
 
@@ -174,8 +206,88 @@ jobs:
               select(.name == "HINTERLAND_APP_VERSION") | .value][0] // empty
           ' <<<"${app_json}")"
           test "${APP_VERSION}" = "${GITHUB_SHA}"
+          SHARED_GROUPS_ENABLED="$(jq -r '
+            [.properties.template.containers[0].env[] |
+              select(.name == "HINTERLAND_SHARED_GROUPS_ENABLED") |
+              .value][0] // empty
+          ' <<<"${app_json}")"
+          [[ "${SHARED_GROUPS_ENABLED}" =~ ^(true|false)$ ]]
+          echo "SHARED_GROUPS_ENABLED=${SHARED_GROUPS_ENABLED}" >> "${GITHUB_ENV}"
           echo "IMAGE=${IMAGE}" >> "${GITHUB_ENV}"
           echo "IMAGE_DIGEST=${IMAGE_DIGEST}" >> "${GITHUB_ENV}"
+
+          api_identity_json="$(az identity show \
+            --name "${AZURE_API_UAMI}" \
+            --resource-group "${AZURE_RESOURCE_GROUP}" --output json)"
+          api_identity_id="$(jq -r '.id' <<<"${api_identity_json}")"
+          api_identity_client_id="$(jq -r '.clientId' <<<"${api_identity_json}")"
+          test -n "${api_identity_id}"
+          test -n "${api_identity_client_id}"
+          expected_runtime=(
+            AZURE_CLIENT_ID="${api_identity_client_id}"
+            HINTERLAND_ENV=prod
+            HINTERLAND_RELEASE_LANE=adult_qa
+            HINTERLAND_CORS_ORIGINS="${QA_CORS_ORIGINS}"
+            HINTERLAND_PARENT_WEB_BASE_URL="${QA_PARENT_ORIGIN}"
+            HINTERLAND_ADULT_QA_CONSENT_POLICY_VERSION="${QA_CONSENT_POLICY_VERSION}"
+            HINTERLAND_PHOTOS_BUCKET="${AZURE_PHOTOS_CONTAINER}"
+            HINTERLAND_TAXONOMY_PACKS_BUCKET="${AZURE_TAXONOMY_PACKS_CONTAINER}"
+            HINTERLAND_STORAGE_PROVIDER=blob
+            HINTERLAND_BLOB_ACCOUNT_ENDPOINT="${QA_BLOB_ACCOUNT_ENDPOINT}"
+            HINTERLAND_ENTRA_TENANT_ID="${QA_ENTRA_TENANT_ID}"
+            HINTERLAND_ENTRA_API_AUDIENCE="${QA_ENTRA_API_AUDIENCE}"
+            HINTERLAND_ENTRA_CLIENT_APP_ID="${QA_ENTRA_CLIENT_ID}"
+            HINTERLAND_ENTRA_REQUIRED_SCOPE=user.access
+            HINTERLAND_ENTRA_ISSUER="https://login.microsoftonline.com/${QA_ENTRA_TENANT_ID}/v2.0"
+            HINTERLAND_ENTRA_JWKS_URL="https://login.microsoftonline.com/${QA_ENTRA_TENANT_ID}/discovery/v2.0/keys"
+            HINTERLAND_KID_JWT_ISSUER="${QA_KID_JWT_ISSUER}"
+            HINTERLAND_KID_JWT_AUDIENCE="${QA_KID_JWT_AUDIENCE}"
+            HINTERLAND_KID_JWT_KID="${QA_KID_JWT_KID}"
+            HINTERLAND_KEY_VAULT_URL="${QA_KEY_VAULT_URL}"
+            HINTERLAND_KEY_VAULT_KID_SIGNING_SECRET="${QA_KID_SIGNING_SECRET}"
+            HINTERLAND_KEY_VAULT_KID_PUBLIC_SECRET="${QA_KID_PUBLIC_SECRET}"
+            HINTERLAND_SERVICE_BUS_NAMESPACE="${AZURE_SERVICE_BUS_NAMESPACE}.servicebus.windows.net"
+            HINTERLAND_SERVICE_BUS_MODERATION_QUEUE="${AZURE_MODERATION_QUEUE}"
+            HINTERLAND_SERVICE_BUS_INAT_QUEUE="${AZURE_DISABLED_INAT_QUEUE}"
+            HINTERLAND_DATABASE_HOST="${AZURE_POSTGRES_HOST}"
+            HINTERLAND_DATABASE_PORT=5432
+            HINTERLAND_DATABASE_NAME="${AZURE_POSTGRES_DATABASE}"
+            HINTERLAND_DATABASE_USER="${AZURE_POSTGRES_USER}"
+            HINTERLAND_DATABASE_PASSWORD=secretref:pg-password
+            HINTERLAND_READINESS_DATABASE_REQUIRED=true
+            HINTERLAND_INAT_SUBMIT_ENABLED=false
+            HINTERLAND_DEV_AUTH_ENABLED=false
+            HINTERLAND_ALLOW_STUB_AUTH=false
+          )
+          for pair in "${expected_runtime[@]}"; do
+            name="${pair%%=*}"
+            expected="${pair#*=}"
+            actual="$(jq -r --arg name "${name}" '
+              [.properties.template.containers[0].env[] |
+                select(.name == $name) |
+                if .secretRef then "secretref:" + .secretRef else .value end
+              ][0] // empty
+            ' <<<"${app_json}")"
+            test "${actual}" = "${expected}"
+          done
+          env_names="$(jq -r \
+            '.properties.template.containers[0].env[].name' <<<"${app_json}")"
+          ! grep -Eiq '^DRAGONFLY_' <<<"${env_names}"
+          for forbidden in \
+            HINTERLAND_DATABASE_PASSWORD_SECRET \
+            HINTERLAND_DEV_AUTH_TOKEN \
+            HINTERLAND_KID_JWT_SIGNING_PEM \
+            HINTERLAND_KID_JWT_PUBLIC_PEM \
+            HINTERLAND_INAT_OAUTH_TOKEN \
+            HINTERLAND_INAT_SUBMIT_TOKEN; do
+            ! grep -Fxq "${forbidden}" <<<"${env_names}"
+          done
+          jq -e --arg expected "${api_identity_id,,}" '
+            .identity.type == "UserAssigned" and
+            ((.identity.userAssignedIdentities // {}) | length == 1) and
+            ([((.identity.userAssignedIdentities // {}) | keys[]) |
+              ascii_downcase] | index($expected) != null)
+          ' <<<"${app_json}" >/dev/null
 
           for secret in \
             inat-cv-token \
@@ -208,11 +320,14 @@ jobs:
       - name: Enable the exact bounded qualification lease
         run: |
           set -euo pipefail
-          identity_id="$(az identity show \
+          identity_json="$(az identity show \
             --name "${AZURE_API_UAMI}" \
             --resource-group "${AZURE_RESOURCE_GROUP}" \
-            --query id --output tsv)"
+            --output json)"
+          identity_id="$(jq -r '.id' <<<"${identity_json}")"
+          identity_client_id="$(jq -r '.clientId' <<<"${identity_json}")"
           test -n "${identity_id}"
+          test -n "${identity_client_id}"
           vault_token="$(az account get-access-token \
             --resource https://vault.azure.net \
             --query accessToken --output tsv)"
@@ -259,32 +374,124 @@ jobs:
             --name "${AZURE_CONTAINER_APP}" \
             --resource-group "${AZURE_RESOURCE_GROUP}" \
             --secrets \
-              "inat-cv-token=keyvaultref:https://${AZURE_KEY_VAULT}.vault.azure.net/secrets/inat-cv-token,identityref:${identity_id}" \
-              "inat-cv-qualification-key=keyvaultref:https://${AZURE_KEY_VAULT}.vault.azure.net/secrets/${QUALIFICATION_SECRET_NAME},identityref:${identity_id}" \
+              "pg-password=keyvaultref:${QA_KEY_VAULT_URL}secrets/postgres-qa-password,identityref:${identity_id}" \
+              "content-safety-endpoint=keyvaultref:${QA_KEY_VAULT_URL}secrets/content-safety-endpoint,identityref:${identity_id}" \
+              "content-safety-key=keyvaultref:${QA_KEY_VAULT_URL}secrets/content-safety-key,identityref:${identity_id}" \
+              "inat-cv-token=keyvaultref:${QA_KEY_VAULT_URL}secrets/inat-cv-token,identityref:${identity_id}" \
+              "inat-cv-qualification-key=keyvaultref:${QA_KEY_VAULT_URL}secrets/${QUALIFICATION_SECRET_NAME},identityref:${identity_id}" \
             --output none
+          qualification_runtime=(
+            AZURE_CLIENT_ID="${identity_client_id}"
+            HINTERLAND_ENV=prod
+            "HINTERLAND_APP_NAME=Hinterland API"
+            HINTERLAND_APP_VERSION="${GITHUB_SHA}"
+            HINTERLAND_DEPLOYMENT_IMAGE_DIGEST="${IMAGE_DIGEST}"
+            HINTERLAND_RELEASE_LANE=adult_qa
+            HINTERLAND_LOG_LEVEL=INFO
+            HINTERLAND_CORS_ORIGINS="${QA_CORS_ORIGINS}"
+            HINTERLAND_PARENT_WEB_BASE_URL="${QA_PARENT_ORIGIN}"
+            HINTERLAND_ADULT_QA_CONSENT_POLICY_VERSION="${QA_CONSENT_POLICY_VERSION}"
+            HINTERLAND_SHARED_GROUPS_ENABLED="${SHARED_GROUPS_ENABLED}"
+            HINTERLAND_SHARED_GROUPS_CANARY_GROUP_IDS=[]
+            HINTERLAND_PHOTOS_BUCKET="${AZURE_PHOTOS_CONTAINER}"
+            HINTERLAND_TAXONOMY_PACKS_BUCKET="${AZURE_TAXONOMY_PACKS_CONTAINER}"
+            HINTERLAND_OBSERVATION_IDEMPOTENCY_REQUIRED=true
+            HINTERLAND_CONTENT_ROOT=/app/content/expeditions
+            HINTERLAND_STORAGE_PROVIDER=blob
+            HINTERLAND_BLOB_ACCOUNT_ENDPOINT="${QA_BLOB_ACCOUNT_ENDPOINT}"
+            HINTERLAND_ENTRA_TENANT_ID="${QA_ENTRA_TENANT_ID}"
+            HINTERLAND_ENTRA_API_AUDIENCE="${QA_ENTRA_API_AUDIENCE}"
+            HINTERLAND_ENTRA_CLIENT_APP_ID="${QA_ENTRA_CLIENT_ID}"
+            HINTERLAND_ENTRA_REQUIRED_SCOPE=user.access
+            HINTERLAND_ENTRA_ISSUER="https://login.microsoftonline.com/${QA_ENTRA_TENANT_ID}/v2.0"
+            HINTERLAND_ENTRA_JWKS_URL="https://login.microsoftonline.com/${QA_ENTRA_TENANT_ID}/discovery/v2.0/keys"
+            HINTERLAND_KID_JWT_ISSUER="${QA_KID_JWT_ISSUER}"
+            HINTERLAND_KID_JWT_AUDIENCE="${QA_KID_JWT_AUDIENCE}"
+            HINTERLAND_KID_JWT_KID="${QA_KID_JWT_KID}"
+            HINTERLAND_KEY_VAULT_URL="${QA_KEY_VAULT_URL}"
+            HINTERLAND_KEY_VAULT_KID_SIGNING_SECRET="${QA_KID_SIGNING_SECRET}"
+            HINTERLAND_KEY_VAULT_KID_PUBLIC_SECRET="${QA_KID_PUBLIC_SECRET}"
+            HINTERLAND_INAT_BASE_URL=https://api.inaturalist.org/v1
+            HINTERLAND_INAT_CV_ENABLED=true
+            HINTERLAND_INAT_CV_DISCLOSURE_APPROVED=true
+            HINTERLAND_INAT_CV_BENCHMARK_APPROVED=false
+            HINTERLAND_INAT_CV_TOKEN=secretref:inat-cv-token
+            HINTERLAND_INAT_CV_QUALIFICATION_ENABLED=true
+            HINTERLAND_INAT_CV_QUALIFICATION_KEY=secretref:inat-cv-qualification-key
+            HINTERLAND_INAT_CV_QUALIFICATION_RUN_ID="${QUALIFICATION_RUN_ID}"
+            HINTERLAND_INAT_CV_QUALIFICATION_MANIFEST_SHA256="${QUALIFICATION_MANIFEST_SHA256}"
+            HINTERLAND_INAT_CV_QUALIFICATION_EXPIRES_AT="${QUALIFICATION_EXPIRES_AT}"
+            HINTERLAND_INAT_CV_QUALIFICATION_CASES="${QUALIFICATION_CASES}"
+            HINTERLAND_INAT_SUBMIT_ENABLED=false
+            HINTERLAND_ORGANISM_FALLBACK_PROVIDER=noop
+            HINTERLAND_GEOCODING_PROVIDER=noop
+            HINTERLAND_MODERATION_PROVIDER=azure_content_safety
+            HINTERLAND_CONTENT_SAFETY_ENDPOINT=secretref:content-safety-endpoint
+            HINTERLAND_CONTENT_SAFETY_KEY=secretref:content-safety-key
+            HINTERLAND_SERVICE_BUS_NAMESPACE="${AZURE_SERVICE_BUS_NAMESPACE}.servicebus.windows.net"
+            HINTERLAND_SERVICE_BUS_MODERATION_QUEUE="${AZURE_MODERATION_QUEUE}"
+            HINTERLAND_SERVICE_BUS_INAT_QUEUE="${AZURE_DISABLED_INAT_QUEUE}"
+            HINTERLAND_DATABASE_HOST="${AZURE_POSTGRES_HOST}"
+            HINTERLAND_DATABASE_PORT=5432
+            HINTERLAND_DATABASE_NAME="${AZURE_POSTGRES_DATABASE}"
+            HINTERLAND_DATABASE_USER="${AZURE_POSTGRES_USER}"
+            HINTERLAND_DATABASE_PASSWORD=secretref:pg-password
+            HINTERLAND_READINESS_DATABASE_REQUIRED=true
+            HINTERLAND_DEV_AUTH_ENABLED=false
+            HINTERLAND_ALLOW_STUB_AUTH=false
+          )
           az containerapp update \
             --name "${AZURE_CONTAINER_APP}" \
             --resource-group "${AZURE_RESOURCE_GROUP}" \
             --image "${IMAGE}" \
-            --set-env-vars \
-              HINTERLAND_APP_VERSION="${GITHUB_SHA}" \
-              HINTERLAND_DEPLOYMENT_IMAGE_DIGEST="${IMAGE_DIGEST}" \
-              HINTERLAND_RELEASE_LANE=adult_qa \
-              HINTERLAND_MODERATION_PROVIDER=azure_content_safety \
-              HINTERLAND_CONTENT_SAFETY_ENDPOINT=secretref:content-safety-endpoint \
-              HINTERLAND_CONTENT_SAFETY_KEY=secretref:content-safety-key \
-              HINTERLAND_INAT_CV_ENABLED=true \
-              HINTERLAND_INAT_CV_DISCLOSURE_APPROVED=true \
-              HINTERLAND_INAT_CV_BENCHMARK_APPROVED=false \
-              HINTERLAND_INAT_CV_TOKEN=secretref:inat-cv-token \
-              HINTERLAND_INAT_CV_QUALIFICATION_ENABLED=true \
-              HINTERLAND_INAT_CV_QUALIFICATION_KEY=secretref:inat-cv-qualification-key \
-              HINTERLAND_INAT_CV_QUALIFICATION_RUN_ID="${QUALIFICATION_RUN_ID}" \
-              HINTERLAND_INAT_CV_QUALIFICATION_MANIFEST_SHA256="${QUALIFICATION_MANIFEST_SHA256}" \
-              HINTERLAND_INAT_CV_QUALIFICATION_EXPIRES_AT="${QUALIFICATION_EXPIRES_AT}" \
-              HINTERLAND_INAT_CV_QUALIFICATION_CASES="${QUALIFICATION_CASES}" \
-              HINTERLAND_INAT_SUBMIT_ENABLED=false \
+            --replace-env-vars "${qualification_runtime[@]}" \
+            --remove-env-vars \
+              HINTERLAND_DATABASE_PASSWORD_SECRET \
+              HINTERLAND_DEV_AUTH_TOKEN \
+              HINTERLAND_KID_JWT_SIGNING_PEM \
+              HINTERLAND_KID_JWT_PUBLIC_PEM \
+              HINTERLAND_INAT_OAUTH_TOKEN \
+              HINTERLAND_INAT_SUBMIT_TOKEN \
             --output none
+
+          active_json="$(az containerapp show \
+            --name "${AZURE_CONTAINER_APP}" \
+            --resource-group "${AZURE_RESOURCE_GROUP}" --output json)"
+          test "$(jq -r '.properties.template.containers[0].image' \
+            <<<"${active_json}")" = "${IMAGE}"
+          for pair in "${qualification_runtime[@]}"; do
+            name="${pair%%=*}"
+            expected="${pair#*=}"
+            actual="$(jq -r --arg name "${name}" '
+              [.properties.template.containers[0].env[] |
+                select(.name == $name) |
+                if .secretRef then "secretref:" + .secretRef else .value end
+              ][0] // empty
+            ' <<<"${active_json}")"
+            test "${actual}" = "${expected}"
+          done
+          env_names="$(jq -r \
+            '.properties.template.containers[0].env[].name' <<<"${active_json}")"
+          ! grep -Eiq '^DRAGONFLY_' <<<"${env_names}"
+          app_secrets="$(az containerapp secret list \
+            --name "${AZURE_CONTAINER_APP}" \
+            --resource-group "${AZURE_RESOURCE_GROUP}" --output json)"
+          test "$(jq 'length' <<<"${app_secrets}")" = 5
+          jq -e \
+            --arg identity "${identity_id,,}" \
+            --arg vault "${QA_KEY_VAULT_URL}" '
+              all(.[];
+                ((.identity // "") | ascii_downcase) == $identity and
+                ((.keyVaultUrl // "") | ascii_downcase |
+                  startswith($vault | ascii_downcase))) and
+              ([.[].name] | sort) == ([
+                "content-safety-endpoint",
+                "content-safety-key",
+                "inat-cv-qualification-key",
+                "inat-cv-token",
+                "pg-password"
+              ] | sort)
+            ' <<<"${app_secrets}" >/dev/null
 
           for _ in $(seq 1 90); do
             meta="$(curl --fail --silent --show-error \
@@ -316,7 +523,6 @@ jobs:
       - name: Run the protected 50-photo provider benchmark
         env:
           HINTERLAND_QA_BENCHMARK_BEARER: ${{ secrets.HINTERLAND_QA_BENCHMARK_BEARER }}
-          HINTERLAND_QA_CV_QUALIFICATION_KEY: ${{ secrets.HINTERLAND_QA_CV_QUALIFICATION_KEY }}
         run: |
           set -euo pipefail
           backend/.venv/bin/python scripts/qa_inat_cv_benchmark.py \
@@ -373,77 +579,20 @@ jobs:
       - name: Disable qualification and remove runtime credential mappings
         if: always()
         run: |
-          set -euo pipefail
+          set -uo pipefail
           cleanup_result=not_required
+          cleanup_exit=0
           if [[ -n "${IMAGE:-}" ]]; then
-            az containerapp update \
-              --name "${AZURE_CONTAINER_APP}" \
-              --resource-group "${AZURE_RESOURCE_GROUP}" \
-              --image "${IMAGE}" \
-              --set-env-vars \
-                HINTERLAND_APP_VERSION="${GITHUB_SHA}" \
-                HINTERLAND_DEPLOYMENT_IMAGE_DIGEST="${IMAGE_DIGEST}" \
-                HINTERLAND_RELEASE_LANE=adult_qa \
-                HINTERLAND_MODERATION_PROVIDER=azure_content_safety \
-                HINTERLAND_INAT_CV_ENABLED=false \
-                HINTERLAND_INAT_CV_DISCLOSURE_APPROVED=false \
-                HINTERLAND_INAT_CV_BENCHMARK_APPROVED=false \
-                HINTERLAND_INAT_CV_QUALIFICATION_ENABLED=false \
-                HINTERLAND_INAT_SUBMIT_ENABLED=false \
-              --remove-env-vars \
-                HINTERLAND_INAT_CV_TOKEN \
-                HINTERLAND_INAT_CV_QUALIFICATION_KEY \
-                HINTERLAND_INAT_CV_QUALIFICATION_RUN_ID \
-                HINTERLAND_INAT_CV_QUALIFICATION_MANIFEST_SHA256 \
-                HINTERLAND_INAT_CV_QUALIFICATION_EXPIRES_AT \
-                HINTERLAND_INAT_CV_QUALIFICATION_CASES \
-              --output none
-            for _ in $(seq 1 90); do
-              meta="$(curl --fail --silent --show-error \
-                "${QA_API_ORIGIN}/v1/meta" 2>/dev/null || true)"
-              if jq -e \
-                --arg sha "${GITHUB_SHA}" \
-                --arg digest "${IMAGE_DIGEST}" '
-                  .release_lane == "adult_qa" and
-                  .version == $sha and
-                  .image_digest == $digest and
-                  .capabilities.observation.photo_helper_enabled == false and
-                  .capabilities.integrations.cv_qualification_enabled == false and
-                  .capabilities.integrations.public_inat_submission_enabled == false
-                ' <<<"${meta}" >/dev/null 2>&1; then
-                break
-              fi
-              sleep 5
-            done
-            jq -e '
-              .capabilities.observation.photo_helper_enabled == false and
-              .capabilities.integrations.cv_qualification_enabled == false and
-              .capabilities.integrations.public_inat_submission_enabled == false
-            ' <<<"${meta}" >/dev/null
-            existing_secrets="$(az containerapp secret list \
-              --name "${AZURE_CONTAINER_APP}" \
-              --resource-group "${AZURE_RESOURCE_GROUP}" \
-              --query '[].name' --output tsv)"
-            secrets_to_remove=()
-            for secret in inat-cv-token inat-cv-qualification-key; do
-              if grep -Fxq "${secret}" <<<"${existing_secrets}"; then
-                secrets_to_remove+=("${secret}")
-              fi
-            done
-            if (( ${#secrets_to_remove[@]} > 0 )); then
-              az containerapp secret remove \
-                --name "${AZURE_CONTAINER_APP}" \
-                --resource-group "${AZURE_RESOURCE_GROUP}" \
-                --secret-names "${secrets_to_remove[@]}" \
-                --output none
+            bash infra-azure/adult-qa-cv-qualification-cleanup.sh \
+              --expected-sha "${GITHUB_SHA}" \
+              --expected-digest "${IMAGE_DIGEST}" \
+              --qualification-secret-name "${QUALIFICATION_SECRET_NAME}" ||
+              cleanup_exit=$?
+            if [[ "${cleanup_exit}" = 0 ]]; then
+              cleanup_result=passed
+            else
+              cleanup_result=failed
             fi
-            if [[ -n "${QUALIFICATION_SECRET_NAME:-}" ]]; then
-              az keyvault secret delete \
-                --vault-name "${AZURE_KEY_VAULT}" \
-                --name "${QUALIFICATION_SECRET_NAME}" \
-                --output none
-            fi
-            cleanup_result=passed
           fi
           if [[ -f promotion-artifact/qualification-summary.json ]]; then
             jq --arg cleanup_result "${cleanup_result}" \
@@ -453,6 +602,7 @@ jobs:
             mv promotion-artifact/qualification-summary.tmp \
               promotion-artifact/qualification-summary.json
           fi
+          exit "${cleanup_exit}"
 
       - name: Destroy the private manifest copy
         if: always()
@@ -494,3 +644,25 @@ jobs:
           path: promotion-artifact
           if-no-files-found: error
           retention-days: 90
+
+  sweep-expired-qualification:
+    name: Sweep an expired or abandoned QA CV qualification lease
+    if: github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Fail-closed sweep of expired or abandoned qualification state
+        run: |
+          set -euo pipefail
+          bash infra-azure/adult-qa-cv-qualification-cleanup.sh --expired-only

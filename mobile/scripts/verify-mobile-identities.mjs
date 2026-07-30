@@ -11,6 +11,7 @@ const easProjectId = "278f4a33-e1b1-4468-8d02-a51defe03267";
 const qaProjectId = "11111111-1111-4111-8111-111111111111";
 const qaClientId = "22222222-2222-4222-8222-222222222222";
 const qaTenantId = "33333333-3333-4333-8333-333333333333";
+const qaAudience = "44444444-4444-4444-8444-444444444444";
 const npx = process.platform === "win32" ? "npx.cmd" : "npx";
 
 for (const [profile, packageName] of Object.entries(profiles)) {
@@ -25,6 +26,7 @@ for (const [profile, packageName] of Object.entries(profiles)) {
         HINTERLAND_QA_EAS_PROJECT_ID: qaProjectId,
         HINTERLAND_QA_ENTRA_CLIENT_ID: qaClientId,
         HINTERLAND_QA_ENTRA_TENANT_ID: qaTenantId,
+        HINTERLAND_QA_ENTRA_API_AUDIENCE: qaAudience,
       },
       shell: process.platform === "win32",
     },
@@ -46,6 +48,12 @@ for (const [profile, packageName] of Object.entries(profiles)) {
   if (config.ios?.bundleIdentifier !== packageName) errors.push(`ios=${config.ios?.bundleIdentifier}`);
   if (!String(config.name ?? "").startsWith("The Hinterland Guide")) {
     errors.push(`name=${config.name}`);
+  }
+  if (
+    isAdultQa &&
+    config.extra?.entra?.scope !== `api://${qaAudience}/user.access`
+  ) {
+    errors.push(`entra.scope=${config.extra?.entra?.scope}`);
   }
   if (
     profile === "production" ||

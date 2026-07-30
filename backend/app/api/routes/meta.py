@@ -132,6 +132,7 @@ def meta(settings: SettingsDep) -> ApiMetaResponse:
         env=settings.env,
         release_lane=settings.release_lane,
         version=settings.app_version,
+        image_digest=settings.deployment_image_digest or None,
         capabilities=ApiCapabilities(
             observation=ObservationCapabilities(
                 photo_helper_enabled=settings.photo_helper_enabled,

@@ -16,7 +16,12 @@ jest.mock("expo-constants", () => ({
         updatesChannel: "test",
         expectedApiLane: "local",
         enforceReleaseLane: false,
-        entra: { clientId: "test", authority: "test", redirectUri: "test" },
+        entra: {
+          clientId: "test",
+          authority: "test",
+          redirectUri: "test",
+          scope: "api://jest.invalid/user.access",
+        },
         devLoginKey: null,
       },
     },

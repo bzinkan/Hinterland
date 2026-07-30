@@ -47,8 +47,16 @@ Create a GitHub environment named `adult-qa-promotion`:
 - restrict deployments to `main`;
 - require an adult reviewer;
 - retain repository-scoped Azure OIDC credentials; and
-- set the non-secret environment variable
-  `HINTERLAND_QA_COST_APPROVAL_ID` to the retained approval record ID.
+- set the non-secret environment variables:
+  - `HINTERLAND_QA_COST_APPROVAL_ID` to the retained approval record ID;
+  - `HINTERLAND_QA_EAS_PROJECT_ID` to the separate QA EAS project UUID;
+  - `HINTERLAND_QA_ENTRA_TENANT_ID` to the QA tenant UUID;
+  - `HINTERLAND_QA_ENTRA_API_AUDIENCE` to the dedicated QA API app UUID; and
+  - `HINTERLAND_QA_ENTRA_CLIENT_ID` to the dedicated QA public-client UUID.
+
+The QA mobile build derives its only adult API scope as
+`api://<HINTERLAND_QA_ENTRA_API_AUDIENCE>/user.access`. Promotion rejects the
+W1 API audience and client IDs.
 
 Add environment secrets without copying values into issues, logs, or chat:
 
@@ -63,8 +71,14 @@ printing the token. It does not skip the authenticated parent → synthetic kid
 → clean Observation canary.
 
 The workflow does not provision missing resources. It verifies the exact QA
-contract, runs migrations before workers/API, deploys one digest, runs the
-authenticated canary, and keeps public iNaturalist submission disabled.
+contract, pins each API/job runtime's `AZURE_CLIENT_ID` to its sole assigned
+QA user-managed identity, runs migrations before workers/API, deploys one
+digest, runs the authenticated canary, and keeps public iNaturalist submission
+disabled.
+
+Promotion, bounded CV qualification, and the hourly expired-lease sweep share
+the `adult-qa-runtime-mutation` concurrency group. Do not dispatch a second
+runtime mutation while one is queued or running.
 
 Dispatch from `main`:
 
@@ -152,6 +166,13 @@ manifest SHA-256, an expiry 30 minutes–24 hours away, and the confirmation
 6. archives aggregate evidence only; and
 7. always disables qualification, removes its runtime variables and secret
    mappings, and destroys the runner’s private manifest copy.
+
+The same workflow runs an hourly fail-closed sweeper. It invokes
+`infra-azure/adult-qa-cv-qualification-cleanup.sh --expired-only`, leaves a
+normally promoted CV credential untouched when no qualification residue
+exists, and removes expired or abandoned qualification variables, runtime
+secret mappings, and the run-scoped Key Vault secret. The script verifies the
+live API capability posture before succeeding; it never targets W1 resources.
 
 After reviewing a passing aggregate, record its run ULID and evidence SHA-256
 as the two protected approval variables named above. Delete the two

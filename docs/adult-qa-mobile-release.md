@@ -23,6 +23,7 @@ provisioning output:
 - `HINTERLAND_QA_EAS_PROJECT_ID`
 - `HINTERLAND_QA_ENTRA_CLIENT_ID`
 - `HINTERLAND_QA_ENTRA_TENANT_ID`
+- `HINTERLAND_QA_ENTRA_API_AUDIENCE`
 
 They are identifiers, not credentials. No development-login key is embedded.
 

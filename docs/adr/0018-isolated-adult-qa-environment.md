@@ -53,10 +53,15 @@ fails before migration.
 | Service Bus | `hinterland-sb-qa`, QA-only moderation queue and DLQ |
 | Content Safety | `hinterland-content-safety-qa` |
 | Database | `hinterland_qa` / `hinterland_qa_app` on the shared server |
-| Adult auth | Dedicated QA Entra API and client registrations |
+| Adult auth | Dedicated QA Entra API/client registrations and `api://<qa-api-id>/user.access` scope |
 | Kid auth | QA-only issuer, audience, signing keys, and key ID |
 | API | `https://qa-api.thehinterlandguide.app` |
 | Parent web | `https://qa-parents.thehinterlandguide.app` |
+
+Every Container App and job is assigned exactly one QA user-assigned managed
+identity. Its runtime map pins `AZURE_CLIENT_ID` to that identity's exact
+client ID so `DefaultAzureCredential` cannot select a W1 identity or an
+ambiguous credential.
 
 `GET /v1/meta` and every API response identify the `adult_qa` release lane.
 The QA mobile client expects that lane and fails closed before authentication,
@@ -92,8 +97,8 @@ resource creation.
 The protected `adult-qa-promotion` workflow:
 
 1. runs repository and disposable-PostgreSQL checks;
-2. verifies the QA resource, domain, identity, database, queue, lifecycle, and
-   alert contracts;
+2. verifies the QA resource, domain, identity assignment and exact
+   `AZURE_CLIENT_ID`, database, queue, lifecycle, and alert contracts;
 3. builds one immutable image digest;
 4. pins only preflight and migration jobs to that digest;
 5. runs preflight and additive migrations;
@@ -114,6 +119,9 @@ runtime variables and secret mappings, and destroys the private manifest copy.
 Normal kid-facing photo-helper capability remains false throughout
 qualification. A later promotion can enable CV only when its run ULID and
 aggregate evidence digest match protected operator-reviewed values.
+Promotion, qualification, and the scheduled expiry sweep share one
+non-canceling repository concurrency group, so only one may mutate the QA API
+environment or secrets at a time.
 
 ## Consequences
 

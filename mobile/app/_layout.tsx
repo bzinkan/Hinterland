@@ -2,7 +2,7 @@ import FontAwesome from '@expo/vector-icons/FontAwesome';
 import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native';
 import { QueryClientProvider } from '@tanstack/react-query';
 import { useFonts } from 'expo-font';
-import { Stack } from 'expo-router';
+import { Stack, usePathname } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { useCallback, useEffect, useState } from 'react';
 import {
@@ -43,6 +43,7 @@ export const unstable_settings = {
 SplashScreen.preventAutoHideAsync();
 
 export default function RootLayout() {
+  const pathname = usePathname();
   const [loaded, error] = useFonts({
     SpaceMono: require('../assets/fonts/SpaceMono-Regular.ttf'),
     ...FontAwesome.font,
@@ -101,6 +102,11 @@ export default function RootLayout() {
       <ReleaseLaneGateScreen
         state={laneGate}
         onRetry={retryLaneGate}
+        checkingTitle={
+          pathname === '/auth/callback'
+            ? 'Finishing secure sign-in…'
+            : 'Verifying test lane'
+        }
       />
     );
   }
@@ -156,18 +162,20 @@ function RootLayoutNav({ probe }: { probe: ReleaseLaneProbe }) {
 function ReleaseLaneGateScreen({
   state,
   onRetry,
+  checkingTitle,
 }: {
   state:
     | { kind: 'checking' }
     | { kind: 'blocked'; error: ReleaseLaneConfigurationError };
   onRetry: () => void;
+  checkingTitle: string;
 }) {
   return (
     <View style={styles.gatePage}>
       <View style={styles.gateSeal}>
         <Text style={styles.gateEyebrow}>ADULT QA SAFETY CHECK</Text>
         <Text style={styles.gateTitle}>
-          {state.kind === 'checking' ? 'Verifying test lane' : 'Connection blocked'}
+          {state.kind === 'checking' ? checkingTitle : 'Connection blocked'}
         </Text>
         {state.kind === 'checking' ? (
           <View style={styles.gateProgress}>

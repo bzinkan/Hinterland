@@ -84,6 +84,15 @@ function setup(accounts: AccountInfo[], active: AccountInfo | null) {
 }
 
 describe("MSAL active-account and token-publication safety", () => {
+  it("uses the lane-specific API scope from the signed build configuration", () => {
+    const source = readFileSync(resolve(__dirname, "../msal.ts"), "utf8");
+
+    expect(source).toContain("const ENTRA_SCOPES = [env.entra.scope]");
+    expect(source).not.toContain(
+      'const ENTRA_SCOPES = ["api://hinterland-api/user.access"]',
+    );
+  });
+
   it("clears the published adult identity before interactive account selection", () => {
     const source = readFileSync(resolve(__dirname, "../msal.ts"), "utf8");
     const signInBody = source.slice(

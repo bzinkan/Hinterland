@@ -14,6 +14,9 @@ const qaClientId =
 const qaTenantId =
   process.env.HINTERLAND_QA_ENTRA_TENANT_ID ??
   "33333333-3333-4333-8333-333333333333";
+const qaAudience =
+  process.env.HINTERLAND_QA_ENTRA_API_AUDIENCE ??
+  "44444444-4444-4444-8444-444444444444";
 
 const raw = execFileSync(
   process.execPath,
@@ -27,6 +30,7 @@ const raw = execFileSync(
       HINTERLAND_QA_EAS_PROJECT_ID: qaProjectId,
       HINTERLAND_QA_ENTRA_CLIENT_ID: qaClientId,
       HINTERLAND_QA_ENTRA_TENANT_ID: qaTenantId,
+      HINTERLAND_QA_ENTRA_API_AUDIENCE: qaAudience,
     },
     encoding: "utf8",
     stdio: ["ignore", "pipe", "inherit"],
@@ -88,6 +92,14 @@ assert(
   extra.entra?.redirectUri ===
     "https://qa-parents.thehinterlandguide.app/auth/callback",
   "Adult QA Entra callback is wrong",
+);
+assert(
+  extra.entra?.scope === `api://${qaAudience}/user.access`,
+  "Adult QA must request only the isolated QA API scope",
+);
+assert(
+  extra.entra?.scope !== "api://hinterland-api/user.access",
+  "Adult QA must not request the W1 API scope",
 );
 assert(config.updates?.enabled === true, "Adult QA must include the updates runtime");
 assert(

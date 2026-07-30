@@ -104,10 +104,10 @@ class Settings(BaseSettings):
     storage_provider: Literal["noop", "blob"] = "blob"
     blob_account_endpoint: str = ""
 
-    # Microsoft Entra External ID -- adult auth. The mobile client requests
-    # the api://hinterland-api/user.access scope, but Entra v2 access tokens
-    # carry the API application's client ID (GUID) in ``aud``. The verifier is
-    # JWKS-only via PyJWT; msal lives in the mobile client.
+    # Microsoft Entra External ID -- adult auth. Each release lane's mobile
+    # client requests that lane's API scope; Entra v2 access tokens carry the
+    # API application's client ID (GUID) in ``aud``. The verifier is JWKS-only
+    # via PyJWT; MSAL lives in the mobile client.
     entra_tenant_id: str = "18dbd7fa-c411-49bc-82fc-9ccaa26e3404"
     entra_api_audience: str = "7dd9da3c-b7d6-45d4-955b-d7561c43f209"
     entra_client_app_id: str = "60504e4c-6b5f-4031-a80a-3e4bdfae29b2"

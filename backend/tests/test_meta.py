@@ -105,6 +105,26 @@ def test_v1_meta_returns_versioned_api_metadata(client: TestClient) -> None:
     }
 
 
+def test_v1_meta_reports_image_digest_without_exposing_it_on_health() -> None:
+    digest = f"sha256:{'a' * 64}"
+    app = create_app(
+        Settings(
+            env="local",
+            app_version="test",
+            deployment_image_digest=digest,
+        )
+    )
+
+    with TestClient(app) as test_client:
+        health_response = test_client.get("/health")
+        meta_response = test_client.get("/v1/meta")
+
+    assert health_response.status_code == 200
+    assert "image_digest" not in health_response.json()
+    assert meta_response.status_code == 200
+    assert meta_response.json()["image_digest"] == digest
+
+
 def test_v1_meta_enables_photo_helper_only_after_every_gate() -> None:
     app = create_app(
         Settings(
