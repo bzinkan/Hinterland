@@ -431,6 +431,7 @@ def test_parent_signup_concurrent_identity_insert_loads_winner_and_revalidates_p
         verified_email="parent@example.com",
         consent_id=_CONSENT_ID,
         consent_nonce=_CONSENT_NONCE,
+        policy_version=CURRENT_PARENT_CONSENT_POLICY_VERSION,
     )
     fake_session.commit.assert_not_awaited()
 
@@ -500,6 +501,7 @@ def test_parent_signup_links_current_reconsent_for_existing_user(
         verified_email="parent@example.com",
         consent_id=_CONSENT_ID,
         consent_nonce=_CONSENT_NONCE,
+        policy_version=CURRENT_PARENT_CONSENT_POLICY_VERSION,
     )
     fake_session.commit.assert_awaited_once()
 

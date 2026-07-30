@@ -51,6 +51,9 @@ class Settings(BaseSettings):
     log_level: LogLevel = "INFO"
     cors_origins: list[str] = Field(default_factory=_default_cors_origins)
     parent_web_base_url: str = "https://parents.thehinterlandguide.app"
+    adult_qa_consent_policy_version: Literal[
+        "2026-07-30-ADULT-QA-EGRESS-V1"
+    ] = "2026-07-30-ADULT-QA-EGRESS-V1"
 
     # Privacy-safe multi-family Groups ship default-deny. The global flag is
     # the eventual rollout switch; canary IDs let operators exercise one
@@ -66,6 +69,14 @@ class Settings(BaseSettings):
         """True when any global or explicitly scoped shared-Groups rollout exists."""
 
         return self.shared_groups_enabled or bool(self.shared_groups_canary_group_ids)
+
+    @property
+    def parent_consent_policy_version(self) -> str:
+        """Return the disclosure version accepted by this isolated lane."""
+
+        if self.release_lane == "adult_qa":
+            return self.adult_qa_consent_policy_version
+        return "2026-07-11-W1-INTERNAL"
 
     photos_bucket: str = "photos"
     # W1 pilot environments require the same ULID on presign and finalization.
