@@ -72,7 +72,6 @@ def _health_response(settings: Settings) -> HealthResponse:
         status="ok",
         env=settings.env,
         version=settings.app_version,
-        image_digest=settings.deployment_image_digest or None,
     )
 
 
