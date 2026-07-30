@@ -239,6 +239,7 @@ async def parent_signup(
                 verified_email=current_user.email,
                 consent_id=request_body.consent_id,
                 consent_nonce=request_body.consent_nonce,
+                policy_version=settings.parent_consent_policy_version,
             )
         except CurrentParentConsentRequiredError as exc:
             await session.rollback()
@@ -302,6 +303,7 @@ async def parent_signup(
                 verified_email=current_user.email,
                 consent_id=request_body.consent_id,
                 consent_nonce=request_body.consent_nonce,
+                policy_version=settings.parent_consent_policy_version,
             )
         except CurrentParentConsentRequiredError as proof_exc:
             await session.rollback()
@@ -325,6 +327,7 @@ async def parent_signup(
             verified_email=current_user.email,
             consent_id=request_body.consent_id,
             consent_nonce=request_body.consent_nonce,
+            policy_version=settings.parent_consent_policy_version,
         )
     except CurrentParentConsentRequiredError as exc:
         await session.rollback()
@@ -816,10 +819,11 @@ def _consent_replay_matches(
     record: models.ParentConsentRecord,
     *,
     normalized_email: str,
+    policy_version: str = _CURRENT_POLICY_VERSION,
 ) -> bool:
     return (
         record.parent_email.strip().lower() == normalized_email
-        and record.policy_version == _CURRENT_POLICY_VERSION
+        and record.policy_version == policy_version
     )
 
 
@@ -859,6 +863,7 @@ async def record_consent(
     payload: ConsentRequest,
     response: Response,
     session: DbSessionDep,
+    settings: Annotated[Settings, Depends(get_request_settings)],
 ) -> ConsentResponse:
     """Record COPPA parental consent. Public, unauthenticated.
 
@@ -877,12 +882,13 @@ async def record_consent(
     never claim a receipt.
     """
     _require_valid_consent_nonce(payload.consent_nonce)
-    if payload.policy_version != _CURRENT_POLICY_VERSION:
+    current_policy_version = settings.parent_consent_policy_version
+    if payload.policy_version != current_policy_version:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="Consent policy version is not current",
         )
-    version = _CURRENT_POLICY_VERSION
+    version = current_policy_version
     normalized_email = payload.email.strip().lower()
     nonce_hash = hash_browser_consent_nonce(payload.consent_nonce)
     existing = await _load_consent_by_nonce_hash(session, nonce_hash)
@@ -890,6 +896,7 @@ async def record_consent(
         if not _consent_replay_matches(
             existing,
             normalized_email=normalized_email,
+            policy_version=version,
         ):
             _raise_consent_replay_conflict()
         response.headers["Idempotency-Replayed"] = "true"
@@ -925,6 +932,7 @@ async def record_consent(
         if not _consent_replay_matches(
             winner,
             normalized_email=normalized_email,
+            policy_version=version,
         ):
             _raise_consent_replay_conflict()
         response.headers["Idempotency-Replayed"] = "true"

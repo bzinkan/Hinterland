@@ -14,7 +14,11 @@ import respx
 from fastapi.testclient import TestClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.config import Settings
+from app.core.config import ReleaseLane, Settings
+from app.core.parent_consent import (
+    ADULT_QA_CONSENT_POLICY_VERSION,
+    CurrentParentConsentRequiredError,
+)
 from app.db import models
 from app.db.session import get_db_session
 from app.main import create_app
@@ -25,6 +29,7 @@ _USER_ID = "01J0KIDID0000000000000ULID"
 _GROUP_ID = "01J0GROUPID00000000000ULID"
 _OBS_ID = "01J0OBSID00000000000000ULID"
 _PHOTO_ID = "01J0PHOTOID00000000000ULID"
+_PARENT_ID = "01J0PARENTID0000000000ULID"
 
 
 def _fresh_cv_token() -> str:
@@ -75,11 +80,13 @@ def _build_client(
     storage: _StubStorage | None = None,
     inat_client: httpx.AsyncClient | None = None,
     cv_enabled: bool = True,
+    release_lane: ReleaseLane = "local",
 ) -> Iterator[TestClient]:
     app = create_app(
         Settings(
             env="local",
             app_version="test",
+            release_lane=release_lane,
             inat_cv_token=_fresh_cv_token() if inat_token is None else inat_token,
             inat_cv_enabled=cv_enabled,
             inat_cv_disclosure_approved=cv_enabled,
@@ -110,12 +117,13 @@ def fake_session() -> AsyncMock:
     return AsyncMock(spec=AsyncSession)
 
 
-def _user_row() -> models.User:
+def _user_row(*, parent_user_id: str | None = None) -> models.User:
     return models.User(
         id=_USER_ID,
         firebase_uid=_FIREBASE_UID,
         role="kid",
         display_name="Kid Name",
+        parent_user_id=parent_user_id,
     )
 
 
@@ -272,6 +280,45 @@ def test_identify_is_disabled_by_default_even_with_token(
         assert response.status_code == 200
         assert response.json()["cv_unavailable"] is True
         assert storage.fetch_calls == []
+
+
+def test_adult_qa_identify_requires_exact_parent_disclosure_before_photo_read(
+    monkeypatch: pytest.MonkeyPatch,
+    fake_session: AsyncMock,
+) -> None:
+    _stub_token_verifier(monkeypatch)
+    storage = _StubStorage()
+    _wire_session(
+        fake_session,
+        user=_user_row(parent_user_id=_PARENT_ID),
+        obs_photo=_obs_with_photo(),
+    )
+    require_consent = AsyncMock(
+        side_effect=CurrentParentConsentRequiredError("required")
+    )
+    monkeypatch.setattr(
+        "app.api.routes.observations.require_linked_parent_consent_for_policy",
+        require_consent,
+    )
+
+    for client in _build_client(
+        fake_session,
+        storage=storage,
+        release_lane="adult_qa",
+    ):
+        response = client.post(
+            f"/v1/observations/{_OBS_ID}/identify",
+            headers={"Authorization": "Bearer fake"},
+        )
+
+    assert response.status_code == 409
+    assert "provider disclosure" in response.json()["error"]["message"]
+    assert storage.fetch_calls == []
+    require_consent.assert_awaited_once_with(
+        fake_session,
+        parent_user_id=_PARENT_ID,
+        policy_version=ADULT_QA_CONSENT_POLICY_VERSION,
+    )
 
 
 def test_identify_rejects_photo_that_is_not_clean(

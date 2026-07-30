@@ -38,6 +38,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ulid import ULID
 
 from app.core.config import Settings
+from app.core.parent_consent import (
+    CurrentParentConsentRequiredError,
+    require_linked_parent_consent_for_policy,
+)
 from app.core.storage import SignedUrlGenerator
 from app.db import models
 from app.dispatcher.handlers.dex import promote_clean_representative
@@ -218,6 +222,28 @@ async def process_pending_photo(
         raise ModerationWorkInvalid("blob location did not match the committed photo")
     if photo.canonical_object_name is None or not object_name.startswith("pending/finalized/"):
         raise ModerationWorkInvalid("moderation requires a finalized canonical photo")
+
+    if settings is not None and settings.release_lane == "adult_qa":
+        owner = await session.get(models.User, observation.user_id)
+        parent_user_id = (
+            owner.parent_user_id
+            if owner is not None and owner.role == "kid"
+            else owner.id if owner is not None else None
+        )
+        if parent_user_id is None:
+            raise ModerationWorkInvalid(
+                "Adult QA moderation requires a canonical parent"
+            )
+        try:
+            await require_linked_parent_consent_for_policy(
+                session,
+                parent_user_id=parent_user_id,
+                policy_version=settings.adult_qa_consent_policy_version,
+            )
+        except CurrentParentConsentRequiredError as exc:
+            raise ModerationWorkInvalid(
+                "Adult QA provider disclosure is not active"
+            ) from exc
 
     image_bytes = await asyncio.to_thread(
         storage.fetch_object_bytes,

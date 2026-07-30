@@ -50,6 +50,7 @@ from app.core.parent_consent import (
     CURRENT_PARENT_CONSENT_REQUIRED_MESSAGE,
     CurrentParentConsentRequiredError,
     require_linked_current_parent_consent,
+    require_linked_parent_consent_for_policy,
 )
 from app.core.storage import SignedUrlGeneratorDep
 from app.db import models
@@ -1066,6 +1067,27 @@ async def identify_observation(
             suggestions=[],
             cv_unavailable=True,
         )
+
+    if settings.release_lane == "adult_qa":
+        parent_user_id = (
+            user_row.parent_user_id if user_row.role == "kid" else user_row.id
+        )
+        if parent_user_id is None:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Adult QA provider disclosure is required",
+            )
+        try:
+            await require_linked_parent_consent_for_policy(
+                session,
+                parent_user_id=parent_user_id,
+                policy_version=settings.adult_qa_consent_policy_version,
+            )
+        except CurrentParentConsentRequiredError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Adult QA provider disclosure is required",
+            ) from exc
 
     if photo.sha256 is None or len(photo.sha256) != 64:
         raise HTTPException(

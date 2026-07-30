@@ -73,6 +73,12 @@ explicit matching lane before starting auth or background coordinators.
    have no active photo revocation.
    Public iNaturalist submission stays disabled pending a separate consent and
    geoprivacy project.
+9. Adult QA provider egress additionally requires the photo owner's canonical
+   parent to hold the exact linked disclosure
+   `2026-07-30-ADULT-QA-EGRESS-V1`. The moderation worker checks it before
+   reading bytes for Azure Content Safety, and the identify route checks it
+   before reading bytes for requested iNaturalist CV. W1 keeps
+   `2026-07-11-W1-INTERNAL` and never enables either provider.
 
 The submission endpoint shape is intentionally stable. Add handlers and workers;
 do not keep expanding the endpoint with feature-specific branches.

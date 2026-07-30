@@ -158,6 +158,15 @@ def test_public_inat_submission_is_default_deny_even_with_a_token() -> None:
     assert settings.inat_submit_egress_allowed is False
 
 
+def test_adult_qa_uses_a_distinct_provider_disclosure_version() -> None:
+    w1 = Settings(release_lane="w1_internal")
+    qa = Settings(release_lane="adult_qa")
+
+    assert w1.parent_consent_policy_version == "2026-07-11-W1-INTERNAL"
+    assert qa.parent_consent_policy_version == "2026-07-30-ADULT-QA-EGRESS-V1"
+    assert qa.parent_consent_policy_version != w1.parent_consent_policy_version
+
+
 def test_hinterland_can_require_observation_idempotency(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
