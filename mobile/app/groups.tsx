@@ -4,7 +4,6 @@ import { useEffect, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
-  FlatList,
   Modal,
   Pressable,
   ScrollView,
@@ -412,29 +411,24 @@ function GroupDetail({ group }: { group: Group }) {
         <ActivityIndicator style={{ marginTop: 16 }} />
       ) : roster.isError ? (
         <Text style={styles.body}>Couldn't load roster: {roster.error.message}</Text>
+      ) : roster.data.items.length === 0 ? (
+        <Text style={styles.body}>
+          No members yet. Choose "Add child" to create the first child account.
+        </Text>
       ) : (
-        <FlatList
-          data={roster.data.items}
-          keyExtractor={(m) => m.membership_id}
-          ListEmptyComponent={
-            <Text style={styles.body}>
-              No members yet. Choose "Add child" to create the first child account.
-            </Text>
-          }
-          renderItem={({ item }) => (
-            <RosterRow
-              member={item}
-              canReissue={canReissueKidHandoffs && item.role === "kid"}
-              reissuePending={reissue.isPending}
-              reissueBusy={reissue.isPending && reissueKidId === item.user_id}
-              onReissue={() => {
-                setReissueKidId(item.user_id);
-                reissue.mutate({ kidUserId: item.user_id });
-              }}
-            />
-          )}
-          scrollEnabled={false}
-        />
+        roster.data.items.map((item) => (
+          <RosterRow
+            key={item.membership_id}
+            member={item}
+            canReissue={canReissueKidHandoffs && item.role === "kid"}
+            reissuePending={reissue.isPending}
+            reissueBusy={reissue.isPending && reissueKidId === item.user_id}
+            onReissue={() => {
+              setReissueKidId(item.user_id);
+              reissue.mutate({ kidUserId: item.user_id });
+            }}
+          />
+        ))
       )}
 
       <AddKidModal
@@ -582,6 +576,7 @@ function AddKidModal({
             placeholderTextColor="#6b7280"
             autoCapitalize="words"
             autoCorrect={false}
+            maxLength={80}
           />
 
           <Text style={styles.sectionLabel}>Age band</Text>

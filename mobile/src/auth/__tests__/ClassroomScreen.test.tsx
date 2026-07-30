@@ -238,6 +238,7 @@ describe("GroupsScreen presentation contract", () => {
     expect(input.type).toBe(TextInput);
     expect(input.props.accessibilityLabel).toBe("Child display name");
     expect(input.props.placeholderTextColor).toBe("#6b7280");
+    expect(input.props.maxLength).toBe(80);
     expect(StyleSheet.flatten(input.props.style)).toMatchObject({
       color: "#1f2937",
       backgroundColor: "#fff",
