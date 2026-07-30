@@ -7,7 +7,7 @@ from typing import Annotated, Literal
 from fastapi import APIRouter, Depends, Response
 from pydantic import BaseModel
 
-from app.core.config import Environment, Settings, get_request_settings
+from app.core.config import Environment, ReleaseLane, Settings, get_request_settings
 from app.db.session import DatabaseProbe, get_request_database
 
 platform_router = APIRouter(tags=["meta"])
@@ -51,6 +51,7 @@ class ApiCapabilities(BaseModel):
 class ApiMetaResponse(BaseModel):
     name: str
     env: Environment
+    release_lane: ReleaseLane
     version: str
     capabilities: ApiCapabilities
 
@@ -118,6 +119,7 @@ def meta(settings: SettingsDep) -> ApiMetaResponse:
     return ApiMetaResponse(
         name=settings.app_name,
         env=settings.env,
+        release_lane=settings.release_lane,
         version=settings.app_version,
         capabilities=ApiCapabilities(
             observation=ObservationCapabilities(

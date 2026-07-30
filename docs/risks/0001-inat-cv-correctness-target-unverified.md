@@ -15,9 +15,10 @@ fallback to iNaturalist.
 `POST /v1/observations/{id}/identify` is an optional post-clean convenience. It
 may run only after the server verifies the canonical photo is clean or
 adult-approved. Pending, pilot-private, quarantine, failed, rejected, and
-deleted states fail closed. `INAT_CV_ENABLED`,
-`INAT_CV_DISCLOSURE_APPROVED`, and `INAT_CV_BENCHMARK_APPROVED` all default
-false; photo egress requires all three.
+deleted states fail closed. `HINTERLAND_INAT_CV_ENABLED`,
+`HINTERLAND_INAT_CV_DISCLOSURE_APPROVED`, and
+`HINTERLAND_INAT_CV_BENCHMARK_APPROVED` all default false; photo egress
+requires all three.
 
 Public iNaturalist observation submission is outside this risk and remains
 disabled for W1 and closed beta. A project account/token does not authorize
@@ -32,6 +33,11 @@ publishing a child's observation.
 - The runtime taxonomy catalog supplies canonical names and Dex IDs without a
   child-request call to iNaturalist.
 - Egress has independent default-deny gates; a token alone cannot enable it.
+- CV uses `HINTERLAND_INAT_CV_TOKEN`; public submission uses the distinct
+  `HINTERLAND_INAT_SUBMIT_TOKEN`. Equal credentials fail settings validation,
+  and the retired shared token is ignored.
+- Capability remains false unless real Azure Content Safety is configured and
+  the CV JWT has a numeric `exp` beyond the configured 30-minute safety window.
 
 ## What Is Not Verified
 

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import cast
 
 import httpx
 import structlog
@@ -53,6 +52,9 @@ async def score_image(
     if res.status_code in (401, 403):
         log.warning("inat.cv.unauthorized", status=res.status_code)
         raise InatUnavailable(f"iNat CV unauthorized: {res.status_code}")
+    if res.status_code == 429:
+        log.warning("inat.cv.rate_limited")
+        raise InatUnavailable("iNat CV rate limited")
     if res.status_code >= 500:
         log.warning("inat.cv.server_error", status=res.status_code)
         raise InatUnavailable(f"iNat CV server error: {res.status_code}")
@@ -62,24 +64,33 @@ async def score_image(
         log.warning("inat.cv.client_error", status=res.status_code, body=res.text[:200])
         return []
 
-    payload = cast(dict[str, object], res.json())
+    try:
+        payload = res.json()
+    except ValueError as exc:
+        log.warning("inat.cv.malformed_success")
+        raise InatUnavailable("iNat CV returned malformed JSON") from exc
+    if not isinstance(payload, dict):
+        log.warning("inat.cv.malformed_success")
+        raise InatUnavailable("iNat CV returned a non-object response")
+
     raw_results = payload.get("results")
     if not isinstance(raw_results, list):
-        return []
+        log.warning("inat.cv.malformed_success")
+        raise InatUnavailable("iNat CV returned malformed results")
 
     suggestions: list[CvSuggestion] = []
     for raw in raw_results[:top_k]:
         if not isinstance(raw, dict):
-            continue
+            raise InatUnavailable("iNat CV returned a malformed result")
         taxon = raw.get("taxon")
         if not isinstance(taxon, dict):
-            continue
+            raise InatUnavailable("iNat CV returned a malformed taxon")
         taxon_id = taxon.get("id")
-        if not isinstance(taxon_id, int):
-            continue
-        score_raw = raw.get("combined_score") or raw.get("score") or 0
-        if not isinstance(score_raw, int | float):
-            continue
+        if isinstance(taxon_id, bool) or not isinstance(taxon_id, int):
+            raise InatUnavailable("iNat CV returned a malformed taxon id")
+        score_raw = raw.get("combined_score", raw.get("score"))
+        if isinstance(score_raw, bool) or not isinstance(score_raw, int | float):
+            raise InatUnavailable("iNat CV returned a malformed score")
         common = taxon.get("preferred_common_name") or taxon.get("name")
         scientific = taxon.get("name")
         suggestions.append(

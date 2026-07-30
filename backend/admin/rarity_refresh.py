@@ -4,9 +4,9 @@ Same image + invocation pattern as cleanup_smoke_users:
 
     python -m admin.rarity_refresh
 
-Runtime config: same `HINTERLAND_DATABASE_*` env as the API, plus
-`HINTERLAND_INAT_OAUTH_TOKEN` (without it the iNat calls 401 and every
-region is skipped -- safe but useless).
+Runtime config: same `HINTERLAND_DATABASE_*` env as the API. Species-count
+reads are public and deliberately use the unauthenticated iNaturalist client;
+neither child-photo egress credential is available to this job.
 """
 
 from __future__ import annotations

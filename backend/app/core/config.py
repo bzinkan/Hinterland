@@ -2,16 +2,22 @@
 
 from __future__ import annotations
 
+import base64
+import binascii
+import json
+import math
+from datetime import UTC, datetime
 from functools import lru_cache
 from typing import Literal, cast
 from urllib.parse import quote, quote_plus, urlparse
 
 from fastapi import Request
-from pydantic import Field
+from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 Environment = Literal["local", "dev", "staging", "prod"]
 LogLevel = Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
+ReleaseLane = Literal["local", "w1_internal", "adult_qa", "production"]
 
 
 def _default_cors_origins() -> list[str]:
@@ -38,6 +44,10 @@ class Settings(BaseSettings):
     app_name: str = "Hinterland API"
     app_version: str = "0.1.0"
     env: Environment = "local"
+    # A revision must identify the release contract it is serving. Local is
+    # the compatibility default for existing W1/tests; deployed QA, W1, and
+    # production revisions set their lane explicitly.
+    release_lane: ReleaseLane = "local"
     log_level: LogLevel = "INFO"
     cors_origins: list[str] = Field(default_factory=_default_cors_origins)
     parent_web_base_url: str = "https://parents.thehinterlandguide.app"
@@ -159,14 +169,18 @@ class Settings(BaseSettings):
     )
 
     # iNaturalist photo egress is independently default-deny. A token alone is
-    # never permission to disclose a child's photo.
+    # never permission to disclose a child's photo. CV and public submission
+    # use distinct credentials and clients; the retired shared token is not a
+    # fallback because it could silently grant both capabilities.
     inat_base_url: str = "https://api.inaturalist.org/v1"
-    inat_oauth_token: str = ""
+    inat_cv_token: str = ""
+    inat_submit_token: str = ""
     inat_request_timeout_seconds: float = 8.0
     inat_cv_enabled: bool = False
     inat_cv_disclosure_approved: bool = False
     inat_cv_benchmark_approved: bool = False
     inat_cv_model_version: str = "inat-cv-v1"
+    inat_cv_token_expiry_safety_seconds: int = Field(default=1800, ge=0)
     taxonomy_packs_bucket: str = "taxonomy-packs"
 
     # Optional non-LLM fallback when iNaturalist returns no usable species
@@ -194,6 +208,16 @@ class Settings(BaseSettings):
     #
     # CV has the separate disclosure and benchmark gates above.
     inat_submit_enabled: bool = False
+
+    @model_validator(mode="after")
+    def require_distinct_inat_egress_credentials(self) -> Settings:
+        """Reject one credential being configured for both photo-egress paths."""
+
+        cv_token = self.inat_cv_token.strip()
+        submit_token = self.inat_submit_token.strip()
+        if cv_token and submit_token and cv_token == submit_token:
+            raise ValueError("iNaturalist CV and submit credentials must be distinct")
+        return self
 
     # Reverse-geocoding provider. "noop" returns None for every lookup --
     # the kid sees no place_name; the observation itself still saves.
@@ -259,6 +283,51 @@ class Settings(BaseSettings):
             and self.inat_cv_benchmark_approved
         )
 
+    def inat_cv_token_is_fresh(self, *, now: datetime | None = None) -> bool:
+        """Check the unverified JWT ``exp`` claim without exposing the token.
+
+        This is an enablement/freshness gate, not a signature or trust claim.
+        Opaque, malformed, expired, and near-expiry tokens fail closed.
+        """
+
+        token = self.inat_cv_token.strip()
+        parts = token.split(".")
+        if len(parts) != 3 or not parts[1]:
+            return False
+
+        try:
+            padding = "=" * (-len(parts[1]) % 4)
+            payload_bytes = base64.urlsafe_b64decode(parts[1] + padding)
+            payload = json.loads(payload_bytes)
+        except (binascii.Error, UnicodeDecodeError, json.JSONDecodeError, ValueError):
+            return False
+        if not isinstance(payload, dict):
+            return False
+
+        expiry = payload.get("exp")
+        if isinstance(expiry, bool) or not isinstance(expiry, int | float):
+            return False
+        expiry_value = float(expiry)
+        if not math.isfinite(expiry_value):
+            return False
+
+        current = now or datetime.now(UTC)
+        if current.tzinfo is None:
+            current = current.replace(tzinfo=UTC)
+        return expiry_value > (current.timestamp() + self.inat_cv_token_expiry_safety_seconds)
+
+    @property
+    def content_safety_configured(self) -> bool:
+        """True only for a real, fully configured Content Safety provider."""
+
+        endpoint = urlparse(self.content_safety_endpoint.strip())
+        return bool(
+            self.moderation_provider == "azure_content_safety"
+            and endpoint.scheme == "https"
+            and endpoint.netloc
+            and self.content_safety_key.strip()
+        )
+
     @property
     def photo_helper_enabled(self) -> bool:
         """Kid-facing CV capability after every disclosure/config gate."""
@@ -268,7 +337,20 @@ class Settings(BaseSettings):
             self.inat_cv_egress_allowed
             and provider_url.scheme == "https"
             and provider_url.netloc
-            and self.inat_oauth_token.strip()
+            and self.inat_cv_token_is_fresh()
+            and self.content_safety_configured
+        )
+
+    @property
+    def inat_submit_egress_allowed(self) -> bool:
+        """Public submission remains independently default-deny."""
+
+        provider_url = urlparse(self.inat_base_url.strip())
+        return bool(
+            self.inat_submit_enabled
+            and provider_url.scheme == "https"
+            and provider_url.netloc
+            and self.inat_submit_token.strip()
         )
 
     database_host: str = "localhost"

@@ -38,6 +38,14 @@ hard merge/deploy hold: complete the low-memory-device run, adult dry run,
 received-alert evidence, supervised family session, post-session audit, and
 recorded decisions before shipping Group-first changes.
 
+Every API revision declares one typed release contract:
+`local|w1_internal|adult_qa|production`. `GET /v1/meta` returns it as
+`release_lane`, and every response includes
+`X-Hinterland-Release-Lane` (browser clients may read it through CORS).
+`local` is the compatibility default for local development and the existing
+W1 baseline; a deployed Adult-QA, W1, or production client must require its
+explicit matching lane before starting auth or background coordinators.
+
 ## Observation Hot Path
 
 1. The kid captures or chooses a photo. Mobile normalizes it, writes it to the
@@ -61,6 +69,8 @@ recorded decisions before shipping Group-first changes.
    BlobCreated moderation is forbidden. W1 NoOp results are `pilot_private`,
    not clean safety approvals.
 8. iNaturalist image CV is available only as an optional post-clean action.
+   The row must be clean from real Content Safety or an adult approval and
+   have no active photo revocation.
    Public iNaturalist submission stays disabled pending a separate consent and
    geoprivacy project.
 
@@ -129,8 +139,9 @@ local/dev/W1 and records `pilot_private`. Provider outage or malformed success
 payloads retry/hold pending and never default-allow.
 
 **iNaturalist submit worker.** Async, retryable, and idempotent by Hinterland
-observation id. It is disabled until the iNat OAuth/project account risk is
-closed and moderation clean-path wiring exists.
+observation id. It uses a submit-only credential that is never available to
+CV, taxonomy, or rarity clients. It is disabled until the iNat OAuth/project
+account risk is closed and moderation clean-path wiring exists.
 
 **Rarity refresh and admin jobs.** Container Apps jobs run rarity refresh,
 stale-review sweep, legacy-photo cutover reconciliation, moderation-outbox
@@ -146,7 +157,7 @@ truth. Postgres tables are materialized views synced by scripts/CI.
 | Dependency | Used For | Failure Mode |
 |---|---|---|
 | Project taxon catalog | Immediate canonical identification | Bundled core/region cache and PostgreSQL search; manual/Unknown remains available |
-| iNaturalist CV | Optional post-clean suggestions | Requires enable, disclosure-approved, and benchmark-approved gates; otherwise catalog/manual/Unknown remains available |
+| iNaturalist CV | Optional post-clean suggestions | Requires real Content Safety, enable/disclosure/benchmark approval, and a dedicated JWT token whose unverified `exp` is beyond the safety window; otherwise catalog/manual/Unknown remains available |
 | iNaturalist submit | Science contribution | Queue/retry later; kid submission already succeeded |
 | Azure AI Content Safety | Photo moderation | Hold/retry pending; do not default-allow |
 | Reverse geocoding | Place names | No-op/cache miss is acceptable |
