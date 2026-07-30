@@ -11,6 +11,7 @@
     "test": "jest",
     "config:parent-web": "node ./scripts/verify-parent-web-contract.mjs",
     "config:play-internal": "node ./scripts/verify-play-internal-config.mjs",
+    "config:adult-qa": "node ./scripts/verify-adult-qa-config.mjs",
     "config:identities": "node ./scripts/verify-mobile-identities.mjs"
   },
   "jest": {

@@ -12,7 +12,10 @@ jest.mock("expo-constants", () => ({
       extra: {
         appEnv: "development",
         apiBaseUrl: "http://jest.invalid",
+        parentWebBaseUrl: "https://parents.thehinterlandguide.app",
         updatesChannel: "test",
+        expectedApiLane: "local",
+        enforceReleaseLane: false,
         entra: { clientId: "test", authority: "test", redirectUri: "test" },
         devLoginKey: null,
       },

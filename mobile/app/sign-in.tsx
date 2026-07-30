@@ -28,9 +28,9 @@ import {
   type ParentReturnPath,
 } from "@/src/auth/parentReturnPath";
 import { useAuthSession } from "@/src/auth/session";
+import { env } from "@/src/config/env";
 
 const IS_WEB = Platform.OS === "web";
-const PARENTS_WEB_URL = "https://parents.thehinterlandguide.app";
 
 export default function SignInScreen() {
   if (IS_WEB) return <ParentWebSignIn />;
@@ -54,7 +54,7 @@ export default function SignInScreen() {
         <Pressable
           style={[styles.button, styles.buttonGhost]}
           onPress={() => {
-            void Linking.openURL(PARENTS_WEB_URL);
+            void Linking.openURL(env.parentWebBaseUrl);
           }}
         >
           <Text style={styles.buttonGhostText}>Open parent setup</Text>

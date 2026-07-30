@@ -15,6 +15,7 @@ import DesktopContainer from "@/components/DesktopContainer";
 import { Text, View } from "@/components/Themed";
 import { getMe, requestAccountDeletion } from "@/src/api/auth";
 import { ApiError } from "@/src/api/client";
+import { getApiMeta } from "@/src/api/meta";
 import {
   clearBearerToken,
   getBearerToken,
@@ -40,6 +41,13 @@ export default function SettingsScreen() {
   const [busy, setBusy] = useState(false);
   const devTokenShortcutEnabled =
     env.appEnv === "development" || env.appEnv === "preview";
+  const adultQaMeta = useQuery({
+    queryKey: ["meta", "adult-qa-status"],
+    queryFn: ({ signal }) => getApiMeta(signal),
+    enabled: env.appEnv === "adult-qa",
+    staleTime: 30_000,
+    retry: 1,
+  });
 
   const me = useQuery({
     queryKey: ["me", ownerUserId ?? "anonymous"],
@@ -230,6 +238,78 @@ export default function SettingsScreen() {
         </Text>
         <Text style={styles.value}>updates runtime: {Updates.runtimeVersion ?? "none"}</Text>
 
+        {env.appEnv === "adult-qa" && (
+          <>
+            <View
+              style={styles.separator}
+              lightColor="#eee"
+              darkColor="rgba(255,255,255,0.1)"
+            />
+            <View
+              accessibilityLabel="Adult QA server capabilities"
+              style={styles.qaStatusPanel}
+              testID="adult-qa-status-panel"
+            >
+              <Text style={styles.qaStatusTitle}>Adult QA status</Text>
+              <Text style={styles.qaStatusValue}>
+                release lane:{" "}
+                {adultQaMeta.data?.release_lane ?? "checking"} / expected{" "}
+                {env.expectedApiLane}
+              </Text>
+              <Text style={styles.qaStatusValue}>
+                server: {adultQaMeta.data?.version ?? "checking"}
+              </Text>
+              <Text style={styles.qaStatusValue}>
+                shared groups:{" "}
+                {adultQaMeta.data?.capabilities?.groups
+                  ?.shared_groups_enabled
+                  ? "enabled"
+                  : "disabled"}
+              </Text>
+              <Text style={styles.qaStatusValue}>
+                post-clean species helper:{" "}
+                {adultQaMeta.data?.capabilities?.observation
+                  ?.photo_helper_enabled
+                  ? "enabled"
+                  : "disabled"}
+              </Text>
+              <Text style={styles.qaStatusValue}>
+                Azure Content Safety:{" "}
+                {adultQaMeta.data?.capabilities?.integrations
+                  ?.content_safety_enabled
+                  ? "enabled"
+                  : "disabled"}
+              </Text>
+              <Text
+                accessibilityRole={
+                  adultQaMeta.data?.capabilities?.integrations
+                    ?.public_inat_submission_enabled
+                    ? "alert"
+                    : "text"
+                }
+                style={[
+                  styles.qaStatusValue,
+                  adultQaMeta.data?.capabilities?.integrations
+                    ?.public_inat_submission_enabled &&
+                    styles.qaStatusError,
+                ]}
+              >
+                public iNaturalist contribution:{" "}
+                {adultQaMeta.data?.capabilities?.integrations
+                  ?.public_inat_submission_enabled
+                  ? "UNEXPECTEDLY ENABLED"
+                  : "disabled"}
+              </Text>
+              {adultQaMeta.isError && (
+                <Text accessibilityRole="alert" style={styles.qaStatusError}>
+                  Status refresh failed. Capture remains protected by the
+                  release-lane gate.
+                </Text>
+              )}
+            </View>
+          </>
+        )}
+
         <View
           style={styles.separator}
           lightColor="#eee"
@@ -362,6 +442,29 @@ const styles = StyleSheet.create({
     opacity: 0.6,
     marginTop: 4,
     marginBottom: 8,
+  },
+  qaStatusPanel: {
+    width: "100%",
+    backgroundColor: "#eef4ed",
+    borderLeftColor: "#b7791f",
+    borderLeftWidth: 5,
+    padding: 14,
+  },
+  qaStatusTitle: {
+    color: "#17372c",
+    fontSize: 16,
+    fontWeight: "700",
+    marginBottom: 6,
+  },
+  qaStatusValue: {
+    color: "#29483c",
+    fontSize: 13,
+    marginTop: 3,
+  },
+  qaStatusError: {
+    color: "#8b1e1e",
+    fontSize: 12,
+    marginTop: 8,
   },
   input: {
     width: "100%",
