@@ -130,9 +130,7 @@ def test_consent_current_policy_version_applied(
 def test_adult_qa_accepts_only_its_provider_disclosure(
     fake_session: AsyncMock,
 ) -> None:
-    app = create_app(
-        Settings(env="local", app_version="test", release_lane="adult_qa")
-    )
+    app = create_app(Settings(env="local", app_version="test", release_lane="adult_qa"))
 
     async def override() -> AsyncIterator[AsyncSession]:
         yield fake_session

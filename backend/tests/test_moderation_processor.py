@@ -215,9 +215,7 @@ async def test_adult_qa_moderation_requires_disclosure_before_photo_read(
             parent_user_id="parent-id",
         )
     )
-    require_consent = AsyncMock(
-        side_effect=CurrentParentConsentRequiredError("required")
-    )
+    require_consent = AsyncMock(side_effect=CurrentParentConsentRequiredError("required"))
     monkeypatch.setattr(
         "app.moderation.processor.require_linked_parent_consent_for_policy",
         require_consent,

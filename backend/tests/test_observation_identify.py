@@ -293,9 +293,7 @@ def test_adult_qa_identify_requires_exact_parent_disclosure_before_photo_read(
         user=_user_row(parent_user_id=_PARENT_ID),
         obs_photo=_obs_with_photo(),
     )
-    require_consent = AsyncMock(
-        side_effect=CurrentParentConsentRequiredError("required")
-    )
+    require_consent = AsyncMock(side_effect=CurrentParentConsentRequiredError("required"))
     monkeypatch.setattr(
         "app.api.routes.observations.require_linked_parent_consent_for_policy",
         require_consent,

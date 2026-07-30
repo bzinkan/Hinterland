@@ -104,9 +104,7 @@ async def test_runtime_benchmark_requires_safe_qa_meta_and_measures_top_three(
     assert result["result"] == "success"
     assert result["top_three_passed"] == 50
     assert result["top_three_accuracy"] == 1.0
-    assert not any(
-        case.observation_id in json.dumps(result) for case in cases
-    )
+    assert not any(case.observation_id in json.dumps(result) for case in cases)
 
 
 async def test_runtime_benchmark_rejects_public_submission_enabled(

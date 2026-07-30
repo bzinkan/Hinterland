@@ -111,9 +111,7 @@ async def require_linked_current_parent_consent(
         select(models.ParentConsentRecord)
         .where(
             models.ParentConsentRecord.linked_parent_user_id == parent_user_id,
-            models.ParentConsentRecord.policy_version.in_(
-                _KNOWN_PARENT_CONSENT_POLICY_VERSIONS
-            ),
+            models.ParentConsentRecord.policy_version.in_(_KNOWN_PARENT_CONSENT_POLICY_VERSIONS),
             models.ParentConsentRecord.browser_nonce_sha256.is_not(None),
         )
         .order_by(models.ParentConsentRecord.recorded_at.desc())
