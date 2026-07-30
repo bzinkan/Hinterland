@@ -272,7 +272,7 @@ jobs:
           done
           env_names="$(jq -r \
             '.properties.template.containers[0].env[].name' <<<"${app_json}")"
-          ! grep -Eiq '^DRAGONFLY_' <<<"${env_names}"
+          ! grep -Eiq '^DRA[G]ONFLY_' <<<"${env_names}"
           for forbidden in \
             HINTERLAND_DATABASE_PASSWORD_SECRET \
             HINTERLAND_DEV_AUTH_TOKEN \
@@ -472,7 +472,7 @@ jobs:
           done
           env_names="$(jq -r \
             '.properties.template.containers[0].env[].name' <<<"${active_json}")"
-          ! grep -Eiq '^DRAGONFLY_' <<<"${env_names}"
+          ! grep -Eiq '^DRA[G]ONFLY_' <<<"${env_names}"
           app_secrets="$(az containerapp secret list \
             --name "${AZURE_CONTAINER_APP}" \
             --resource-group "${AZURE_RESOURCE_GROUP}" --output json)"

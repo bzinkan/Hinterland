@@ -12,12 +12,8 @@ _ENV_PATH = _ROOT / "infra-azure/environments/hinterland-qa.env"
 _PREFLIGHT_PATH = _ROOT / "infra-azure/adult-qa-preflight.ps1"
 _TOKEN_PATH = _ROOT / "scripts/set-adult-qa-inat-cv-token.ps1"
 _WORKFLOW_PATH = _ROOT / ".github/workflows/adult-qa-promotion.yml"
-_QUALIFICATION_WORKFLOW_PATH = (
-    _ROOT / ".github/workflows/adult-qa-cv-qualification.yml"
-)
-_QUALIFICATION_CLEANUP_PATH = (
-    _ROOT / "infra-azure/adult-qa-cv-qualification-cleanup.sh"
-)
+_QUALIFICATION_WORKFLOW_PATH = _ROOT / ".github/workflows/adult-qa-cv-qualification.yml"
+_QUALIFICATION_CLEANUP_PATH = _ROOT / "infra-azure/adult-qa-cv-qualification-cleanup.sh"
 _ADR_PATH = _ROOT / "docs/adr/0018-isolated-adult-qa-environment.md"
 _POLICY_PATH = _ROOT / "infra-azure/policies/adult-qa-lifecycle.json"
 
@@ -193,16 +189,16 @@ def test_promotion_is_protected_ordered_digest_pinned_and_submit_denied() -> Non
     assert "HINTERLAND_DEPLOYMENT_IMAGE_DIGEST" in workflow
     assert workflow.count('AZURE_CLIENT_ID="${jobs_identity_client_id}"') == 2
     assert 'AZURE_CLIENT_ID="${identity_client_id}"' in workflow
-    assert 'select(.name == $name)] | length' in workflow
-    assert "HINTERLAND_DATABASE_HOST=\"${AZURE_POSTGRES_HOST}\"" in workflow
+    assert "select(.name == $name)] | length" in workflow
+    assert 'HINTERLAND_DATABASE_HOST="${AZURE_POSTGRES_HOST}"' in workflow
     assert "HINTERLAND_DATABASE_PASSWORD=secretref:pg-password" in workflow
-    assert "HINTERLAND_PHOTOS_BUCKET=\"${AZURE_PHOTOS_CONTAINER}\"" in workflow
+    assert 'HINTERLAND_PHOTOS_BUCKET="${AZURE_PHOTOS_CONTAINER}"' in workflow
     assert "HINTERLAND_SERVICE_BUS_NAMESPACE=" in workflow
-    assert "HINTERLAND_KEY_VAULT_URL=\"${QA_KEY_VAULT_URL}\"" in workflow
-    assert "HINTERLAND_ENTRA_API_AUDIENCE=\"${QA_ENTRA_API_AUDIENCE}\"" in workflow
-    assert "HINTERLAND_KID_JWT_AUDIENCE=\"${QA_KID_JWT_AUDIENCE}\"" in workflow
-    assert "HINTERLAND_CORS_ORIGINS=\"${QA_CORS_ORIGINS}\"" in workflow
-    assert "HINTERLAND_SERVICE_BUS_INAT_QUEUE=\"${AZURE_DISABLED_INAT_QUEUE}\"" in workflow
+    assert 'HINTERLAND_KEY_VAULT_URL="${QA_KEY_VAULT_URL}"' in workflow
+    assert 'HINTERLAND_ENTRA_API_AUDIENCE="${QA_ENTRA_API_AUDIENCE}"' in workflow
+    assert 'HINTERLAND_KID_JWT_AUDIENCE="${QA_KID_JWT_AUDIENCE}"' in workflow
+    assert 'HINTERLAND_CORS_ORIGINS="${QA_CORS_ORIGINS}"' in workflow
+    assert 'HINTERLAND_SERVICE_BUS_INAT_QUEUE="${AZURE_DISABLED_INAT_QUEUE}"' in workflow
     assert "HINTERLAND_MODERATION_PROVIDER=azure_content_safety" in workflow
     assert "HINTERLAND_MODERATION_PROVIDER=noop" in workflow
     assert "HINTERLAND_INAT_CV_TOKEN=secretref:inat-cv-token" in workflow
@@ -220,15 +216,11 @@ def test_promotion_is_protected_ordered_digest_pinned_and_submit_denied() -> Non
     assert "assert_secret_ref" in workflow
     assert "if: always()" in workflow
 
-    migration = workflow.index(
-        "- name: Run read-only preflight and additive migrations first"
-    )
+    migration = workflow.index("- name: Run read-only preflight and additive migrations first")
     consumers = workflow.index(
         "- name: Pin every worker and scheduled job after migration succeeds"
     )
-    api = workflow.index(
-        "- name: Deploy API last with controlled CV and no public submit"
-    )
+    api = workflow.index("- name: Deploy API last with controlled CV and no public submit")
     ready = workflow.index("- name: Wait for exact healthy API revision")
     secret_cleanup = workflow.index("forbidden_app_secrets=(", ready)
     assert migration < consumers < api
@@ -274,9 +266,7 @@ def test_cv_qualification_is_bounded_same_digest_and_self_disabling() -> None:
         in _QUALIFICATION_CLEANUP_PATH.read_text(encoding="utf-8")
     )
     assert "--remove-env-vars" in workflow
-    assert "--secret-names" in _QUALIFICATION_CLEANUP_PATH.read_text(
-        encoding="utf-8"
-    )
+    assert "--secret-names" in _QUALIFICATION_CLEANUP_PATH.read_text(encoding="utf-8")
     assert "Destroy the private manifest copy" in workflow
     assert 'cron: "17 * * * *"' in workflow
     assert "sweep-expired-qualification" in workflow
@@ -289,7 +279,7 @@ def test_cv_qualification_is_bounded_same_digest_and_self_disabling() -> None:
         "hinterland-dev-rg",
         "gordi-pilot-rg",
         "print(hinterland_qa_cv_qualification_key",
-        "echo \"${hinterland_qa_cv_qualification_key}\"",
+        'echo "${hinterland_qa_cv_qualification_key}"',
     ):
         assert forbidden not in lowered
 
@@ -311,7 +301,7 @@ def test_cv_qualification_cleanup_is_qa_only_expiry_aware_and_fail_closed() -> N
     assert "latestRevisionName" in cleanup
     assert "latestReadyRevisionName" in cleanup
     assert "for secret in inat-cv-token inat-cv-qualification-key" in cleanup
-    assert "--secret-names \"${secret}\" --output none" in cleanup
+    assert '--secret-names "${secret}" --output none' in cleanup
     assert "key_vault_secret_is_retired" in cleanup
     assert "az keyvault secret delete" in cleanup
     assert "az keyvault secret set-attributes" in cleanup

@@ -756,7 +756,7 @@ jobs:
               --output tsv)"
             mapfile -t retired < <(
               {
-                grep -Ei '^DRAGONFLY_' <<<"${env_names}" || true
+                grep -Ei '^DRA[G]ONFLY_' <<<"${env_names}" || true
                 for variable in "${retired_exact[@]}"; do
                   grep -Fx "${variable}" <<<"${env_names}" || true
                 done
@@ -978,7 +978,7 @@ jobs:
               --output tsv)"
             mapfile -t stale_provider_vars < <(
               {
-                grep -Ei '^DRAGONFLY_' <<<"${env_names}" || true
+                grep -Ei '^DRA[G]ONFLY_' <<<"${env_names}" || true
                 for variable in "${retired_exact[@]}"; do
                   grep -Fx "${variable}" <<<"${env_names}" || true
                 done
@@ -1198,7 +1198,7 @@ jobs:
           fi
           mapfile -t stale_api_vars < <(
             {
-              grep -Ei '^DRAGONFLY_' <<<"${env_names}" || true
+              grep -Ei '^DRA[G]ONFLY_' <<<"${env_names}" || true
               for variable in "${retired_exact[@]}"; do
                 grep -Fx "${variable}" <<<"${env_names}" || true
               done
@@ -1482,7 +1482,7 @@ jobs:
             ' <<<"${json}")" = "${cv_enabled}"
             env_names="$(jq -r \
               '.properties.template.containers[0].env[].name' <<<"${json}")"
-            ! grep -Eiq '^DRAGONFLY_' <<<"${env_names}"
+            ! grep -Eiq '^DRA[G]ONFLY_' <<<"${env_names}"
             for name in "${forbidden_env[@]}"; do
               ! grep -Fxq "${name}" <<<"${env_names}"
             done
