@@ -43,9 +43,15 @@ class GroupCapabilities(BaseModel):
     shared_groups_enabled: bool
 
 
+class IntegrationCapabilities(BaseModel):
+    content_safety_enabled: bool
+    public_inat_submission_enabled: bool
+
+
 class ApiCapabilities(BaseModel):
     observation: ObservationCapabilities
     groups: GroupCapabilities
+    integrations: IntegrationCapabilities
 
 
 class ApiMetaResponse(BaseModel):
@@ -127,6 +133,10 @@ def meta(settings: SettingsDep) -> ApiMetaResponse:
             ),
             groups=GroupCapabilities(
                 shared_groups_enabled=settings.shared_groups_capability_enabled,
+            ),
+            integrations=IntegrationCapabilities(
+                content_safety_enabled=settings.content_safety_configured,
+                public_inat_submission_enabled=settings.inat_submit_egress_allowed,
             ),
         ),
     )
