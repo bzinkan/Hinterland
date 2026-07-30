@@ -5,6 +5,7 @@ import { join } from "node:path";
 const projectRoot = fileURLToPath(new URL("..", import.meta.url));
 const callbackSource = join(projectRoot, "app", "auth", "callback.tsx");
 const groupsSource = join(projectRoot, "app", "groups.tsx");
+const groupInviteSource = join(projectRoot, "app", "group-invite.tsx");
 const classroomSource = join(projectRoot, "app", "classroom.tsx");
 const sourceConfig = join(projectRoot, "public", "staticwebapp.config.json");
 const verifyDist = process.argv.includes("--dist");
@@ -69,6 +70,10 @@ const groupsSourceText = requireFile(groupsSource, "groups source");
 if (!groupsSourceText.includes("Manage your groups")) {
   fail("groups source must contain its route-specific heading marker");
 }
+const groupInviteSourceText = requireFile(groupInviteSource, "group invitation source");
+if (!groupInviteSourceText.includes("Join a group")) {
+  fail("group invitation source must contain its route-specific heading marker");
+}
 const classroomSourceText = requireFile(classroomSource, "classroom compatibility source");
 if (!classroomSourceText.includes('href="/groups"')) {
   fail("legacy classroom route must redirect to /groups");
@@ -90,7 +95,7 @@ if (verifyDist) {
     ),
     "exported parent SWA config",
   );
-  for (const route of ["consent", "sign-in", "groups", "classroom"]) {
+  for (const route of ["consent", "sign-in", "groups", "group-invite", "classroom"]) {
     requireFile(join(projectRoot, "dist", `${route}.html`), `exported /${route}`);
   }
 }

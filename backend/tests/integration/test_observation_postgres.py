@@ -14,6 +14,7 @@ import io
 import json
 import math
 import os
+import secrets
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -37,6 +38,8 @@ from sqlalchemy.ext.asyncio import (
 from ulid import ULID
 
 import app.api.routes.auth as auth_routes
+import app.api.routes.groups as groups_routes
+import app.core.auth as auth_core
 from admin.dispatcher_replay import replay as replay_dispatcher
 from admin.moderation_consumer import process_one as process_moderation_message
 from admin.observation_health_probe import probe as probe_observation_health
@@ -47,6 +50,15 @@ from app.api.routes.auth import (
     ParentSignupRequest,
     parent_signup,
     record_consent,
+)
+from app.api.routes.groups import (
+    AdultInviteRedeemRequest,
+    KidCreateRequest,
+    archive_group,
+    create_kid,
+    place_existing_child_in_group,
+    redeem_adult_invitation,
+    remove_adult_member,
 )
 from app.api.routes.review_queue import _load_review_for_resolution
 from app.core.auth import CurrentUser
@@ -77,7 +89,7 @@ from tests.helpers.auth import stub_token_verifier
 pytestmark = [pytest.mark.integration, pytest.mark.postgres]
 
 _DATABASE_ENV = "OBSERVATION_TEST_DATABASE_URL"
-_EXPECTED_ALEMBIC_HEAD = "20260711_0018"
+_EXPECTED_ALEMBIC_HEAD = "20260718_0019"
 _CANONICAL_BYTES = b"x" * 1024
 
 
@@ -107,6 +119,16 @@ class ObservationRows:
 class ReviewRows:
     observation: ObservationRows
     review_id: str
+
+
+@dataclass(frozen=True)
+class GroupLifecycleRows:
+    owner_id: str
+    parent_id: str
+    group_id: str
+    parent_removal_ref: str
+    child_id: str | None = None
+    invite_token: str | None = None
 
 
 class RevocationStorage:
@@ -497,6 +519,8 @@ async def test_migrations_reach_head_with_observation_constraints(pg_harness: Pg
                         "names": [
                             "ck_memberships_observation_count",
                             "ck_memberships_dex_count",
+                            "ck_memberships_session_version",
+                            "uq_memberships_management_ref",
                             "uq_photos_user_submission",
                             "uq_observations_photo_id",
                             "uq_observations_user_submission",
@@ -539,6 +563,7 @@ async def test_migrations_reach_head_with_observation_constraints(pg_harness: Pg
                         "names": [
                             "ix_dex_entries_user_first_seen",
                             "ix_observations_user_observed_active",
+                            "uq_memberships_active_kid_user",
                         ]
                     },
                 )
@@ -550,6 +575,8 @@ async def test_migrations_reach_head_with_observation_constraints(pg_harness: Pg
     assert constraints == {
         "ck_memberships_observation_count",
         "ck_memberships_dex_count",
+        "ck_memberships_session_version",
+        "uq_memberships_management_ref",
         "uq_photos_user_submission",
         "uq_observations_photo_id",
         "uq_observations_user_submission",
@@ -567,11 +594,531 @@ async def test_migrations_reach_head_with_observation_constraints(pg_harness: Pg
     assert journal_indexes == {
         "ix_dex_entries_user_first_seen",
         "ix_observations_user_observed_active",
+        "uq_memberships_active_kid_user",
     }
     # Migrations run before the API deployment. Keep these additive columns
     # nullable for the one-release compatibility window so the old API can
     # continue inserting rows between migration and rollout.
     assert submission_key_nullability == {"photos": "YES", "observations": "YES"}
+
+
+async def test_shared_groups_invite_race_and_kid_epoch_are_database_backed(
+    pg_harness: PgHarness,
+) -> None:
+    auth_core.clear_user_claims_cache()
+    owner_id, parent_a_id, parent_b_id, group_id = (_new_id() for _ in range(4))
+    token = "group-invite-token-" + "x" * 32
+    now = datetime.now(UTC)
+    async with pg_harness.sessions() as session:
+        session.add_all(
+            [
+                models.User(
+                    id=owner_id,
+                    firebase_uid=f"owner-{owner_id}",
+                    role="parent",
+                    display_name="Owner",
+                ),
+                models.User(
+                    id=parent_a_id,
+                    firebase_uid=f"parent-a-{parent_a_id}",
+                    role="parent",
+                    display_name="Parent A",
+                ),
+                models.User(
+                    id=parent_b_id,
+                    firebase_uid=f"parent-b-{parent_b_id}",
+                    role="parent",
+                    display_name="Parent B",
+                ),
+            ]
+        )
+        await session.commit()
+        session.add(
+            models.Group(
+                id=group_id,
+                name="Saturday Nature Club",
+                join_code=group_id[-6:],
+                owner_user_id=owner_id,
+                shared_groups_enabled_at=now,
+            )
+        )
+        await session.commit()
+        for parent_id, email in (
+            (parent_a_id, "a@example.com"),
+            (parent_b_id, "b@example.com"),
+        ):
+            session.add(
+                models.ParentConsentRecord(
+                    id=_new_id(),
+                    parent_email=email,
+                    policy_version=CURRENT_PARENT_CONSENT_POLICY_VERSION,
+                    source="web_consent",
+                    recorded_at=now,
+                    browser_nonce_sha256=hashlib.sha256(parent_id.encode()).hexdigest(),
+                    linked_parent_user_id=parent_id,
+                )
+            )
+        session.add(
+            models.GroupAdultInvite(
+                id=_new_id(),
+                group_id=group_id,
+                created_by_user_id=owner_id,
+                token_sha256=hashlib.sha256(token.encode()).hexdigest(),
+                expires_at=now + timedelta(hours=72),
+            )
+        )
+        await session.commit()
+
+    settings = Settings(env="local", app_version="invite-race", shared_groups_enabled=True)
+
+    async def redeem(parent_id: str) -> object:
+        async with pg_harness.sessions() as session:
+            return await redeem_adult_invitation(
+                AdultInviteRedeemRequest(token=token),
+                CurrentUser(uid=parent_id, id=parent_id, role="parent"),
+                session,
+                settings,
+            )
+
+    outcomes = await asyncio.gather(
+        redeem(parent_a_id), redeem(parent_b_id), return_exceptions=True
+    )
+    successes = [outcome for outcome in outcomes if not isinstance(outcome, BaseException)]
+    conflicts = [
+        outcome
+        for outcome in outcomes
+        if isinstance(outcome, HTTPException) and outcome.status_code == 409
+    ]
+    assert len(successes) == 1
+    assert len(conflicts) == 1
+    assert successes[0].group_id == group_id
+
+    async with pg_harness.sessions() as session:
+        invite = (
+            await session.execute(
+                select(models.GroupAdultInvite).where(models.GroupAdultInvite.group_id == group_id)
+            )
+        ).scalar_one()
+        memberships = (
+            (
+                await session.execute(
+                    select(models.Membership).where(
+                        models.Membership.group_id == group_id,
+                        models.Membership.role == "parent",
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        assert invite.redeemed_by_user_id in {parent_a_id, parent_b_id}
+        assert len(memberships) == 1
+    async with pg_harness.sessions() as session:
+        identity = await _seed_identity(session)
+        membership = await session.get(models.Membership, identity.membership_id)
+        assert membership is not None
+        assert membership.session_version == 1
+        assert membership.management_ref
+
+        # A v12 token has no explicit epoch and is interpreted as epoch 1.
+        initial = await auth_core._resolve_hinterland(
+            {
+                "sub": identity.user_id,
+                "group_id": identity.group_id,
+                "token_type": "session",
+            },
+            session,
+            settings,
+        )
+        assert initial.group_id == identity.group_id
+
+        # Leaving and reactivation both rotate the epoch. The old v12/v1
+        # token remains permanently invalid after the membership comes back.
+        membership.status = "left"
+        membership.left_at = datetime.now(UTC)
+        membership.session_version += 1
+        await session.commit()
+        membership.status = "active"
+        membership.left_at = None
+        membership.session_version += 1
+        await session.commit()
+
+        with pytest.raises(HTTPException) as stale:
+            await auth_core._resolve_hinterland(
+                {
+                    "sub": identity.user_id,
+                    "group_id": identity.group_id,
+                    "session_version": 1,
+                    "token_type": "session",
+                },
+                session,
+                settings,
+            )
+        assert stale.value.status_code == 401
+
+        current = await auth_core._resolve_hinterland(
+            {
+                "sub": identity.user_id,
+                "group_id": identity.group_id,
+                "session_version": 3,
+                "token_type": "session",
+            },
+            session,
+            settings,
+        )
+        assert current.group_id == identity.group_id
+
+        second_group = models.Group(
+            id=_new_id(),
+            name="Second Group",
+            join_code=_new_id()[-6:],
+            owner_user_id=identity.parent_id,
+        )
+        session.add(second_group)
+        await session.commit()
+        session.add(
+            models.Membership(
+                id=_new_id(),
+                group_id=second_group.id,
+                user_id=identity.user_id,
+                role="kid",
+                status="active",
+            )
+        )
+        with pytest.raises(IntegrityError):
+            await session.commit()
+        await session.rollback()
+    auth_core.clear_user_claims_cache()
+
+
+async def _seed_group_lifecycle_rows(
+    session: AsyncSession,
+    *,
+    with_child: bool = False,
+    with_invite: bool = False,
+) -> GroupLifecycleRows:
+    """Seed a shared group with one owner and one joined canonical parent."""
+    owner_id, parent_id, group_id = (_new_id() for _ in range(3))
+    now = datetime.now(UTC)
+    session.add_all(
+        [
+            models.User(
+                id=owner_id,
+                firebase_uid=f"owner-{owner_id}",
+                role="parent",
+                display_name="Owner",
+            ),
+            models.User(
+                id=parent_id,
+                firebase_uid=f"parent-{parent_id}",
+                role="parent",
+                display_name="Joined Parent",
+            ),
+        ]
+    )
+    await session.commit()
+    session.add(
+        models.Group(
+            id=group_id,
+            name="Lifecycle Race Group",
+            join_code=group_id[-6:],
+            owner_user_id=owner_id,
+            shared_groups_enabled_at=now,
+        )
+    )
+    await session.commit()
+    parent_membership = models.Membership(
+        id=_new_id(),
+        group_id=group_id,
+        user_id=parent_id,
+        role="parent",
+        status="active",
+        management_ref=hashlib.sha256(parent_id.encode()).hexdigest()[:32],
+    )
+    session.add_all(
+        [
+            models.Membership(
+                id=_new_id(),
+                group_id=group_id,
+                user_id=owner_id,
+                role="parent",
+                status="active",
+            ),
+            parent_membership,
+            models.ParentConsentRecord(
+                id=_new_id(),
+                parent_email=f"owner-{owner_id}@example.com",
+                policy_version=CURRENT_PARENT_CONSENT_POLICY_VERSION,
+                source="web_consent",
+                recorded_at=now,
+                browser_nonce_sha256=hashlib.sha256(f"owner-{owner_id}".encode()).hexdigest(),
+                linked_parent_user_id=owner_id,
+            ),
+            models.ParentConsentRecord(
+                id=_new_id(),
+                parent_email=f"parent-{parent_id}@example.com",
+                policy_version=CURRENT_PARENT_CONSENT_POLICY_VERSION,
+                source="web_consent",
+                recorded_at=now,
+                browser_nonce_sha256=hashlib.sha256(f"parent-{parent_id}".encode()).hexdigest(),
+                linked_parent_user_id=parent_id,
+            ),
+        ]
+    )
+    child_id: str | None = None
+    if with_child:
+        child_id = _new_id()
+        session.add(
+            models.User(
+                id=child_id,
+                firebase_uid=None,
+                role="kid",
+                display_name="Rehome Child",
+                age_band="9-10",
+                parent_user_id=parent_id,
+            )
+        )
+        await session.flush()
+        session.add(
+            models.Membership(
+                id=_new_id(),
+                group_id=group_id,
+                user_id=child_id,
+                role="kid",
+                status="left",
+                left_at=now,
+                session_version=2,
+            )
+        )
+    invite_token: str | None = None
+    if with_invite:
+        invite_token = "lifecycle-invite-" + secrets.token_urlsafe(32)
+        session.add(
+            models.GroupAdultInvite(
+                id=_new_id(),
+                group_id=group_id,
+                created_by_user_id=owner_id,
+                token_sha256=hashlib.sha256(invite_token.encode()).hexdigest(),
+                expires_at=now + timedelta(hours=72),
+            )
+        )
+    await session.commit()
+    return GroupLifecycleRows(
+        owner_id=owner_id,
+        parent_id=parent_id,
+        group_id=group_id,
+        parent_removal_ref=parent_membership.management_ref,
+        child_id=child_id,
+        invite_token=invite_token,
+    )
+
+
+def _assert_expected_race_outcomes(
+    outcomes: list[object],
+    *,
+    allowed_http_statuses: set[int],
+) -> None:
+    unexpected = [
+        outcome
+        for outcome in outcomes
+        if isinstance(outcome, BaseException)
+        and not (
+            isinstance(outcome, HTTPException) and outcome.status_code in allowed_http_statuses
+        )
+    ]
+    assert unexpected == []
+
+
+async def _assert_archived_group_has_no_active_members(
+    pg_harness: PgHarness,
+    group_id: str,
+) -> None:
+    async with pg_harness.sessions() as session:
+        group = await session.get(models.Group, group_id)
+        assert group is not None and group.archived_at is not None
+        active_count = await session.scalar(
+            select(func.count(models.Membership.id)).where(
+                models.Membership.group_id == group_id,
+                models.Membership.status == "active",
+            )
+        )
+    assert active_count == 0
+
+
+async def _assert_removed_family_has_no_active_members(
+    pg_harness: PgHarness,
+    rows: GroupLifecycleRows,
+) -> None:
+    async with pg_harness.sessions() as session:
+        adult_status = await session.scalar(
+            select(models.Membership.status).where(
+                models.Membership.group_id == rows.group_id,
+                models.Membership.user_id == rows.parent_id,
+                models.Membership.role == "parent",
+            )
+        )
+        active_children = await session.scalar(
+            select(func.count(models.Membership.id))
+            .join(models.User, models.User.id == models.Membership.user_id)
+            .where(
+                models.Membership.group_id == rows.group_id,
+                models.Membership.role == "kid",
+                models.Membership.status == "active",
+                models.User.parent_user_id == rows.parent_id,
+            )
+        )
+    assert adult_status == "left"
+    assert active_children == 0
+
+
+async def test_archive_racing_child_creation_cannot_leave_active_membership(
+    pg_harness: PgHarness,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async with pg_harness.sessions() as session:
+        rows = await _seed_group_lifecycle_rows(session)
+    settings = Settings(env="local", shared_groups_enabled=True)
+    monkeypatch.setattr(
+        groups_routes,
+        "mint_handoff_token",
+        lambda **_kwargs: ("test-handoff", "test-jti"),
+    )
+
+    async def run_archive() -> object:
+        async with pg_harness.sessions() as session:
+            return await archive_group(
+                rows.group_id,
+                CurrentUser(uid=rows.owner_id, id=rows.owner_id, role="parent"),
+                session,
+            )
+
+    async def run_create() -> object:
+        async with pg_harness.sessions() as session:
+            return await create_kid(
+                rows.group_id,
+                KidCreateRequest(display_name="Race Child", age_band="9-10"),
+                CurrentUser(uid=rows.parent_id, id=rows.parent_id, role="parent"),
+                session,
+                settings,
+                Response(),
+            )
+
+    outcomes = list(await asyncio.gather(run_archive(), run_create(), return_exceptions=True))
+    _assert_expected_race_outcomes(outcomes, allowed_http_statuses={404})
+    await _assert_archived_group_has_no_active_members(pg_harness, rows.group_id)
+
+
+async def test_remove_racing_child_creation_cannot_leave_removed_family_active(
+    pg_harness: PgHarness,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async with pg_harness.sessions() as session:
+        rows = await _seed_group_lifecycle_rows(session)
+    settings = Settings(env="local", shared_groups_enabled=True)
+    monkeypatch.setattr(
+        groups_routes,
+        "mint_handoff_token",
+        lambda **_kwargs: ("test-handoff", "test-jti"),
+    )
+
+    async def run_remove() -> object:
+        async with pg_harness.sessions() as session:
+            return await remove_adult_member(
+                rows.group_id,
+                rows.parent_removal_ref,
+                CurrentUser(uid=rows.owner_id, id=rows.owner_id, role="parent"),
+                session,
+                settings,
+            )
+
+    async def run_create() -> object:
+        async with pg_harness.sessions() as session:
+            return await create_kid(
+                rows.group_id,
+                KidCreateRequest(display_name="Race Child", age_band="9-10"),
+                CurrentUser(uid=rows.parent_id, id=rows.parent_id, role="parent"),
+                session,
+                settings,
+                Response(),
+            )
+
+    outcomes = list(await asyncio.gather(run_remove(), run_create(), return_exceptions=True))
+    _assert_expected_race_outcomes(outcomes, allowed_http_statuses={404})
+    await _assert_removed_family_has_no_active_members(pg_harness, rows)
+
+
+@pytest.mark.parametrize("lifecycle_action", ["archive", "remove"])
+async def test_archive_or_remove_racing_rehome_cannot_reactivate_child(
+    pg_harness: PgHarness,
+    lifecycle_action: str,
+) -> None:
+    async with pg_harness.sessions() as session:
+        rows = await _seed_group_lifecycle_rows(session, with_child=True)
+    assert rows.child_id is not None
+    settings = Settings(env="local", shared_groups_enabled=True)
+
+    async def run_lifecycle() -> object:
+        async with pg_harness.sessions() as session:
+            if lifecycle_action == "archive":
+                return await archive_group(
+                    rows.group_id,
+                    CurrentUser(uid=rows.owner_id, id=rows.owner_id, role="parent"),
+                    session,
+                )
+            return await remove_adult_member(
+                rows.group_id,
+                rows.parent_removal_ref,
+                CurrentUser(uid=rows.owner_id, id=rows.owner_id, role="parent"),
+                session,
+                settings,
+            )
+
+    async def run_rehome() -> object:
+        async with pg_harness.sessions() as session:
+            return await place_existing_child_in_group(
+                rows.group_id,
+                rows.child_id or "",
+                CurrentUser(uid=rows.parent_id, id=rows.parent_id, role="parent"),
+                session,
+                settings,
+            )
+
+    outcomes = list(await asyncio.gather(run_lifecycle(), run_rehome(), return_exceptions=True))
+    _assert_expected_race_outcomes(outcomes, allowed_http_statuses={404})
+    if lifecycle_action == "archive":
+        await _assert_archived_group_has_no_active_members(pg_harness, rows.group_id)
+    else:
+        await _assert_removed_family_has_no_active_members(pg_harness, rows)
+
+
+async def test_archive_racing_invite_redemption_cannot_leave_active_adult(
+    pg_harness: PgHarness,
+) -> None:
+    async with pg_harness.sessions() as session:
+        rows = await _seed_group_lifecycle_rows(session, with_invite=True)
+    assert rows.invite_token is not None
+    settings = Settings(env="local", shared_groups_enabled=True)
+
+    async def run_archive() -> object:
+        async with pg_harness.sessions() as session:
+            return await archive_group(
+                rows.group_id,
+                CurrentUser(uid=rows.owner_id, id=rows.owner_id, role="parent"),
+                session,
+            )
+
+    async def run_redeem() -> object:
+        async with pg_harness.sessions() as session:
+            return await redeem_adult_invitation(
+                AdultInviteRedeemRequest(token=rows.invite_token or ""),
+                CurrentUser(uid=rows.parent_id, id=rows.parent_id, role="parent"),
+                session,
+                settings,
+            )
+
+    outcomes = list(await asyncio.gather(run_archive(), run_redeem(), return_exceptions=True))
+    _assert_expected_race_outcomes(outcomes, allowed_http_statuses={410})
+    await _assert_archived_group_has_no_active_members(pg_harness, rows.group_id)
 
 
 async def test_concurrent_consent_retry_returns_one_browser_bound_receipt(

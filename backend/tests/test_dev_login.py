@@ -229,7 +229,7 @@ def test_dev_login_heals_disabled_sandbox_kid(monkeypatch: pytest.MonkeyPatch) -
     rows = _existing_rows()
     rows[auth_routes_module.DEV_KID_USER_ID].disabled_at = datetime.now(UTC)
 
-    async def get_existing(model: Any, pk: str) -> Any:
+    async def get_existing(model: Any, pk: str, **_kwargs: Any) -> Any:
         return rows.get(pk)
 
     fake_session = _fake_session(get_side_effect=get_existing)
@@ -246,7 +246,7 @@ def test_dev_login_second_call_is_idempotent(monkeypatch: pytest.MonkeyPatch) ->
     _stub_mint(monkeypatch)
     rows = _existing_rows()
 
-    async def get_existing(model: Any, pk: str) -> Any:
+    async def get_existing(model: Any, pk: str, **_kwargs: Any) -> Any:
         return rows.get(pk)
 
     fake_session = _fake_session(get_side_effect=get_existing)
@@ -256,6 +256,10 @@ def test_dev_login_second_call_is_idempotent(monkeypatch: pytest.MonkeyPatch) ->
     assert response.status_code == 200
     assert response.json()["user"]["id"] == auth_routes_module.DEV_KID_USER_ID
     fake_session.add.assert_not_called()
+    group_get = next(
+        call for call in fake_session.get.await_args_list if call.args[0] is models.Group
+    )
+    assert group_get.kwargs["with_for_update"] is True
 
 
 def test_dev_login_concurrent_first_call_race_retries(

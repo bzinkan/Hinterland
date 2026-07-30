@@ -309,7 +309,11 @@ export async function signIn(): Promise<void> {
   if (!ms) return;
   // A parents web browser may be shared by several adults. Always require an
   // explicit interactive account choice instead of allowing Entra/MSAL to
-  // reuse a different cached adult silently.
+  // reuse a different cached adult silently. Clearing the published bearer
+  // first activates AuthSessionCoordinator's account-change boundary: it
+  // cancels requests and removes every user-scoped query before account
+  // selection leaves this page.
+  await clearBearerToken();
   await ms.loginRedirect({ scopes: ENTRA_SCOPES, prompt: "select_account" });
 }
 

@@ -29,6 +29,19 @@ def test_default_cors_origins_are_exact_and_parent_only() -> None:
     assert "*" not in Settings().cors_origins
 
 
+def test_shared_groups_are_default_deny_with_explicit_canary_support() -> None:
+    settings = Settings()
+    assert settings.shared_groups_enabled is False
+    assert settings.shared_groups_allowed_for("group-a") is False
+
+    canary = Settings(shared_groups_canary_group_ids=["group-a"])
+    assert canary.shared_groups_allowed_for("group-a") is True
+    assert canary.shared_groups_allowed_for("group-b") is False
+
+    enabled = Settings(shared_groups_enabled=True)
+    assert enabled.shared_groups_allowed_for("group-b") is True
+
+
 def test_hinterland_environment_remains_supported(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("HINTERLAND_INAT_CV_ENABLED", raising=False)
     monkeypatch.setenv("HINTERLAND_INAT_CV_ENABLED", "true")

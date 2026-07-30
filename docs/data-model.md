@@ -10,20 +10,22 @@ The logical product invariants are unchanged:
 - expedition JSON in git is source of truth
 - slow integrations do not block kid-facing submission success
 - dispatcher handlers do not call external APIs
+- group administration never implies authority over another parent's child
 
 ## Core Tables
 
 | Table | Purpose |
 |---|---|
 | `users` | Entra-backed adults and Hinterland-signed kid identities |
-| `groups` | Invite-only class/family groups with join codes |
-| `memberships` | User membership plus leaderboard counters |
+| `groups` | Adult-owned groups; the creator manages metadata, adult invitations/removal, and archival |
+| `memberships` | User membership, active lifecycle state, and leaderboard counters |
+| `group_adult_invites` | One-time, expiring, revocable adult-invitation token digests |
 | `photos` | Azure Blob attachment state plus verified canonical metadata |
 | `observations` | Authoritative kid observations, moderation, identification, dispatch status, and persisted rewards |
 | `dex_entries` | Maintained per-user/taxon projection: first find, accepted count/latest seen, and representative clean photo |
 | `expedition_content` | Materialized view of repo-authored expedition JSON |
 | `expedition_progress` | Per-user progress through active expeditions |
-| `review_queue` | Teacher/adult review for quarantined photos |
+| `review_queue` | Explicitly authorized adult review for quarantined photos |
 | `ingest_runs` | Replayable ingest audit and cursor state |
 | `job_state` | Durable cursors for scheduled/background jobs |
 | `species_cache` | Versioned project-owned runtime taxonomy catalog |
@@ -49,6 +51,9 @@ The logical product invariants are unchanged:
 | Load current user | `select * from users where id = $1` after token verification / cache resolution |
 | Resolve adult identity | `select * from users where entra_oid = $1` |
 | Load group members | `select * from memberships where group_id = $1` |
+| Active child group | Read the one active membership for a child; a partial unique index prevents two active groups |
+| Parent child-recovery inventory | Read canonical children by `users.parent_user_id` and outer-join only active kid memberships; never include peer rows or derived counters |
+| Adult invite redemption | Lock the unexpired, unrevoked invite by token digest and atomically create or return adult membership |
 | Group leaderboard | `select * from memberships where group_id = $1 order by dex_count desc` |
 | User Field Journal | Read the child DTO from non-rejected observations by `(user_id, observed_at desc, id desc)` with an opaque observed cursor |
 | Submission replay | Read `observation_idempotency` by `(user_id, idempotency_ulid, operation)` and compare normalized request hash |
@@ -70,6 +75,48 @@ The logical product invariants are unchanged:
 | Sanctuary first-fire | `insert into sanctuary_elements (...) on conflict (user_id, zone_id, element_id) do nothing` |
 | Sanctuary replay gate | `insert into sanctuary_observation_contributions (observation_id, ...) values ($1, ...)` |
 | Sanctuary timeline | `select * from sanctuary_events where user_id = $1 order by created_at desc` |
+
+## Groups And Parent Authority
+
+Group administration and child management are separate authorization domains,
+as defined by [ADR 0017](adr/0017-group-ownership-and-multi-family-privacy.md).
+
+- `groups.owner_user_id` is the adult who created the group. The owner may
+  rename/archive the group and manage adult invitations and adult membership.
+- `groups.shared_groups_enabled_at` is an irreversible cutover marker written
+  with the first adult invitation. Once present, the legacy reusable join code
+  remains denied even if the runtime rollout flag is later disabled.
+- `users.parent_user_id` remains the canonical parent-child authority for this
+  release. A parent may create, hand off, or manage only their own children.
+- Group ownership or ordinary adult membership does not grant cross-family
+  access to handoffs, photos, observations, reviews, corrections, deletion, or
+  private child metadata.
+- Adults may have multiple active memberships. A child may have only one active
+  group membership; the database enforces that invariant.
+- Child memberships carry `session_version >= 1`. Handoff/session JWTs embed
+  it, every kid request compares it with the active membership, and leave or
+  reactivation increments it so old credentials cannot revive.
+- Removing an adult deactivates that adult's membership and the active group
+  memberships of their children. It does not delete users, observations, or
+  photos.
+
+`group_adult_invites` stores `group_id`, creator, token digest, expiry,
+redemption/revocation state, and timestamps. Raw invitation tokens exist only
+in the one-time response. The token is high entropy, expires after 72 hours,
+and is consumed by the first authenticated parent. Same-user replay is
+idempotent; another user receives a conflict. Invitation list responses never
+contain the raw token or digest.
+
+The legacy six-character group join-code column remains only for a bounded
+compatibility migration. It is not exposed or accepted after shared Groups is
+enabled. The internal `teacher` role is retained for compatibility but grants
+no implicit group, child, photo, or review capability.
+
+Adult member responses are minimized: the owner receives only the adult
+metadata required for administration, each parent receives full child records
+only for their own children, and other families are represented by aggregate
+counts. Children never receive the general group roster. Any future kid-facing
+group progress must use a separately reviewed aggregate-only DTO.
 
 ## Atomic Submission Transaction
 

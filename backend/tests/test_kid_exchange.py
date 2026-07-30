@@ -64,6 +64,17 @@ def _kid_row(*, disabled: bool = False) -> models.User:
     )
 
 
+def _membership_row() -> models.Membership:
+    return models.Membership(
+        id="01J0MEMBERSHIP000000000000",
+        group_id=_GROUP_ID,
+        user_id=_KID_USER_ID,
+        role="kid",
+        status="active",
+        session_version=1,
+    )
+
+
 def _valid_handoff_claims(*, exp_offset_seconds: int = 900) -> dict[str, object]:
     now = datetime.now(UTC)
     exp = now + timedelta(seconds=exp_offset_seconds)
@@ -108,7 +119,7 @@ def test_kid_exchange_happy_path(
     )
 
     kid_lookup = MagicMock()
-    kid_lookup.scalar_one_or_none = MagicMock(return_value=_kid_row())
+    kid_lookup.one_or_none = MagicMock(return_value=(_kid_row(), _membership_row()))
     fake_session.execute = AsyncMock(return_value=kid_lookup)
     fake_session.add = MagicMock()
     fake_session.commit = AsyncMock()
@@ -146,6 +157,9 @@ def test_kid_exchange_replay_attack_rejected(
         lambda token, *, settings, expected_token_type=None: _valid_handoff_claims(),
     )
 
+    kid_lookup = MagicMock()
+    kid_lookup.one_or_none = MagicMock(return_value=(_kid_row(), _membership_row()))
+    fake_session.execute = AsyncMock(return_value=kid_lookup)
     fake_session.add = MagicMock()
     fake_session.commit = AsyncMock(
         side_effect=IntegrityError("INSERT", {}, Exception("duplicate jti"))
@@ -245,7 +259,7 @@ def test_kid_exchange_disabled_kid_rejected(
     )
 
     kid_lookup = MagicMock()
-    kid_lookup.scalar_one_or_none = MagicMock(return_value=_kid_row(disabled=True))
+    kid_lookup.one_or_none = MagicMock(return_value=(_kid_row(disabled=True), _membership_row()))
     fake_session.execute = AsyncMock(return_value=kid_lookup)
     fake_session.add = MagicMock()
     fake_session.commit = AsyncMock()

@@ -15,6 +15,7 @@ import {
   storePendingParentConsentProof,
   type ParentConsentProof,
 } from "@/src/auth/consentProof";
+import { consumeParentReturnPath } from "@/src/auth/parentReturnPath";
 import { useAuthSession } from "@/src/auth/session";
 
 type Phase =
@@ -277,7 +278,7 @@ export default function ConsentScreen() {
               if (phase.linkage === "error") {
                 void retryExistingParentLink();
               } else if (phase.linkage === "linked") {
-                router.replace("/groups");
+                router.replace(consumeParentReturnPath());
               } else {
                 router.push("/sign-in");
               }

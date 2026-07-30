@@ -54,13 +54,21 @@ class HinterlandTokenClaims(TypedDict, total=False):
     role: str
     group_id: str
     parent_id: str
+    session_version: int
     token_type: Literal["handoff", "session"]
 
 
 # Claims required on every verified token. ``jti`` is required on handoffs
 # (single-use ledger) but optional on session tokens; we enforce it at
 # verify time only for the handoff path.
-_REQUIRED_CLAIMS_COMMON = ("exp", "iat", "iss", "aud", "sub", "token_type")
+_REQUIRED_CLAIMS_COMMON = (
+    "exp",
+    "iat",
+    "iss",
+    "aud",
+    "sub",
+    "token_type",
+)
 
 
 def _now() -> datetime:
@@ -73,6 +81,7 @@ def _build_payload(
     kid_user_id: str,
     parent_id: str,
     group_id: str,
+    session_version: int,
     settings: Settings,
     token_type: Literal["handoff", "session"],
     ttl_seconds: int,
@@ -88,6 +97,7 @@ def _build_payload(
         "role": "kid",
         "group_id": group_id,
         "parent_id": parent_id,
+        "session_version": session_version,
         "token_type": token_type,
     }
     if jti is not None:
@@ -114,6 +124,7 @@ def mint_handoff_token(
     kid_user_id: str,
     parent_id: str,
     group_id: str,
+    session_version: int,
     settings: Settings,
 ) -> tuple[str, str]:
     """Mint a single-use handoff JWT. Returns ``(token, jti)``.
@@ -128,6 +139,7 @@ def mint_handoff_token(
         kid_user_id=kid_user_id,
         parent_id=parent_id,
         group_id=group_id,
+        session_version=session_version,
         settings=settings,
         token_type="handoff",
         ttl_seconds=settings.hinterland_handoff_ttl_seconds,
@@ -148,6 +160,7 @@ def mint_session_token(
     kid_user_id: str,
     parent_id: str,
     group_id: str,
+    session_version: int,
     settings: Settings,
 ) -> str:
     """Mint a long-lived (30-day default) session JWT for a kid.
@@ -161,6 +174,7 @@ def mint_session_token(
         kid_user_id=kid_user_id,
         parent_id=parent_id,
         group_id=group_id,
+        session_version=session_version,
         settings=settings,
         token_type="session",
         ttl_seconds=settings.hinterland_session_ttl_seconds,
@@ -221,6 +235,18 @@ def verify_hinterland_jwt(
         raise InvalidHinterlandJwt(
             f"Expected token_type={expected_token_type!r}, got {token_type!r}"
         )
+
+    # One-release compatibility: pre-Groups v12 tokens did not carry an
+    # epoch. Treat them as the initial membership epoch only. The first leave
+    # transition increments the DB value, so such a token can never revive.
+    session_version = decoded.get("session_version", 1)
+    if (
+        not isinstance(session_version, int)
+        or isinstance(session_version, bool)
+        or session_version < 1
+    ):
+        raise InvalidHinterlandJwt("Invalid session_version claim")
+    decoded["session_version"] = session_version
 
     return cast(HinterlandTokenClaims, decoded)
 

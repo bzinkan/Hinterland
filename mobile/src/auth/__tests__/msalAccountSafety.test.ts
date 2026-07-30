@@ -2,6 +2,8 @@ import type {
   AccountInfo,
   PublicClientApplication,
 } from "@azure/msal-browser";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 
 import {
   MsalSessionController,
@@ -82,6 +84,17 @@ function setup(accounts: AccountInfo[], active: AccountInfo | null) {
 }
 
 describe("MSAL active-account and token-publication safety", () => {
+  it("clears the published adult identity before interactive account selection", () => {
+    const source = readFileSync(resolve(__dirname, "../msal.ts"), "utf8");
+    const signInBody = source.slice(
+      source.indexOf("export async function signIn"),
+      source.indexOf("export async function signOut"),
+    );
+    expect(signInBody.indexOf("await clearBearerToken()"))
+      .toBeLessThan(signInBody.indexOf("await ms.loginRedirect"));
+    expect(signInBody).toContain('prompt: "select_account"');
+  });
+
   it("makes redirect account B active instead of reusing cached account A", async () => {
     const adultA = account("a");
     const adultB = account("b");

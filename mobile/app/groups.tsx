@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { router, Stack } from "expo-router";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -18,18 +18,33 @@ import { Text, View } from "@/components/Themed";
 import { useColorScheme } from "@/components/useColorScheme";
 import { ApiError } from "@/src/api/client";
 import {
+  type AdultInvitation,
   type AgeBand,
   type CreateKidResponse,
   type Group,
+  type OwnedChildInventoryItem,
+  type OwnChildRosterMember,
+  archiveGroup,
+  createAdultInvitation,
   createGroup,
   createKid,
+  listAdultInvitations,
   listGroupMembers,
   listGroups,
+  listOwnedChildren,
+  placeOwnedChildInGroup,
+  removeAdultMember,
   reissueKidHandoff,
-  type RosterMember,
+  revokeAdultInvitation,
+  updateGroup,
 } from "@/src/api/groups";
 import { useAuthSession } from "@/src/auth/session";
 import { ImperativeRequestSupersededError } from "@/src/auth/requestBoundary";
+import {
+  copyInvitationUrl,
+  validateInvitationUrl,
+} from "@/src/groups/invitationToken";
+import { useGroupCapabilities } from "@/src/groups/useGroupCapabilities";
 
 const AGE_BANDS: AgeBand[] = ["9-10", "11-12", "13+"];
 
@@ -39,12 +54,36 @@ export default function GroupsScreen() {
     session.status === "authenticated" && session.user.role !== "kid"
       ? session.user.id
       : null;
+  const parentUserId =
+    session.status === "authenticated" && session.user.role === "parent"
+      ? session.user.id
+      : null;
   const groupsQuery = useQuery({
     queryKey: ["groups", ownerUserId ?? "anonymous"],
     queryFn: listGroups,
     enabled: ownerUserId != null,
   });
+  const ownedChildrenQuery = useQuery({
+    queryKey: ["owned-children", parentUserId ?? "anonymous"],
+    queryFn: listOwnedChildren,
+    enabled: parentUserId != null,
+  });
+  const { sharedGroupsEnabled } = useGroupCapabilities();
   const [selectedGroupId, setSelectedGroupId] = useState<string | null>(null);
+
+  useEffect(() => {
+    setSelectedGroupId(null);
+  }, [ownerUserId]);
+
+  useEffect(() => {
+    if (
+      selectedGroupId &&
+      groupsQuery.data &&
+      !groupsQuery.data.items.some((group) => group.id === selectedGroupId)
+    ) {
+      setSelectedGroupId(null);
+    }
+  }, [groupsQuery.data, selectedGroupId]);
 
   if (session.status === "initializing") {
     return (
@@ -139,6 +178,9 @@ export default function GroupsScreen() {
   const groups = groupsQuery.data.items;
   const activeGroupId = selectedGroupId ?? groups[0]?.id ?? null;
   const activeGroup = groups.find((g) => g.id === activeGroupId) ?? null;
+  const ungroupedChildren =
+    ownedChildrenQuery.data?.items.filter((child) => child.active_group_id == null) ?? [];
+  const eligibleGroups = groups.filter((group) => group.permissions.can_add_child);
 
   return (
     <DesktopContainer>
@@ -152,29 +194,173 @@ export default function GroupsScreen() {
         <GroupPicker
           groups={groups}
           activeGroupId={activeGroupId}
+          canCreateGroup={session.user.role === "parent"}
           onSelect={setSelectedGroupId}
         />
+
+        {session.user.role === "parent" && ungroupedChildren.length > 0 ? (
+          <UngroupedChildrenSection
+            key={session.user.id}
+            userId={session.user.id}
+            children={ungroupedChildren}
+            eligibleGroups={eligibleGroups}
+            onPlaced={setSelectedGroupId}
+          />
+        ) : null}
+
+        {session.user.role === "parent" && ownedChildrenQuery.isError ? (
+          <RNView style={styles.section}>
+            <Text style={styles.body}>
+              Couldn't check whether any of your children need a group. Try refreshing this page.
+            </Text>
+          </RNView>
+        ) : null}
 
         {activeGroup ? (
           <GroupDetail
             key={`${ownerUserId ?? "anonymous"}:${activeGroup.id}`}
             group={activeGroup}
+            sharedGroupsEnabled={sharedGroupsEnabled}
           />
-        ) : (
+        ) : session.user.role === "parent" ? (
           <NoGroupYet onCreated={(g) => setSelectedGroupId(g.id)} />
+        ) : (
+          <RNView style={styles.section}>
+            <Text style={styles.heading}>No groups available</Text>
+            <Text style={styles.body}>This compatibility account cannot create groups.</Text>
+          </RNView>
         )}
       </ScrollView>
     </DesktopContainer>
   );
 }
 
+function UngroupedChildrenSection({
+  userId,
+  children,
+  eligibleGroups,
+  onPlaced,
+}: {
+  userId: string;
+  children: OwnedChildInventoryItem[];
+  eligibleGroups: Group[];
+  onPlaced: (groupId: string) => void;
+}) {
+  const queryClient = useQueryClient();
+  const [selectedGroups, setSelectedGroups] = useState<Record<string, string>>({});
+  const placeChild = useMutation({
+    mutationKey: ["place-owned-child", userId],
+    gcTime: 0,
+    mutationFn: ({ childId, groupId }: { childId: string; groupId: string }) =>
+      placeOwnedChildInGroup(groupId, childId),
+    onSuccess: async (_result, variables) => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["owned-children", userId] }),
+        queryClient.invalidateQueries({ queryKey: ["groups", userId] }),
+        queryClient.invalidateQueries({
+          queryKey: ["group-members", userId, variables.groupId],
+        }),
+      ]);
+      onPlaced(variables.groupId);
+    },
+    onError: (error) => {
+      if (!(error instanceof ImperativeRequestSupersededError)) {
+        Alert.alert(
+          "Couldn't add child to group",
+          safeAdultError(error, "Try again. Your child's group has not changed."),
+        );
+      }
+    },
+  });
+
+  return (
+    <RNView testID="groups-ungrouped-children" style={[styles.section, styles.ownerPanel]}>
+      <Text style={styles.heading}>Children not in a group</Text>
+      <Text style={styles.body}>
+        Choose one of your groups. After placement, create a new sign-in QR for the child's device.
+      </Text>
+      {children.map((child) => {
+        const selectedGroupId =
+          selectedGroups[child.id] ?? eligibleGroups[0]?.id ?? null;
+        const busy = placeChild.isPending && placeChild.variables?.childId === child.id;
+        return (
+          <RNView
+            key={child.id}
+            testID={`groups-ungrouped-child-${child.id}`}
+            style={styles.aggregateCard}
+          >
+            <Text style={styles.rosterName}>{child.display_name}</Text>
+            <Text style={styles.rosterMeta}>child · age {child.age_band ?? "not set"}</Text>
+            {eligibleGroups.length > 0 ? (
+              <>
+                <Text style={styles.sectionLabel}>Place in</Text>
+                <RNView style={styles.tabRow}>
+                  {eligibleGroups.map((group) => {
+                    const selected = group.id === selectedGroupId;
+                    return (
+                      <Pressable
+                        key={group.id}
+                        testID={`groups-place-child-group-${child.id}-${group.id}`}
+                        accessibilityRole="button"
+                        accessibilityState={{ selected, disabled: placeChild.isPending }}
+                        disabled={placeChild.isPending}
+                        style={[styles.tab, selected && styles.tabActive]}
+                        onPress={() =>
+                          setSelectedGroups((current) => ({
+                            ...current,
+                            [child.id]: group.id,
+                          }))
+                        }
+                      >
+                        <Text style={[styles.tabText, selected && styles.tabTextActive]}>
+                          {group.name}
+                        </Text>
+                      </Pressable>
+                    );
+                  })}
+                </RNView>
+                <Pressable
+                  testID={`groups-place-child-${child.id}`}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Add ${child.display_name} to the selected group`}
+                  accessibilityState={{ disabled: placeChild.isPending, busy }}
+                  disabled={placeChild.isPending || selectedGroupId == null}
+                  style={[
+                    styles.button,
+                    styles.buttonPrimary,
+                    styles.inlineButton,
+                    (placeChild.isPending || selectedGroupId == null) && styles.buttonDisabled,
+                  ]}
+                  onPress={() => {
+                    if (selectedGroupId) {
+                      placeChild.mutate({ childId: child.id, groupId: selectedGroupId });
+                    }
+                  }}
+                >
+                  <Text style={styles.buttonText}>{busy ? "Adding…" : "Add to group"}</Text>
+                </Pressable>
+              </>
+            ) : (
+              <Text style={styles.body}>
+                Create a group or accept a parent invitation before placing this child.
+              </Text>
+            )}
+          </RNView>
+        );
+      })}
+    </RNView>
+  );
+}
+
 function GroupPicker({
   groups,
   activeGroupId,
+  canCreateGroup,
   onSelect,
 }: {
   groups: Group[];
   activeGroupId: string | null;
+  canCreateGroup: boolean;
   onSelect: (id: string) => void;
 }) {
   const [creating, setCreating] = useState(false);
@@ -196,7 +382,7 @@ function GroupPicker({
     },
     onError: (err) => {
       if (!(err instanceof ImperativeRequestSupersededError)) {
-        Alert.alert("Couldn't create group", apiErrorMessage(err));
+        Alert.alert("Couldn't create group", safeAdultError(err, "Try again."));
       }
     },
   });
@@ -223,17 +409,20 @@ function GroupPicker({
             </Pressable>
           );
         })}
-        <Pressable
-          testID="classroom-new-group-button"
-          accessibilityRole="button"
-          accessibilityState={{ expanded: creating }}
-          style={[styles.tab, styles.tabGhost]}
-          onPress={() => setCreating((v) => !v)}
-        >
-          <Text style={styles.tabText}>+ New</Text>
-        </Pressable>
+        {canCreateGroup ? (
+          <Pressable
+            testID="classroom-new-group-button"
+            nativeID="groups-new-group-button"
+            accessibilityRole="button"
+            accessibilityState={{ expanded: creating }}
+            style={[styles.tab, styles.tabGhost]}
+            onPress={() => setCreating((v) => !v)}
+          >
+            <Text style={styles.tabText}>+ New</Text>
+          </Pressable>
+        ) : null}
       </RNView>
-      {creating && (
+      {canCreateGroup && creating && (
         <RNView style={styles.row}>
           <TextInput
             accessibilityLabel="Group name"
@@ -286,7 +475,7 @@ function NoGroupYet({ onCreated }: { onCreated: (g: Group) => void }) {
     },
     onError: (err) => {
       if (!(err instanceof ImperativeRequestSupersededError)) {
-        Alert.alert("Couldn't create group", apiErrorMessage(err));
+        Alert.alert("Couldn't create group", safeAdultError(err, "Try again."));
       }
     },
   });
@@ -330,23 +519,29 @@ function NoGroupYet({ onCreated }: { onCreated: (g: Group) => void }) {
   );
 }
 
-function GroupDetail({ group }: { group: Group }) {
+function GroupDetail({
+  group,
+  sharedGroupsEnabled,
+}: {
+  group: Group;
+  sharedGroupsEnabled: boolean;
+}) {
   const currentUser = useAuthSession((state) =>
     state.status === "authenticated" ? state.user : null,
   );
-  const ownerUserId = currentUser?.id ?? null;
+  const userId = currentUser?.id ?? null;
+  const queryClient = useQueryClient();
   const roster = useQuery({
-    queryKey: ["group-members", ownerUserId ?? "anonymous", group.id],
+    queryKey: ["group-members", userId ?? "anonymous", group.id],
     queryFn: () => listGroupMembers(group.id),
-    enabled: ownerUserId != null,
+    enabled: userId != null,
   });
   const [showAdd, setShowAdd] = useState(false);
   const [handoff, setHandoff] = useState<CreateKidResponse | null>(null);
   const [reissueKidId, setReissueKidId] = useState<string | null>(null);
-  const canReissueKidHandoffs =
-    currentUser?.role === "parent" && currentUser.id === group.owner_user_id;
+  const currentGroup = roster.data?.group ?? group;
   const reissue = useMutation({
-    mutationKey: ["reissue-kid-handoff", ownerUserId ?? "anonymous", group.id],
+    mutationKey: ["reissue-kid-handoff", userId ?? "anonymous", group.id],
     mutationFn: ({ kidUserId }: { kidUserId: string }) =>
       reissueKidHandoff(group.id, kidUserId),
     gcTime: 0,
@@ -363,7 +558,10 @@ function GroupDetail({ group }: { group: Group }) {
     },
     onError: (err) => {
       if (!(err instanceof ImperativeRequestSupersededError)) {
-        Alert.alert("Couldn't create sign-in QR", apiErrorMessage(err));
+        Alert.alert(
+          "Couldn't create sign-in QR",
+          safeAdultError(err, "Try again. Your child's account has not changed."),
+        );
       }
     },
     onSettled: () => setReissueKidId(null),
@@ -394,59 +592,97 @@ function GroupDetail({ group }: { group: Group }) {
     <RNView style={styles.section}>
       <RNView style={styles.row}>
         <RNView style={{ flex: 1 }}>
-          <Text style={styles.heading}>{group.name}</Text>
+          <Text style={styles.heading}>{currentGroup.name}</Text>
+          <Text style={styles.help}>
+            {currentGroup.adult_count} {currentGroup.adult_count === 1 ? "adult" : "adults"} ·{" "}
+            {currentGroup.child_count} {currentGroup.child_count === 1 ? "child" : "children"}
+          </Text>
         </RNView>
-        <Pressable
-          testID="classroom-add-kid-button"
-          accessibilityRole="button"
-          accessibilityLabel={`Add a child to ${group.name}`}
-          style={[styles.button, styles.buttonPrimary]}
-          onPress={() => setShowAdd(true)}
-        >
-          <Text style={styles.buttonText}>Add child</Text>
-        </Pressable>
+        {currentGroup.permissions.can_add_child ? (
+          <Pressable
+            testID="classroom-add-kid-button"
+            nativeID="groups-add-child-button"
+            accessibilityRole="button"
+            accessibilityLabel={`Add a child to ${currentGroup.name}`}
+            style={[styles.button, styles.buttonPrimary]}
+            onPress={() => setShowAdd(true)}
+          >
+            <Text style={styles.buttonText}>Add child</Text>
+          </Pressable>
+        ) : null}
       </RNView>
 
       {roster.isPending ? (
         <ActivityIndicator style={{ marginTop: 16 }} />
       ) : roster.isError ? (
-        <Text style={styles.body}>Couldn't load roster: {roster.error.message}</Text>
-      ) : roster.data.items.length === 0 ? (
         <Text style={styles.body}>
-          No members yet. Choose "Add child" to create the first child account.
+          Couldn't load this group. Your children and invitations have not changed.
         </Text>
       ) : (
-        roster.data.items.map((item) => (
-          <RosterRow
-            key={item.membership_id}
-            member={item}
-            canReissue={canReissueKidHandoffs && item.role === "kid"}
-            reissuePending={reissue.isPending}
-            reissueBusy={reissue.isPending && reissueKidId === item.user_id}
-            onReissue={() => {
-              setReissueKidId(item.user_id);
-              reissue.mutate({ kidUserId: item.user_id });
-            }}
-          />
-        ))
+        <>
+          {currentGroup.is_owner ? (
+            <OwnerGroupControls
+              group={currentGroup}
+              adults={roster.data.adults}
+              userId={userId ?? "anonymous"}
+              sharedGroupsEnabled={sharedGroupsEnabled}
+            />
+          ) : null}
+
+          <Text style={styles.sectionLabel}>Your children</Text>
+          {roster.data.own_children.length === 0 ? (
+            <Text style={styles.body}>
+              You have no children in this group.
+            </Text>
+          ) : (
+            roster.data.own_children.map((child) => (
+              <OwnChildRow
+              key={child.user_id}
+              child={child}
+              reissuePending={reissue.isPending}
+              reissueBusy={reissue.isPending && reissueKidId === child.user_id}
+              onReissue={() => {
+                setReissueKidId(child.user_id);
+                reissue.mutate({ kidUserId: child.user_id });
+              }}
+            />
+            ))
+          )}
+
+          {roster.data.other_child_count > 0 ? (
+            <RNView testID="groups-other-family-count" style={styles.aggregateCard}>
+              <Text style={styles.rosterName}>Other families</Text>
+              <Text style={styles.rosterMeta}>
+                {roster.data.other_child_count}{" "}
+                {roster.data.other_child_count === 1 ? "other child is" : "other children are"}{" "}
+                in this group. Their names and activity stay private.
+              </Text>
+            </RNView>
+          ) : null}
+        </>
       )}
 
-      <AddKidModal
-        visible={showAdd}
-        groupId={group.id}
-        onClose={() => setShowAdd(false)}
-        onCreated={(resp) => {
-          setShowAdd(false);
-          if (handoffIsUsable(resp)) {
-            setHandoff(resp);
-          } else {
-            Alert.alert(
-              "Couldn't create sign-in QR",
-              "The one-time code was invalid or already expired. Try again.",
-            );
-          }
-        }}
-      />
+      {currentGroup.permissions.can_add_child ? (
+        <AddKidModal
+          visible={showAdd}
+          groupId={group.id}
+          onClose={() => setShowAdd(false)}
+          onCreated={(resp) => {
+            setShowAdd(false);
+            void queryClient.invalidateQueries({
+              queryKey: ["groups", userId ?? "anonymous"],
+            });
+            if (handoffIsUsable(resp)) {
+              setHandoff(resp);
+            } else {
+              Alert.alert(
+                "Couldn't create sign-in QR",
+                "The one-time code was invalid or already expired. Try again.",
+              );
+            }
+          }}
+        />
+      ) : null}
 
       <HandoffModal
         handoff={handoff}
@@ -456,63 +692,382 @@ function GroupDetail({ group }: { group: Group }) {
   );
 }
 
-function RosterRow({
-  member,
-  canReissue,
+function OwnChildRow({
+  child,
   reissuePending,
   reissueBusy,
   onReissue,
 }: {
-  member: RosterMember;
-  canReissue: boolean;
+  child: OwnChildRosterMember;
   reissuePending: boolean;
   reissueBusy: boolean;
   onReissue: () => void;
 }) {
   const colorScheme = useColorScheme();
-  const subtitle =
-    member.role === "kid" ? `child · age ${member.age_band ?? "?"}` : member.role;
   return (
     <RNView
-      testID={`classroom-roster-row-${member.membership_id}`}
+      testID={`classroom-roster-row-${child.user_id}`}
+      nativeID={`groups-own-child-${child.user_id}`}
       style={[
         styles.rosterRow,
         colorScheme === "dark" ? styles.rosterRowDark : styles.rosterRowLight,
       ]}
     >
       <RNView style={styles.rosterIdentity}>
-        <Text style={styles.rosterName}>{member.display_name}</Text>
-        <Text style={styles.rosterMeta}>{subtitle}</Text>
+        <Text style={styles.rosterName}>{child.display_name}</Text>
+        <Text style={styles.rosterMeta}>child · age {child.age_band ?? "not set"}</Text>
       </RNView>
       <RNView style={styles.rosterActions}>
         <Text style={styles.rosterMeta}>
-          {member.observation_count} obs · {member.dex_count} dex
+          {child.observation_count} obs · {child.dex_count} dex
         </Text>
-        {canReissue && (
-          <Pressable
-            testID={`classroom-reissue-kid-${member.user_id}`}
-            accessibilityRole="button"
-            accessibilityLabel={`Create a new sign-in QR for ${member.display_name}`}
-            accessibilityHint="Shows a one-time code that expires in 15 minutes."
-            accessibilityState={{
-              disabled: reissuePending,
-              busy: reissueBusy,
-            }}
-            disabled={reissuePending}
-            style={[
-              styles.button,
-              styles.buttonGhost,
-              styles.rosterHandoffButton,
-              reissuePending && styles.buttonDisabled,
-            ]}
-            onPress={onReissue}
-          >
-            <Text style={[styles.buttonText, styles.buttonGhostText]}>
-              {reissueBusy ? "Creating…" : "New sign-in QR"}
-            </Text>
-          </Pressable>
-        )}
+        <Pressable
+          testID={`classroom-reissue-kid-${child.user_id}`}
+          nativeID={`groups-reissue-child-${child.user_id}`}
+          accessibilityRole="button"
+          accessibilityLabel={`Create a new sign-in QR for ${child.display_name}`}
+          accessibilityHint="Shows a one-time code that expires in 15 minutes."
+          accessibilityState={{ disabled: reissuePending, busy: reissueBusy }}
+          disabled={reissuePending}
+          style={[
+            styles.button,
+            styles.buttonGhost,
+            styles.rosterHandoffButton,
+            reissuePending && styles.buttonDisabled,
+          ]}
+          onPress={onReissue}
+        >
+          <Text style={[styles.buttonText, styles.buttonGhostText]}>
+            {reissueBusy ? "Creating…" : "New sign-in QR"}
+          </Text>
+        </Pressable>
       </RNView>
+    </RNView>
+  );
+}
+
+function OwnerGroupControls({
+  group,
+  adults,
+  userId,
+  sharedGroupsEnabled,
+}: {
+  group: Group;
+  adults: Array<{
+    removal_ref: string | null;
+    display_name: string;
+    is_owner: boolean;
+    status: string;
+  }>;
+  userId: string;
+  sharedGroupsEnabled: boolean;
+}) {
+  const queryClient = useQueryClient();
+  const [renameDraft, setRenameDraft] = useState(group.name);
+  const [editingName, setEditingName] = useState(false);
+  const [confirmArchive, setConfirmArchive] = useState(false);
+  const [confirmRemoveId, setConfirmRemoveId] = useState<string | null>(null);
+  const invitationLinkRef = useRef<string | null>(null);
+  const [invitationExpiresAt, setInvitationExpiresAt] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+  const [createInvitePending, setCreateInvitePending] = useState(false);
+
+  useEffect(() => {
+    setRenameDraft(group.name);
+  }, [group.name]);
+
+  useEffect(() => {
+    invitationLinkRef.current = null;
+    setInvitationExpiresAt(null);
+    setCopied(false);
+    return () => {
+      invitationLinkRef.current = null;
+    };
+  }, [group.id, userId]);
+
+  const invalidateGroup = async () => {
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ["groups", userId] }),
+      queryClient.invalidateQueries({ queryKey: ["group-members", userId, group.id] }),
+    ]);
+  };
+
+  const rename = useMutation({
+    mutationFn: (name: string) => updateGroup(group.id, name),
+    onSuccess: async () => {
+      setEditingName(false);
+      await invalidateGroup();
+    },
+    onError: (error) => Alert.alert("Couldn't rename group", safeAdultError(error, "Try again.")),
+  });
+  const archive = useMutation({
+    mutationFn: () => archiveGroup(group.id),
+    onSuccess: invalidateGroup,
+    onError: (error) => Alert.alert("Couldn't archive group", safeAdultError(error, "Try again.")),
+  });
+  const removeAdult = useMutation({
+    mutationFn: (removalRef: string) => removeAdultMember(group.id, removalRef),
+    onSuccess: async () => {
+      setConfirmRemoveId(null);
+      await invalidateGroup();
+    },
+    onError: (error) => Alert.alert("Couldn't remove parent", safeAdultError(error, "Try again.")),
+  });
+  const invitations = useQuery({
+    queryKey: ["group-adult-invitations", userId, group.id],
+    queryFn: () => listAdultInvitations(group.id),
+    enabled: sharedGroupsEnabled && group.permissions.can_manage_invitations,
+  });
+  async function issueInvitation() {
+    setCreateInvitePending(true);
+    try {
+      const response = await createAdultInvitation(group.id);
+      if (!validateInvitationUrl(response.invite_url)) {
+        Alert.alert("Couldn't create invitation", "The invitation response was invalid. Try again.");
+        return;
+      }
+      invitationLinkRef.current = response.invite_url;
+      setInvitationExpiresAt(response.expires_at);
+      setCopied(false);
+      void queryClient.invalidateQueries({
+        queryKey: ["group-adult-invitations", userId, group.id],
+      });
+    } catch (error) {
+      if (!(error instanceof ImperativeRequestSupersededError)) {
+        Alert.alert("Couldn't create invitation", safeAdultError(error, "Try again."));
+      }
+    } finally {
+      setCreateInvitePending(false);
+    }
+  }
+  const revokeInvite = useMutation({
+    mutationFn: (inviteId: string) => revokeAdultInvitation(group.id, inviteId),
+    onSuccess: () => queryClient.invalidateQueries({
+      queryKey: ["group-adult-invitations", userId, group.id],
+    }),
+    onError: (error) => Alert.alert("Couldn't revoke invitation", safeAdultError(error, "Try again.")),
+  });
+
+  function closeInvitation() {
+    invitationLinkRef.current = null;
+    setInvitationExpiresAt(null);
+    setCopied(false);
+  }
+
+  return (
+    <RNView testID="groups-owner-controls" style={styles.ownerPanel}>
+      <Text style={styles.sectionLabel}>Group settings</Text>
+      {group.permissions.can_rename ? (
+        editingName ? (
+          <RNView style={styles.row}>
+            <TextInput
+              testID="groups-rename-input"
+              accessibilityLabel="New group name"
+              style={[styles.input, { flex: 1 }]}
+              value={renameDraft}
+              onChangeText={setRenameDraft}
+            />
+            <Pressable
+              testID="groups-rename-save"
+              accessibilityRole="button"
+              disabled={rename.isPending || !renameDraft.trim()}
+              style={[styles.button, styles.buttonPrimary, (rename.isPending || !renameDraft.trim()) && styles.buttonDisabled]}
+              onPress={() => rename.mutate(renameDraft.trim())}
+            >
+              <Text style={styles.buttonText}>{rename.isPending ? "Saving…" : "Save"}</Text>
+            </Pressable>
+            <Pressable
+              accessibilityRole="button"
+              style={[styles.button, styles.buttonGhost]}
+              onPress={() => {
+                setRenameDraft(group.name);
+                setEditingName(false);
+              }}
+            >
+              <Text style={styles.buttonGhostText}>Cancel</Text>
+            </Pressable>
+          </RNView>
+        ) : (
+          <Pressable
+            testID="groups-rename-button"
+            accessibilityRole="button"
+            style={[styles.button, styles.buttonGhost, styles.inlineButton]}
+            onPress={() => setEditingName(true)}
+          >
+            <Text style={styles.buttonGhostText}>Rename group</Text>
+          </Pressable>
+        )
+      ) : null}
+
+      {sharedGroupsEnabled && group.permissions.can_manage_invitations ? (
+        <RNView style={styles.subsection}>
+          <RNView style={styles.row}>
+            <RNView style={{ flex: 1 }}>
+              <Text style={styles.rosterName}>Parent invitations</Text>
+              <Text style={styles.rosterMeta}>Links work once and expire after 72 hours.</Text>
+            </RNView>
+            {group.permissions.can_invite_parents ? (
+              <Pressable
+                testID="groups-create-invitation"
+                accessibilityRole="button"
+                accessibilityState={{ disabled: createInvitePending, busy: createInvitePending }}
+                disabled={createInvitePending}
+                style={[styles.button, styles.buttonPrimary, createInvitePending && styles.buttonDisabled]}
+                onPress={() => void issueInvitation()}
+              >
+                <Text style={styles.buttonText}>{createInvitePending ? "Creating…" : "Invite parent"}</Text>
+              </Pressable>
+            ) : null}
+          </RNView>
+          {invitations.isPending ? <ActivityIndicator /> : null}
+          {invitations.isError ? (
+            <Text style={styles.rosterMeta}>
+              Couldn't load invitations. No invitation was changed.
+            </Text>
+          ) : null}
+          {invitations.data?.items.map((invite) => (
+            <InvitationMetadataRow
+              key={invite.id}
+              invite={invite}
+              revoking={revokeInvite.isPending}
+              onRevoke={() => revokeInvite.mutate(invite.id)}
+            />
+          ))}
+        </RNView>
+      ) : null}
+
+      <RNView style={styles.subsection}>
+        <Text style={styles.rosterName}>Parents</Text>
+        {adults.map((adult) => (
+          <RNView key={adult.removal_ref ?? `owner-${adult.display_name}`} style={styles.rosterRow}>
+            <RNView style={styles.rosterIdentity}>
+              <Text style={styles.rosterName}>{adult.display_name}</Text>
+              <Text style={styles.rosterMeta}>
+                {adult.is_owner
+                  ? "group owner"
+                  : adult.status === "left"
+                    ? "removed parent"
+                    : "active parent"}
+              </Text>
+            </RNView>
+            {group.permissions.can_remove_adults &&
+            adult.status === "active" &&
+            !adult.is_owner &&
+            adult.removal_ref ? (
+              confirmRemoveId === adult.removal_ref ? (
+                <RNView style={styles.row}>
+                  <Pressable
+                    accessibilityRole="button"
+                    style={[styles.button, styles.buttonDanger]}
+                    onPress={() => removeAdult.mutate(adult.removal_ref!)}
+                  >
+                    <Text style={styles.buttonText}>Confirm remove</Text>
+                  </Pressable>
+                  <Pressable accessibilityRole="button" style={[styles.button, styles.buttonGhost]} onPress={() => setConfirmRemoveId(null)}>
+                    <Text style={styles.buttonGhostText}>Cancel</Text>
+                  </Pressable>
+                </RNView>
+              ) : (
+                <Pressable
+                  testID={`groups-remove-adult-${adult.removal_ref}`}
+                  accessibilityRole="button"
+                  style={[styles.button, styles.buttonGhost]}
+                  onPress={() => setConfirmRemoveId(adult.removal_ref)}
+                >
+                  <Text style={styles.buttonGhostText}>Remove</Text>
+                </Pressable>
+              )
+            ) : null}
+          </RNView>
+        ))}
+      </RNView>
+
+      {group.permissions.can_archive ? (
+        confirmArchive ? (
+          <RNView style={styles.row}>
+            <Pressable
+              testID="groups-archive-confirm"
+              accessibilityRole="button"
+              disabled={archive.isPending}
+              style={[styles.button, styles.buttonDanger, archive.isPending && styles.buttonDisabled]}
+              onPress={() => archive.mutate()}
+            >
+              <Text style={styles.buttonText}>{archive.isPending ? "Archiving…" : "Confirm archive"}</Text>
+            </Pressable>
+            <Pressable accessibilityRole="button" style={[styles.button, styles.buttonGhost]} onPress={() => setConfirmArchive(false)}>
+              <Text style={styles.buttonGhostText}>Cancel</Text>
+            </Pressable>
+          </RNView>
+        ) : (
+          <Pressable
+            testID="groups-archive-button"
+            accessibilityRole="button"
+            style={[styles.button, styles.buttonGhost, styles.inlineButton]}
+            onPress={() => setConfirmArchive(true)}
+          >
+            <Text style={styles.buttonGhostText}>Archive group</Text>
+          </Pressable>
+        )
+      ) : null}
+
+      <Modal visible={invitationExpiresAt != null} transparent animationType="fade" onRequestClose={closeInvitation}>
+        <RNView style={styles.modalScrim}>
+          <View accessibilityViewIsModal style={styles.modalCard}>
+            <Text style={styles.heading}>Invitation ready</Text>
+            <Text style={styles.help}>
+              Copy it now. For privacy, this one-time link is not shown again. It expires {invitationExpiresAt ? formatInvitationExpiry(invitationExpiresAt) : "soon"}.
+            </Text>
+            <Pressable
+              testID="groups-copy-invitation"
+              accessibilityRole="button"
+              style={[styles.button, styles.buttonPrimary]}
+              onPress={() => {
+                const invitationLink = invitationLinkRef.current;
+                if (!invitationLink) return;
+                void copyInvitationUrl(invitationLink).then(
+                  () => setCopied(true),
+                  () => Alert.alert("Couldn't copy invitation", "Clipboard access is unavailable. Try again in a supported browser."),
+                );
+              }}
+            >
+              <Text style={styles.buttonText}>{copied ? "Copied" : "Copy invitation link"}</Text>
+            </Pressable>
+            <Pressable accessibilityRole="button" style={[styles.button, styles.buttonGhost]} onPress={closeInvitation}>
+              <Text style={styles.buttonGhostText}>Done</Text>
+            </Pressable>
+          </View>
+        </RNView>
+      </Modal>
+    </RNView>
+  );
+}
+
+function InvitationMetadataRow({
+  invite,
+  revoking,
+  onRevoke,
+}: {
+  invite: AdultInvitation;
+  revoking: boolean;
+  onRevoke: () => void;
+}) {
+  return (
+    <RNView testID={`groups-invitation-${invite.id}`} style={styles.rosterRow}>
+      <RNView style={styles.rosterIdentity}>
+        <Text style={styles.rosterName}>{invite.state === "pending" ? "Pending invitation" : `${invite.state[0].toUpperCase()}${invite.state.slice(1)} invitation`}</Text>
+        <Text style={styles.rosterMeta}>Created {new Date(invite.created_at).toLocaleDateString()} · expires {new Date(invite.expires_at).toLocaleDateString()}</Text>
+      </RNView>
+      {invite.state === "pending" ? (
+        <Pressable
+          testID={`groups-revoke-invitation-${invite.id}`}
+          accessibilityRole="button"
+          disabled={revoking}
+          style={[styles.button, styles.buttonGhost, revoking && styles.buttonDisabled]}
+          onPress={onRevoke}
+        >
+          <Text style={styles.buttonGhostText}>Revoke</Text>
+        </Pressable>
+      ) : null}
     </RNView>
   );
 }
@@ -550,7 +1105,7 @@ function AddKidModal({
     },
     onError: (err) => {
       if (!(err instanceof ImperativeRequestSupersededError)) {
-        Alert.alert("Couldn't create kid", apiErrorMessage(err));
+        Alert.alert("Couldn't create child", safeAdultError(err, "Try again. No child account was created."));
       }
     },
   });
@@ -733,10 +1288,28 @@ function formatHandoffExpiry(expiresAt: string): string {
   return parsed.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
 }
 
-function apiErrorMessage(err: unknown): string {
-  if (err instanceof ApiError) return err.message;
-  if (err instanceof Error) return err.message;
-  return String(err);
+function formatInvitationExpiry(expiresAt: string): string {
+  const parsed = new Date(expiresAt);
+  if (!Number.isFinite(parsed.getTime())) return "soon";
+  return parsed.toLocaleString([], {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
+function safeAdultError(err: unknown, fallback: string): string {
+  if (err instanceof ApiError) {
+    const supportCode = err.body?.error.request_id;
+    if (err.status === 401) return "Your sign-in expired. Sign in again.";
+    if (err.status === 403 || err.status === 404) return "This group action is unavailable.";
+    if (err.status === 409) {
+      return `This action needs adult attention.${supportCode ? ` Support code: ${supportCode}` : ""}`;
+    }
+    return `${fallback}${supportCode ? ` Support code: ${supportCode}` : ""}`;
+  }
+  return fallback;
 }
 
 const styles = StyleSheet.create({
@@ -749,7 +1322,6 @@ const styles = StyleSheet.create({
   heading: { fontSize: 16, fontWeight: "600" },
   body: { fontSize: 14, opacity: 0.75, marginTop: 4 },
   help: { fontSize: 12, opacity: 0.6, marginTop: 4, marginBottom: 8 },
-  code: { fontFamily: "SpaceMono", fontSize: 13 },
   tabRow: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 6 },
   tab: {
     minHeight: 44,
@@ -787,6 +1359,7 @@ const styles = StyleSheet.create({
     marginTop: 8,
   },
   buttonPrimary: { backgroundColor: "#2f6feb" },
+  buttonDanger: { backgroundColor: "#b42318" },
   buttonGhost: {
     borderColor: "#888",
     borderWidth: StyleSheet.hairlineWidth,
@@ -795,6 +1368,21 @@ const styles = StyleSheet.create({
   buttonDisabled: { opacity: 0.4 },
   buttonText: { fontSize: 14, color: "#fff" },
   buttonGhostText: { color: "#1f2937" },
+  inlineButton: { alignSelf: "flex-start" },
+  ownerPanel: {
+    marginTop: 12,
+    padding: 12,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: "rgba(31,41,55,0.2)",
+    borderRadius: 8,
+  },
+  subsection: { marginTop: 12 },
+  aggregateCard: {
+    marginTop: 12,
+    padding: 12,
+    borderRadius: 8,
+    backgroundColor: "rgba(47,111,235,0.08)",
+  },
   rosterRow: {
     flexDirection: "row",
     alignItems: "center",

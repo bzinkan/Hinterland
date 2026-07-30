@@ -9,7 +9,9 @@ must run outside that hot path.
 
 Platform choices are documented in
 [ADR 0010](adr/0010-azure-target-architecture.md). ADR 0010 supersedes the
-earlier GCP ADRs 0005, 0008, and 0009.
+earlier GCP ADRs 0005, 0008, and 0009. Group administration and multi-family
+privacy are defined by
+[ADR 0017](adr/0017-group-ownership-and-multi-family-privacy.md).
 
 ```text
 Expo mobile / parents web
@@ -31,7 +33,10 @@ Azure Container Apps: FastAPI / uvicorn
 Current W1 Internal Testing posture: iNat public submission is off, moderation
 provider defaults to noop unless explicitly configured, and parent setup is
 web-first through the parents app. Kids sign in by scanning the QR handoff that
-the adult generates from Classroom.
+their parent generates from Groups. The current Play v12 W1 evidence remains a
+hard merge/deploy hold: complete the low-memory-device run, adult dry run,
+received-alert evidence, supervised family session, post-session audit, and
+recorded decisions before shipping Group-first changes.
 
 ## Observation Hot Path
 
@@ -67,18 +72,27 @@ do not keep expanding the endpoint with feature-specific branches.
 Adults authenticate with Microsoft Entra External Identities. Verified Entra
 tokens are resolved to local `users` rows by `users.entra_oid`.
 
-Kids never enter email/password. A parent/teacher provisions a kid, the backend
+Kids never enter email/password. A parent provisions their own child, the backend
 mints a 15-minute single-use Hinterland handoff JWT, and the kid app exchanges
 that at `POST /v1/auth/kid-exchange` for a 30-day Hinterland session JWT.
 Hinterland kid JWTs are RS256 and are verified against
 `/.well-known/hinterland-kid-jwks.json`.
 
 For an expired QR, new device, or owner-scoped offline work preserved across
-sign-out, the consenting parent who owns the group can mint a fresh one-time
+sign-out, the child's canonical parent can mint a fresh one-time
 handoff at `POST /v1/groups/{group_id}/kids/{kid_user_id}/handoff`. The server
 revalidates the canonical parent/kid relationship and exact group membership;
 the token response is private/no-store. Minting a new handoff does not claim to
 revoke another device's already-issued session.
+
+The group creator is the group owner and manages group metadata, adult
+invitations, adult removal, and archival. Each parent manages only children
+whose canonical `parent_user_id` points to them. Group ownership and ordinary
+adult membership never grant access to another family's handoffs, photos,
+observations, reviews, corrections, deletion, or private child metadata.
+Adults may belong to multiple groups; a child has only one active group in this
+release. The retained internal `teacher` role has no implicit group or child
+capability.
 
 The backend augments request identity from Postgres on every real token path:
 `CurrentUser.uid` is the canonical local `users.id`. Route code should resolve
@@ -97,9 +111,11 @@ NoOp results move to private `pilot-private/` for seven-day lifecycle;
 resolved provider results use `observations/` or `quarantine/`. Signed PUT/GET URLs are
 SAS URLs behind the existing storage protocol. Pending, quarantined,
 pilot-private, rejected, and deleted photos are never readable by a child.
-Clean photos are readable by their owner and an authorized managing adult;
+Clean photos are readable by their owner and their authorized parent or an
+explicitly assigned reviewer;
 quarantine is adult-reviewer-only. Same-group peer children never receive a
-photo URL.
+photo URL. Shared group membership alone never authorizes photo or review
+access.
 
 **Taxonomy catalog.** Replayable audited ingest promotes pinned, reviewed
 taxonomy content into PostgreSQL. The bundled core pack and authenticated

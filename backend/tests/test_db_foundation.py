@@ -9,6 +9,7 @@ def test_postgres_foundation_tables_are_registered() -> None:
         "users",
         "groups",
         "memberships",
+        "group_adult_invites",
         "photos",
         "observations",
         "dex_entries",

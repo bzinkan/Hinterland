@@ -8,6 +8,9 @@ export type ApiMeta = {
     observation?: {
       photo_helper_enabled?: boolean;
     };
+    groups?: {
+      shared_groups_enabled?: boolean;
+    };
   };
 };
 

@@ -101,7 +101,12 @@ def _set_session_lookups(
         return_value=("collide" if join_code_collision else None)
     )
 
-    fake_session.execute = AsyncMock(side_effect=[user_result, code_result])
+    counts_result = MagicMock()
+    counts_result.one = MagicMock(
+        return_value=MagicMock(adult_count=1, child_count=0, own_children_count=0)
+    )
+
+    fake_session.execute = AsyncMock(side_effect=[user_result, code_result, counts_result])
     fake_session.add = MagicMock()
     fake_session.commit = AsyncMock()
     fake_session.refresh = AsyncMock()
@@ -220,7 +225,7 @@ def test_create_group_parent_requires_linked_current_consent(
     fake_session.commit.assert_not_awaited()
 
 
-def test_create_group_teacher_can_create_empty_classroom_without_parent_consent(
+def test_create_group_teacher_role_has_no_group_creation_capability(
     groups_client: TestClient,
     fake_session: AsyncMock,
     monkeypatch: pytest.MonkeyPatch,
@@ -240,17 +245,16 @@ def test_create_group_teacher_can_create_empty_classroom_without_parent_consent(
         json={"name": "Classroom"},
     )
 
-    assert response.status_code == 201
+    assert response.status_code == 403
     require_consent.assert_not_awaited()
 
 
-@pytest.mark.parametrize("role", ["parent", "teacher"])
 def test_create_group_happy_path(
     groups_client: TestClient,
     fake_session: AsyncMock,
     monkeypatch: pytest.MonkeyPatch,
-    role: str,
 ) -> None:
+    role = "parent"
     _stub_token_verifier(monkeypatch)
     _set_session_lookups(fake_session, user=_user_row(role=role))
 
@@ -263,9 +267,9 @@ def test_create_group_happy_path(
     assert response.status_code == 201
     body = response.json()
     assert body["name"] == f"{role.capitalize()} Group"
-    assert body["owner_user_id"] == _USER_ID
-    assert len(body["join_code"]) == 6
-    assert all(ch in _JOIN_CODE_ALPHABET for ch in body["join_code"])
+    assert body["is_owner"] is True
+    assert "owner_user_id" not in body
+    assert "join_code" not in body
     assert isinstance(body["id"], str) and len(body["id"]) == 26  # ULID
 
     # Group + Membership added; both share the new group's id.
@@ -274,7 +278,7 @@ def test_create_group_happy_path(
     added_membership: models.Membership = fake_session.add.call_args_list[1].args[0]
     assert added_group.name == f"{role.capitalize()} Group"
     assert added_group.owner_user_id == _USER_ID
-    assert added_group.join_code == body["join_code"]
+    assert len(added_group.join_code) == 6
     assert added_membership.group_id == added_group.id
     assert added_membership.user_id == _USER_ID
     assert added_membership.role == role
@@ -399,7 +403,20 @@ def _set_kid_session_lookups(
     group_result = MagicMock()
     group_result.scalar_one_or_none = MagicMock(return_value=group)
 
-    fake_session.execute = AsyncMock(side_effect=[caller_result, group_result])
+    membership_result = MagicMock()
+    membership_result.scalar_one_or_none = MagicMock(
+        return_value=models.Membership(
+            id="01J0ADULTMEMBERSHIP00000000",
+            group_id=_GROUP_ID,
+            user_id=_USER_ID,
+            role="parent",
+            status="active",
+        )
+        if caller is not None and group is not None
+        else None
+    )
+
+    fake_session.execute = AsyncMock(side_effect=[caller_result, group_result, membership_result])
     fake_session.add = MagicMock()
     fake_session.commit = AsyncMock()
     fake_session.refresh = AsyncMock()
@@ -535,8 +552,7 @@ def test_create_kid_teacher_cannot_bypass_parent_guardian_consent(
         json={"display_name": "Sparrow", "age_band": "9-10"},
     )
 
-    assert response.status_code == 409
-    assert "parent or guardian" in response.json()["error"]["message"]
+    assert response.status_code == 403
     require_consent.assert_not_awaited()
     assert fb_calls["mint_handoff"] == []
     fake_session.add.assert_not_called()
@@ -587,7 +603,7 @@ def test_create_kid_rejects_non_owner(
         json={"display_name": "Sparrow", "age_band": "9-10"},
     )
 
-    assert response.status_code == 403
+    assert response.status_code == 404
     assert fb_calls["create_user"] == []
     assert fb_calls["mint_handoff"] == []
 
@@ -662,6 +678,44 @@ def test_create_kid_happy_path(
     assert added_membership.role == "kid"
     fake_session.commit.assert_awaited_once()
     fake_session.refresh.assert_awaited_once_with(added_kid)
+    group_statement = fake_session.execute.await_args_list[1].args[0]
+    group_sql = str(group_statement.compile(dialect=postgresql.dialect())).upper()
+    assert "FROM GROUPS" in group_sql
+    assert "FOR UPDATE" in group_sql
+
+
+def test_create_kid_rechecks_active_parent_after_group_lock(
+    groups_client: TestClient,
+    fake_session: AsyncMock,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An owner removal that won the group lock prevents child creation."""
+    _stub_token_verifier(monkeypatch)
+    fb_calls = _stub_firebase_admin(monkeypatch)
+    caller_result = MagicMock()
+    caller_result.scalar_one_or_none.return_value = _user_row(role="parent")
+    group_result = MagicMock()
+    group_result.scalar_one_or_none.return_value = _group_row(
+        owner_user_id="01J0OTHEROWNERID00000000UL"
+    )
+    removed_membership_result = MagicMock()
+    removed_membership_result.scalar_one_or_none.return_value = None
+    fake_session.execute = AsyncMock(
+        side_effect=[caller_result, group_result, removed_membership_result]
+    )
+    fake_session.add = MagicMock()
+
+    response = groups_client.post(
+        f"/v1/groups/{_GROUP_ID}/kids",
+        headers={"Authorization": "Bearer valid"},
+        json={"display_name": "Sparrow", "age_band": "9-10"},
+    )
+
+    assert response.status_code == 404
+    group_statement = fake_session.execute.await_args_list[1].args[0]
+    assert "FOR UPDATE" in str(group_statement.compile(dialect=postgresql.dialect())).upper()
+    fake_session.add.assert_not_called()
+    assert fb_calls["mint_handoff"] == []
 
 
 def test_create_kid_no_token_minted_on_db_failure(
@@ -724,10 +778,34 @@ def _set_reissue_session_lookups(
     group_result = MagicMock()
     group_result.scalar_one_or_none = MagicMock(return_value=group)
 
-    kid_result = MagicMock()
-    kid_result.scalar_one_or_none = MagicMock(return_value=kid)
+    membership = models.Membership(
+        id="01J0ADULTMEMBERSHIP00000000",
+        group_id=_GROUP_ID,
+        user_id=_USER_ID,
+        role="parent",
+        status="active",
+    )
+    membership_result = MagicMock()
+    membership_result.scalar_one_or_none = MagicMock(
+        return_value=membership if caller is not None and group is not None else None
+    )
 
-    fake_session.execute = AsyncMock(side_effect=[caller_result, group_result, kid_result])
+    kid_membership = models.Membership(
+        id="01J0KIDMEMBERSHIP0000000000",
+        group_id=_GROUP_ID,
+        user_id=_EXISTING_KID_ID,
+        role="kid",
+        status="active",
+        session_version=1,
+    )
+    kid_result = MagicMock()
+    kid_result.one_or_none = MagicMock(
+        return_value=(kid, kid_membership) if kid is not None else None
+    )
+
+    fake_session.execute = AsyncMock(
+        side_effect=[caller_result, group_result, membership_result, kid_result]
+    )
     fake_session.add = MagicMock()
     fake_session.commit = AsyncMock()
 
@@ -775,8 +853,7 @@ def test_reissue_kid_handoff_rejects_teacher_without_parent_guardian_flow(
         headers={"Authorization": "Bearer valid"},
     )
 
-    assert response.status_code == 409
-    assert "parent or guardian" in response.json()["error"]["message"]
+    assert response.status_code == 403
     assert calls["mint_handoff"] == []
 
 
@@ -805,7 +882,7 @@ def test_reissue_kid_handoff_requires_current_linked_consent(
     assert calls["mint_handoff"] == []
 
 
-def test_reissue_kid_handoff_rejects_non_owner(
+def test_reissue_kid_handoff_allows_canonical_parent_who_is_not_owner(
     groups_client: TestClient,
     fake_session: AsyncMock,
     monkeypatch: pytest.MonkeyPatch,
@@ -816,6 +893,7 @@ def test_reissue_kid_handoff_rejects_non_owner(
         fake_session,
         caller=_user_row(role="parent"),
         group=_group_row(owner_user_id="01J0OTHEROWNERID00000000UL"),
+        kid=_existing_kid_row(),
     )
 
     response = groups_client.post(
@@ -823,8 +901,8 @@ def test_reissue_kid_handoff_rejects_non_owner(
         headers={"Authorization": "Bearer valid"},
     )
 
-    assert response.status_code == 403
-    assert calls["mint_handoff"] == []
+    assert response.status_code == 200
+    assert len(calls["mint_handoff"]) == 1
 
 
 def test_reissue_kid_handoff_fails_closed_when_kid_is_not_selectable(
@@ -906,9 +984,27 @@ def test_reissue_kid_handoff_query_enforces_canonical_relationship(
     caller_result.scalar_one_or_none = MagicMock(return_value=_user_row(role="parent"))
     group_result = MagicMock()
     group_result.scalar_one_or_none = MagicMock(return_value=_group_row())
+    membership_result = MagicMock()
+    membership_result.scalar_one_or_none = MagicMock(
+        return_value=models.Membership(
+            id="01J0ADULTMEMBERSHIP00000000",
+            group_id=_GROUP_ID,
+            user_id=_USER_ID,
+            role="parent",
+            status="active",
+        )
+    )
+    kid_membership = models.Membership(
+        id="01J0KIDMEMBERSHIP0000000000",
+        group_id=_GROUP_ID,
+        user_id=_EXISTING_KID_ID,
+        role="kid",
+        status="active",
+        session_version=1,
+    )
     kid_result = MagicMock()
-    kid_result.scalar_one_or_none = MagicMock(return_value=_existing_kid_row())
-    results = [caller_result, group_result, kid_result]
+    kid_result.one_or_none = MagicMock(return_value=(_existing_kid_row(), kid_membership))
+    results = [caller_result, group_result, membership_result, kid_result]
     statements: list[object] = []
 
     async def execute(statement: object) -> MagicMock:
@@ -925,12 +1021,12 @@ def test_reissue_kid_handoff_query_enforces_canonical_relationship(
     )
 
     assert response.status_code == 200
-    assert len(statements) == 3
+    assert len(statements) == 4
     group_sql = str(
         statements[1].compile(dialect=postgresql.dialect())  # type: ignore[attr-defined]
     ).lower()
     kid_sql = str(
-        statements[2].compile(dialect=postgresql.dialect())  # type: ignore[attr-defined]
+        statements[3].compile(dialect=postgresql.dialect())  # type: ignore[attr-defined]
     ).lower()
     assert "groups.id =" in group_sql
     assert "groups.archived_at is null" in group_sql
@@ -978,6 +1074,34 @@ def _set_join_session_lookups(
 def test_join_group_requires_bearer_token(groups_client: TestClient) -> None:
     response = groups_client.post("/v1/groups/join", json={"join_code": _JOIN_CODE})
     assert response.status_code == 401
+
+
+def test_kid_cannot_redeem_legacy_join_code_before_group_lookup(
+    groups_client: TestClient,
+    fake_session: AsyncMock,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    stub_token_verifier(
+        monkeypatch,
+        uid=_FIREBASE_UID,
+        role="kid",
+        group_id=_GROUP_ID,
+        email=None,
+    )
+    caller_result = MagicMock()
+    caller_result.scalar_one_or_none.return_value = _user_row(role="kid")
+    fake_session.execute = AsyncMock(return_value=caller_result)
+    fake_session.add = MagicMock()
+
+    response = groups_client.post(
+        "/v1/groups/join",
+        headers={"Authorization": "Bearer valid"},
+        json={"join_code": _JOIN_CODE},
+    )
+
+    assert response.status_code == 403
+    assert fake_session.execute.await_count == 1
+    fake_session.add.assert_not_called()
 
 
 def test_join_group_validates_join_code_length(
@@ -1108,6 +1232,8 @@ def test_join_group_creates_membership_happy_path(
     assert added_membership.user_id == _USER_ID
     assert added_membership.role == "parent"
     fake_session.commit.assert_awaited_once()
+    group_statement = fake_session.execute.await_args_list[1].args[0]
+    assert "FOR UPDATE" in str(group_statement.compile(dialect=postgresql.dialect())).upper()
 
 
 def test_join_group_normalizes_lowercase_code(
@@ -1155,7 +1281,14 @@ def _set_list_groups_lookups(
     scalars.all = MagicMock(return_value=groups)
     groups_result.scalars = MagicMock(return_value=scalars)
 
-    fake_session.execute = AsyncMock(side_effect=[user_result, groups_result])
+    side_effects: list[MagicMock] = [user_result, groups_result]
+    for _group in groups:
+        counts_result = MagicMock()
+        counts_result.one = MagicMock(
+            return_value=MagicMock(adult_count=1, child_count=0, own_children_count=0)
+        )
+        side_effects.append(counts_result)
+    fake_session.execute = AsyncMock(side_effect=side_effects)
 
 
 def test_list_groups_requires_bearer_token(groups_client: TestClient) -> None:
@@ -1214,8 +1347,11 @@ def test_list_groups_returns_groups(
     body = response.json()
     assert len(body["items"]) == 1
     assert body["items"][0]["id"] == _GROUP_ID
-    assert body["items"][0]["join_code"] == "ABC123"
-    assert body["items"][0]["owner_user_id"] == _USER_ID
+    assert body["items"][0]["is_owner"] is True
+    assert "join_code" not in body["items"][0]
+    assert "owner_user_id" not in body["items"][0]
+    assert response.headers["cache-control"] == "private, no-store"
+    assert response.headers["pragma"] == "no-cache"
 
 
 # ---------------------------------------------------------------------------
@@ -1238,10 +1374,35 @@ def _set_roster_lookups(
     group_result.scalar_one_or_none = MagicMock(return_value=group)
 
     membership_result = MagicMock()
-    membership_result.scalar_one_or_none = MagicMock(return_value=caller_membership_id)
+    membership_result.scalar_one_or_none = MagicMock(
+        return_value=models.Membership(
+            id=caller_membership_id,
+            group_id=_GROUP_ID,
+            user_id=caller.id if caller is not None else _USER_ID,
+            role=caller.role if caller is not None else "parent",
+            status="active",
+        )
+        if caller_membership_id is not None
+        else None
+    )
 
     members_result = MagicMock()
     members_result.all = MagicMock(return_value=rows or [])
+
+    counts_result = MagicMock()
+    counts_result.one = MagicMock(
+        return_value=MagicMock(
+            adult_count=sum(1 for membership, _ in (rows or []) if membership.role != "kid"),
+            child_count=sum(1 for membership, _ in (rows or []) if membership.role == "kid"),
+            own_children_count=sum(
+                1
+                for membership, user in (rows or [])
+                if membership.role == "kid"
+                and caller is not None
+                and user.parent_user_id == caller.id
+            ),
+        )
+    )
 
     side_effects: list[MagicMock] = [caller_result]
     if caller is not None:
@@ -1250,6 +1411,7 @@ def _set_roster_lookups(
         side_effects.append(membership_result)
     if caller_membership_id is not None and caller is not None and group is not None:
         side_effects.append(members_result)
+        side_effects.append(counts_result)
 
     fake_session.execute = AsyncMock(side_effect=side_effects)
 
@@ -1257,6 +1419,189 @@ def _set_roster_lookups(
 def test_list_members_requires_bearer_token(groups_client: TestClient) -> None:
     response = groups_client.get(f"/v1/groups/{_GROUP_ID}/members")
     assert response.status_code == 401
+
+
+def test_kid_cannot_read_member_roster_before_group_lookup(
+    groups_client: TestClient,
+    fake_session: AsyncMock,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    stub_token_verifier(
+        monkeypatch,
+        uid=_FIREBASE_UID,
+        role="kid",
+        group_id=_GROUP_ID,
+        email=None,
+    )
+    caller_result = MagicMock()
+    caller_result.scalar_one_or_none.return_value = _user_row(role="kid")
+    fake_session.execute = AsyncMock(return_value=caller_result)
+
+    response = groups_client.get(
+        f"/v1/groups/{_GROUP_ID}/members",
+        headers={"Authorization": "Bearer valid"},
+    )
+
+    assert response.status_code == 403
+    assert fake_session.execute.await_count == 1
+
+
+def test_kid_cannot_create_adult_invitation_before_group_lookup(
+    groups_client: TestClient,
+    fake_session: AsyncMock,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    stub_token_verifier(
+        monkeypatch,
+        uid=_FIREBASE_UID,
+        role="kid",
+        group_id=_GROUP_ID,
+        email=None,
+    )
+    caller_result = MagicMock()
+    caller_result.scalar_one_or_none.return_value = _user_row(role="kid")
+    fake_session.execute = AsyncMock(return_value=caller_result)
+    fake_session.add = MagicMock()
+
+    response = groups_client.post(
+        f"/v1/groups/{_GROUP_ID}/adult-invitations",
+        headers={"Authorization": "Bearer valid"},
+    )
+
+    assert response.status_code == 403
+    assert fake_session.execute.await_count == 1
+    fake_session.add.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# GET /v1/groups/owned-children
+# ---------------------------------------------------------------------------
+
+
+def _set_owned_children_lookups(
+    fake_session: AsyncMock,
+    *,
+    caller: models.User,
+    rows: list[tuple[models.User, str | None]] | None = None,
+) -> None:
+    caller_result = MagicMock()
+    caller_result.scalar_one_or_none.return_value = caller
+    children_result = MagicMock()
+    children_result.all.return_value = rows or []
+    fake_session.execute = AsyncMock(side_effect=[caller_result, children_result])
+
+
+def test_owned_children_returns_only_canonical_parent_inventory_and_minimal_fields(
+    groups_client: TestClient,
+    fake_session: AsyncMock,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _stub_token_verifier(monkeypatch)
+    parent = _user_row(role="parent")
+    child = models.User(
+        id="01J0OWNCHILD00000000000001",
+        firebase_uid=None,
+        role="kid",
+        display_name="Aster",
+        age_band="9-10",
+        parent_user_id=parent.id,
+    )
+    _set_owned_children_lookups(
+        fake_session,
+        caller=parent,
+        rows=[(child, _GROUP_ID)],
+    )
+
+    response = groups_client.get(
+        "/v1/groups/owned-children",
+        headers={"Authorization": "Bearer valid"},
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "items": [
+            {
+                "id": child.id,
+                "display_name": "Aster",
+                "age_band": "9-10",
+                "active_group_id": _GROUP_ID,
+            }
+        ]
+    }
+    assert response.headers["cache-control"] == "private, no-store"
+    assert response.headers["pragma"] == "no-cache"
+    statement = fake_session.execute.await_args_list[1].args[0]
+    sql = str(
+        statement.compile(dialect=postgresql.dialect(), compile_kwargs={"literal_binds": True})
+    ).lower()
+    assert f"users.parent_user_id = '{parent.id.lower()}'" in sql
+    assert "memberships.role = 'kid'" in sql
+    assert "memberships.status = 'active'" in sql
+    assert "left outer join memberships" in sql
+    assert "observation_count" not in response.text
+    assert "membership" not in response.text
+    assert "owner_user_id" not in response.text
+    assert "join_code" not in response.text
+
+
+def test_owned_children_keeps_removed_child_visible_as_ungrouped(
+    groups_client: TestClient,
+    fake_session: AsyncMock,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _stub_token_verifier(monkeypatch)
+    parent = _user_row(role="parent")
+    child = models.User(
+        id="01J0UNGROUPEDCHILD000000001",
+        firebase_uid=None,
+        role="kid",
+        display_name="Fern",
+        age_band="11-12",
+        parent_user_id=parent.id,
+    )
+    _set_owned_children_lookups(fake_session, caller=parent, rows=[(child, None)])
+
+    response = groups_client.get(
+        "/v1/groups/owned-children",
+        headers={"Authorization": "Bearer valid"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["items"] == [
+        {
+            "id": child.id,
+            "display_name": "Fern",
+            "age_band": "11-12",
+            "active_group_id": None,
+        }
+    ]
+
+
+@pytest.mark.parametrize("role", ["kid", "teacher"])
+def test_owned_children_denies_kids_and_teachers(
+    groups_client: TestClient,
+    fake_session: AsyncMock,
+    monkeypatch: pytest.MonkeyPatch,
+    role: str,
+) -> None:
+    stub_token_verifier(
+        monkeypatch,
+        uid=_FIREBASE_UID,
+        role=role,
+        email=None if role == "kid" else "teacher@example.com",
+        group_id=_GROUP_ID if role == "kid" else None,
+    )
+    caller_result = MagicMock()
+    caller_result.scalar_one_or_none.return_value = _user_row(role=role)
+    fake_session.execute = AsyncMock(return_value=caller_result)
+
+    response = groups_client.get(
+        "/v1/groups/owned-children",
+        headers={"Authorization": "Bearer valid"},
+    )
+
+    assert response.status_code == 403
+    assert fake_session.execute.await_count == 1
 
 
 def test_list_members_returns_404_when_group_missing(
@@ -1296,8 +1641,7 @@ def test_list_members_rejects_non_member(
         f"/v1/groups/{_GROUP_ID}/members",
         headers={"Authorization": "Bearer valid"},
     )
-    assert response.status_code == 403
-    assert "not a member" in response.json()["error"]["message"]
+    assert response.status_code == 404
 
 
 def test_list_members_orders_adults_first_then_kids_alpha(
@@ -1313,6 +1657,8 @@ def test_list_members_orders_adults_first_then_kids_alpha(
         group_id=_GROUP_ID,
         user_id=parent_user.id,
         role="parent",
+        status="active",
+        management_ref="a" * 32,
         observation_count=0,
         dex_count=0,
     )
@@ -1323,12 +1669,14 @@ def test_list_members_orders_adults_first_then_kids_alpha(
         role="kid",
         display_name="Zoe",
         age_band="9-10",
+        parent_user_id=_USER_ID,
     )
     kid_zoe_membership = models.Membership(
         id="01J0KIDMEMBERSHIP000000ZOE",
         group_id=_GROUP_ID,
         user_id=kid_zoe.id,
         role="kid",
+        status="active",
         observation_count=3,
         dex_count=2,
     )
@@ -1339,12 +1687,14 @@ def test_list_members_orders_adults_first_then_kids_alpha(
         role="kid",
         display_name="amy",  # lowercase to verify case-insensitive sort
         age_band="11-12",
+        parent_user_id=_USER_ID,
     )
     kid_amy_membership = models.Membership(
         id="01J0KIDMEMBERSHIP000000AMY",
         group_id=_GROUP_ID,
         user_id=kid_amy.id,
         role="kid",
+        status="active",
         observation_count=1,
         dex_count=1,
     )
@@ -1373,8 +1723,95 @@ def test_list_members_orders_adults_first_then_kids_alpha(
     body = response.json()
     assert body["group"]["id"] == _GROUP_ID
 
-    names = [m["display_name"] for m in body["items"]]
-    assert names == ["Brian", "amy", "Zoe"]
+    assert [m["display_name"] for m in body["adults"]] == ["Brian"]
+    assert [m["display_name"] for m in body["own_children"]] == ["amy", "Zoe"]
+    assert body["other_child_count"] == 0
+    assert "items" not in body
 
-    roles = [m["role"] for m in body["items"]]
-    assert roles == ["parent", "kid", "kid"]
+
+def test_owner_roster_keeps_left_adult_for_idempotent_repair_but_not_left_kid(
+    groups_client: TestClient,
+    fake_session: AsyncMock,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _stub_token_verifier(monkeypatch)
+    owner = _user_row(role="parent")
+    owner_membership = models.Membership(
+        id="01J0OWNERMEMBERSHIP00000001",
+        group_id=_GROUP_ID,
+        user_id=owner.id,
+        role="parent",
+        status="active",
+        management_ref="a" * 32,
+    )
+    former_parent = models.User(
+        id="01J0FORMERPARENT00000000001",
+        firebase_uid="former-parent",
+        role="parent",
+        display_name="Former Parent",
+    )
+    former_membership = models.Membership(
+        id="01J0FORMERMEMBERSHIP0000001",
+        group_id=_GROUP_ID,
+        user_id=former_parent.id,
+        role="parent",
+        status="left",
+        left_at=datetime.now(UTC),
+        management_ref="b" * 32,
+    )
+    former_child = models.User(
+        id="01J0FORMERCHILD000000000001",
+        firebase_uid=None,
+        role="kid",
+        display_name="Former Child",
+        age_band="9-10",
+        parent_user_id=former_parent.id,
+    )
+    former_child_membership = models.Membership(
+        id="01J0FORMERCHILDMEMBER000001",
+        group_id=_GROUP_ID,
+        user_id=former_child.id,
+        role="kid",
+        status="left",
+        left_at=datetime.now(UTC),
+    )
+    _set_roster_lookups(
+        fake_session,
+        caller=owner,
+        group=_group_row(),
+        caller_membership_id=owner_membership.id,
+        rows=[
+            (owner_membership, owner),
+            (former_membership, former_parent),
+            (former_child_membership, former_child),
+        ],
+    )
+
+    response = groups_client.get(
+        f"/v1/groups/{_GROUP_ID}/members",
+        headers={"Authorization": "Bearer valid"},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    former = next(adult for adult in body["adults"] if adult["display_name"] == "Former Parent")
+    assert former == {
+        "removal_ref": "b" * 32,
+        "display_name": "Former Parent",
+        "is_owner": False,
+        "status": "left",
+    }
+    assert body["own_children"] == []
+    assert body["other_child_count"] == 0
+    roster_statement = fake_session.execute.await_args_list[3].args[0]
+    roster_sql = str(
+        roster_statement.compile(
+            dialect=postgresql.dialect(), compile_kwargs={"literal_binds": True}
+        )
+    ).lower()
+    assert "memberships.role in ('teacher', 'parent')" in roster_sql or (
+        "memberships.role in ('parent', 'teacher')" in roster_sql
+    )
+    assert "or memberships.status = 'active'" in roster_sql
+    assert response.headers["cache-control"] == "private, no-store"
+    assert response.headers["pragma"] == "no-cache"

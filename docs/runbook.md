@@ -134,6 +134,26 @@ promotion gate. W1 promotion uses the manually dispatched, protected
 `.github/workflows/observation-w1-promotion.yml`; its authenticated tests and
 alert verification are mandatory and never green-skip missing credentials.
 
+The Groups parent client is also operator-dispatched. For a commit containing
+Group API/schema changes, use this exact order with the shared-Groups flag still
+off:
+
+1. merge only after the previous release evidence gate is complete;
+2. dispatch `deploy-azure-api-dev.yml` from that exact `main` commit and require
+   its preflight, Alembic migration, jobs, API, and smoke checks to pass;
+3. dispatch `deploy-parents-swa.yml` from the same commit. It fails before
+   upload unless public `/ready` reports that exact revision and a ready
+   database;
+4. run the protected Observation promotion at the same commit;
+5. enable only the explicitly selected shared-Groups canary ID, then run the
+   two-family authorization and account-isolation probes.
+
+Do not restore automatic parent-web push deployment: it can race an additive
+migration/API contract. Disabling the rollout flag stops new invitation
+creation and redemption, but owners of already-shared groups retain the
+ability to list/revoke invitations and remove adults. A rollback must never
+reactivate a retired legacy join code.
+
 The required order is:
 
 1. apply W1 flags, delete iNaturalist jobs, verify no inherited iNaturalist-queue
