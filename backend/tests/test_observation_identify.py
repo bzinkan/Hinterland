@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import base64
+import json
 from collections.abc import AsyncIterator, Iterator
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
@@ -23,6 +25,11 @@ _USER_ID = "01J0KIDID0000000000000ULID"
 _GROUP_ID = "01J0GROUPID00000000000ULID"
 _OBS_ID = "01J0OBSID00000000000000ULID"
 _PHOTO_ID = "01J0PHOTOID00000000000ULID"
+
+
+def _fresh_cv_token() -> str:
+    payload = base64.urlsafe_b64encode(json.dumps({"exp": 4_102_444_800}).encode())
+    return f"header.{payload.decode().rstrip('=')}.signature"
 
 
 class _StubStorage:
@@ -64,7 +71,7 @@ def _stub_token_verifier(monkeypatch: pytest.MonkeyPatch) -> None:
 def _build_client(
     fake_session: AsyncMock,
     *,
-    inat_token: str = "test-token",
+    inat_token: str | None = None,
     storage: _StubStorage | None = None,
     inat_client: httpx.AsyncClient | None = None,
     cv_enabled: bool = True,
@@ -73,10 +80,13 @@ def _build_client(
         Settings(
             env="local",
             app_version="test",
-            inat_oauth_token=inat_token,
+            inat_cv_token=_fresh_cv_token() if inat_token is None else inat_token,
             inat_cv_enabled=cv_enabled,
             inat_cv_disclosure_approved=cv_enabled,
             inat_cv_benchmark_approved=cv_enabled,
+            moderation_provider="azure_content_safety",
+            content_safety_endpoint="https://content-safety.example.test",
+            content_safety_key="configured-key",
         )
     )
     # FastAPI resolves all dependencies before the handler runs, so even
@@ -85,7 +95,7 @@ def _build_client(
     # stub.
     app.state.signed_url_generator = storage if storage is not None else _StubStorage()
     if inat_client is not None:
-        app.state.inat_client = inat_client
+        app.state.inat_cv_client = inat_client
 
     async def override() -> AsyncIterator[AsyncSession]:
         yield fake_session
@@ -110,8 +120,12 @@ def _user_row() -> models.User:
 
 
 def _obs_with_photo(
-    *, photo_status: str = "clean", moderation_status: str = "clean"
-) -> tuple[models.Observation, models.Photo, None]:
+    *,
+    photo_status: str = "clean",
+    moderation_status: str = "clean",
+    moderation_source: str = "azure",
+    revocation: models.PhotoRevocation | None = None,
+) -> tuple[models.Observation, models.Photo, models.PhotoRevocation | None]:
     photo = models.Photo(
         id=_PHOTO_ID,
         user_id=_USER_ID,
@@ -130,8 +144,9 @@ def _obs_with_photo(
         latitude=39.1,
         longitude=-84.5,
         moderation_status=moderation_status,
+        moderation_source=moderation_source,
     )
-    return obs, photo, None
+    return obs, photo, revocation
 
 
 def _wire_session(
@@ -278,6 +293,35 @@ def test_identify_rejects_photo_that_is_not_clean(
         assert storage.fetch_calls == []
 
 
+@pytest.mark.parametrize(
+    "obs_photo",
+    [
+        _obs_with_photo(moderation_source="none"),
+        _obs_with_photo(moderation_source="noop"),
+        _obs_with_photo(revocation=MagicMock(spec=models.PhotoRevocation)),
+    ],
+)
+def test_identify_requires_real_or_adult_approval_without_active_revocation(
+    monkeypatch: pytest.MonkeyPatch,
+    fake_session: AsyncMock,
+    obs_photo: tuple[
+        models.Observation,
+        models.Photo,
+        models.PhotoRevocation | None,
+    ],
+) -> None:
+    _stub_token_verifier(monkeypatch)
+    _wire_session(fake_session, user=_user_row(), obs_photo=obs_photo)
+    storage = _StubStorage()
+    for client in _build_client(fake_session, storage=storage):
+        response = client.post(
+            f"/v1/observations/{_OBS_ID}/identify",
+            headers={"Authorization": "Bearer fake"},
+        )
+        assert response.status_code == 409
+        assert storage.fetch_calls == []
+
+
 def test_identify_reuses_canonical_hash_and_model_cache(
     monkeypatch: pytest.MonkeyPatch, fake_session: AsyncMock
 ) -> None:
@@ -379,6 +423,36 @@ def test_identify_returns_cv_unavailable_on_inat_5xx(
         assert body["cv_unavailable"] is True
         assert body["no_matches"] is False
         assert body["suggestions"] == []
+
+
+@respx.mock
+@pytest.mark.parametrize(
+    "provider_response",
+    [
+        httpx.Response(429),
+        httpx.Response(200, text="not-json"),
+        httpx.Response(200, json=[]),
+        httpx.Response(200, json={"unexpected": []}),
+    ],
+)
+def test_identify_returns_cv_unavailable_on_throttle_or_malformed_success(
+    monkeypatch: pytest.MonkeyPatch,
+    fake_session: AsyncMock,
+    provider_response: httpx.Response,
+) -> None:
+    _stub_token_verifier(monkeypatch)
+    _wire_session(fake_session, user=_user_row(), obs_photo=_obs_with_photo())
+    respx.post("https://api.inaturalist.org/v1/computervision/score_image").mock(
+        return_value=provider_response
+    )
+    for client in _build_client(fake_session, storage=_StubStorage()):
+        response = client.post(
+            f"/v1/observations/{_OBS_ID}/identify",
+            headers={"Authorization": "Bearer fake"},
+        )
+        assert response.status_code == 200
+        assert response.json()["cv_unavailable"] is True
+        assert response.json()["suggestions"] == []
 
 
 @respx.mock

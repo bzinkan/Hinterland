@@ -11,18 +11,18 @@ import pytest
 import respx
 
 from app.core.config import Settings
-from app.inat.client import InatUnavailable, build_inat_client
+from app.inat.client import InatUnavailable, build_inat_submit_client
 from app.inat.submit import submit_observation_to_inat as _submit_observation_to_inat
 
 
 @pytest.fixture
 def settings() -> Settings:
-    return Settings(env="local", inat_oauth_token="test-token")
+    return Settings(env="local", inat_submit_token="test-submit-token")
 
 
 @pytest.fixture
 def client(settings: Settings) -> httpx.AsyncClient:
-    return build_inat_client(settings)
+    return build_inat_submit_client(settings)
 
 
 _HINTERLAND_OBS_ID = "01J0OBSID00000000000000ULID"

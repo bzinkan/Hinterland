@@ -107,14 +107,12 @@ def _build_client(
     fake_session: AsyncMock,
     *,
     signer: SignedUrlGenerator | None = None,
-    inat_token: str = "test-token",
 ) -> Iterator[TestClient]:
     app = create_app(
         Settings(
             env="local",
             app_version="test",
             photos_bucket="hinterland-photos-test",
-            inat_oauth_token=inat_token,
         )
     )
     if signer is not None:

@@ -76,7 +76,7 @@ async def test_discover_returns_distinct_geohash4(fake_session: AsyncMock) -> No
 
 @pytest.fixture
 def settings() -> Settings:
-    return Settings(env="local", inat_oauth_token="test-token")
+    return Settings(env="local")
 
 
 @pytest.fixture

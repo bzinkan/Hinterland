@@ -1,6 +1,16 @@
+import base64
+import json
+from datetime import UTC, datetime
+
 import pytest
+from pydantic import ValidationError
 
 from app.core.config import Settings
+
+
+def _jwt_with_exp(expiry: object) -> str:
+    payload = base64.urlsafe_b64encode(json.dumps({"exp": expiry}).encode()).decode().rstrip("=")
+    return f"header.{payload}.signature"
 
 
 def test_settings_accept_typed_environment_overrides() -> None:
@@ -18,6 +28,28 @@ def test_settings_accept_typed_environment_overrides() -> None:
     assert settings.database_port == 6543
     assert settings.database_configured is True
     assert settings.readiness_database_required is True
+
+
+def test_release_lane_defaults_to_local_when_absent(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("HINTERLAND_RELEASE_LANE", raising=False)
+    assert Settings().release_lane == "local"
+
+
+@pytest.mark.parametrize("lane", ["local", "w1_internal", "adult_qa", "production"])
+def test_release_lane_accepts_only_named_contracts(
+    monkeypatch: pytest.MonkeyPatch,
+    lane: str,
+) -> None:
+    monkeypatch.setenv("HINTERLAND_RELEASE_LANE", lane)
+    assert Settings().release_lane == lane
+
+
+def test_release_lane_rejects_malformed_configuration(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("HINTERLAND_RELEASE_LANE", "adult-qa")
+    with pytest.raises(ValidationError):
+        Settings()
 
 
 def test_default_cors_origins_are_exact_and_parent_only() -> None:
@@ -74,6 +106,56 @@ def test_cv_requires_enable_disclosure_and_benchmark_gates() -> None:
         inat_cv_benchmark_approved=True,
     )
     assert settings.inat_cv_egress_allowed is True
+
+
+@pytest.mark.parametrize(
+    ("token", "expected"),
+    [
+        ("opaque", False),
+        ("a.b.c", False),
+        (_jwt_with_exp("4102444800"), False),
+        (_jwt_with_exp(2_000), False),
+        (_jwt_with_exp(2_801), True),
+    ],
+)
+def test_cv_token_freshness_fails_closed(token: str, expected: bool) -> None:
+    settings = Settings(
+        inat_cv_token=token,
+        inat_cv_token_expiry_safety_seconds=1800,
+    )
+    now = datetime.fromtimestamp(1_000, tz=UTC)
+    assert settings.inat_cv_token_is_fresh(now=now) is expected
+
+
+def test_inat_cv_and_submit_credentials_must_be_distinct() -> None:
+    with pytest.raises(ValidationError, match="must be distinct"):
+        Settings(inat_cv_token="same-secret", inat_submit_token="same-secret")
+
+
+def test_retired_shared_inat_token_cannot_enable_either_path(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("HINTERLAND_INAT_OAUTH_TOKEN", _jwt_with_exp(4_102_444_800))
+    settings = Settings(
+        inat_cv_enabled=True,
+        inat_cv_disclosure_approved=True,
+        inat_cv_benchmark_approved=True,
+        inat_submit_enabled=True,
+        moderation_provider="azure_content_safety",
+        content_safety_endpoint="https://content-safety.example.test",
+        content_safety_key="configured-key",
+    )
+
+    assert settings.inat_cv_token == ""
+    assert settings.inat_submit_token == ""
+    assert settings.photo_helper_enabled is False
+    assert settings.inat_submit_egress_allowed is False
+
+
+def test_public_inat_submission_is_default_deny_even_with_a_token() -> None:
+    settings = Settings(inat_submit_token="submit-only")
+    assert settings.inat_submit_enabled is False
+    assert settings.inat_submit_egress_allowed is False
 
 
 def test_hinterland_can_require_observation_idempotency(

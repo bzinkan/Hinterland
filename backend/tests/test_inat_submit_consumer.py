@@ -342,6 +342,25 @@ async def test_consume_no_op_when_submit_kill_switch_disabled() -> None:
     assert processed == 0
 
 
+async def test_consume_no_op_when_submit_credential_is_missing() -> None:
+    from admin.inat_submit_consumer import consume
+
+    settings = Settings(
+        env="local",
+        service_bus_namespace="hinterland-sb-test.servicebus.windows.net",
+        inat_submit_enabled=True,
+        inat_submit_token="",
+    )
+    processed = await consume(
+        settings,
+        MagicMock(),  # type: ignore[arg-type]
+        _StubStorage(),  # type: ignore[arg-type]
+        AsyncMock(),
+        max_messages=10,
+    )
+    assert processed == 0
+
+
 async def test_consume_no_op_when_submit_flag_disabled() -> None:
     """COPPA posture (Option B): messages already sitting in the queue
     must not submit after the flag is flipped off. The guard runs before

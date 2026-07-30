@@ -58,7 +58,7 @@ from app.derived_state.rebuild import acquire_user_lock, enqueue_rebuild
 from app.dispatcher.core import dispatch
 from app.dispatcher.registry import HANDLERS
 from app.dispatcher.types import Context, Reward
-from app.inat.client import InatClientDep, InatUnavailable
+from app.inat.client import InatCvClientDep, InatUnavailable
 from app.inat.cv import score_image
 from app.models.ecology_tags import normalize_ecology_tags
 from app.moderation.review_service import ReviewResolutionConflict
@@ -1014,7 +1014,7 @@ async def identify_observation(
     observation_id: str,
     current_user: CurrentUserDep,
     session: DbSessionDep,
-    inat_client: InatClientDep,
+    inat_client: InatCvClientDep,
     storage: SignedUrlGeneratorDep,
     settings: Annotated[Settings, Depends(get_request_settings)],
 ) -> IdentifyResponse:
@@ -1046,6 +1046,7 @@ async def identify_observation(
 
     if (
         revocation is not None
+        or obs.moderation_source not in {"azure", "adult"}
         or derive_child_presentation_status(
             obs.moderation_status,
             photo.status,
@@ -1055,25 +1056,11 @@ async def identify_observation(
     ):
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail="Identification is available only after adult-approved moderation",
+            detail="Identification requires Content Safety or adult approval",
         )
 
-    if not settings.inat_cv_egress_allowed:
+    if not settings.photo_helper_enabled:
         log.info("observations.identify.disabled", observation_id=observation_id)
-        return IdentifyResponse(
-            observation_id=observation_id,
-            suggestions=[],
-            cv_unavailable=True,
-        )
-
-    # No iNat token configured (dev / CI) -> immediate cv_unavailable.
-    # Avoids a guaranteed 401 round-trip + lets the mobile UI flip to
-    # manual-pick mode without any latency.
-    if not settings.inat_oauth_token:
-        log.info(
-            "observations.identify.cv_unavailable_no_token",
-            observation_id=observation_id,
-        )
         return IdentifyResponse(
             observation_id=observation_id,
             suggestions=[],
@@ -1108,7 +1095,7 @@ async def identify_observation(
             inat_client,
             image_bytes=image_bytes,
             top_k=3,
-            egress_enabled=settings.inat_cv_egress_allowed,
+            egress_enabled=settings.photo_helper_enabled,
         )
     except InatUnavailable as exc:
         log.warning(

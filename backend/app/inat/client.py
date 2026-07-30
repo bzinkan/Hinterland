@@ -1,8 +1,8 @@
-"""Shared async httpx client for the iNaturalist API.
+"""Purpose-scoped async httpx clients for the iNaturalist API.
 
-One client per FastAPI app instance, lazily constructed and cached on
-`app.state.inat_client`. Tests inject a stub by setting that attribute
-before the first request handler runs.
+Public taxonomy reads are unauthenticated. CV and public submission each use a
+separate bearer credential and client so configuring one capability cannot
+authorize the other.
 """
 
 from __future__ import annotations
@@ -25,10 +25,10 @@ class InatUnavailable(Exception):
     """
 
 
-def build_inat_client(settings: Settings) -> httpx.AsyncClient:
+def _build_inat_client(settings: Settings, *, token: str = "") -> httpx.AsyncClient:
     headers = {"User-Agent": "Hinterland/0.1 (+https://thehinterlandguide.app)"}
-    if settings.inat_oauth_token:
-        headers["Authorization"] = f"Bearer {settings.inat_oauth_token}"
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
     return httpx.AsyncClient(
         base_url=settings.inat_base_url,
         timeout=settings.inat_request_timeout_seconds,
@@ -36,14 +36,33 @@ def build_inat_client(settings: Settings) -> httpx.AsyncClient:
     )
 
 
-def get_inat_client(request: Request) -> httpx.AsyncClient:
-    """Pull the cached client off `app.state`. Tests preset a stub there."""
-    client = getattr(request.app.state, "inat_client", None)
+def build_inat_client(settings: Settings) -> httpx.AsyncClient:
+    """Build the backwards-compatible unauthenticated taxonomy client."""
+
+    return _build_inat_client(settings)
+
+
+def build_inat_cv_client(settings: Settings) -> httpx.AsyncClient:
+    """Build a client carrying only the dedicated CV credential."""
+
+    return _build_inat_client(settings, token=settings.inat_cv_token.strip())
+
+
+def build_inat_submit_client(settings: Settings) -> httpx.AsyncClient:
+    """Build a client carrying only the dedicated public-submit credential."""
+
+    return _build_inat_client(settings, token=settings.inat_submit_token.strip())
+
+
+def get_inat_cv_client(request: Request) -> httpx.AsyncClient:
+    """Pull the cached CV-only client off ``app.state``."""
+
+    client = getattr(request.app.state, "inat_cv_client", None)
     if client is None:
         settings: Settings = request.app.state.settings
-        client = build_inat_client(settings)
-        request.app.state.inat_client = client
+        client = build_inat_cv_client(settings)
+        request.app.state.inat_cv_client = client
     return client
 
 
-InatClientDep = Annotated[httpx.AsyncClient, Depends(get_inat_client)]
+InatCvClientDep = Annotated[httpx.AsyncClient, Depends(get_inat_cv_client)]

@@ -19,7 +19,10 @@ remains outside this workflow.
    ```
 4. **Keep runtime gates false** until the approved post-clean staging probe.
 
-That's it. The script writes the JWT to Key Vault, rolls the Container App revision, and prints when the new token expires.
+The legacy script still writes the retired shared setting, which the backend
+now deliberately ignores. Do not run it until it is replaced by a reviewed,
+CV-only rotator that targets `HINTERLAND_INAT_CV_TOKEN`; changing the live W1
+resource is outside this safety slice.
 
 ## Current targets
 
@@ -32,7 +35,11 @@ INAT_REFRESH_RG=hinterland-dev-rg
 INAT_REFRESH_SECRET=inat-oauth-token
 ```
 
-The Container App receives the secret as `HINTERLAND_INAT_OAUTH_TOKEN`.
+The old `HINTERLAND_INAT_OAUTH_TOKEN` mapping is retired and ignored. An
+approved replacement must use a CV-only Key Vault secret mapped to
+`HINTERLAND_INAT_CV_TOKEN`, must never update
+`HINTERLAND_INAT_SUBMIT_TOKEN`, and must preserve the independent disclosure,
+benchmark, and enable gates.
 
 ```bash
 INAT_REFRESH_VAULT=hinterland-kv-dev \

@@ -18,7 +18,8 @@ Production path under ADR 0010:
 The worker authenticates to Service Bus via the Container App's
 user-assigned managed identity (`DefaultAzureCredential` on Container
 Apps falls through to UAMI); the iNat HTTP client uses the bearer
-token from `HINTERLAND_INAT_OAUTH_TOKEN` (Key Vault secret).
+token from `HINTERLAND_INAT_SUBMIT_TOKEN` (Key Vault secret). It never
+receives the CV credential.
 
 Invocation::
 
@@ -56,7 +57,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from app.core.config import Settings, get_settings
 from app.core.storage import SignedUrlGenerator, _build_generator_for
 from app.db import models
-from app.inat.client import InatUnavailable, build_inat_client
+from app.inat.client import InatUnavailable, build_inat_submit_client
 from app.inat.submit import submit_observation_to_inat
 
 log = structlog.get_logger()
@@ -265,20 +266,11 @@ async def consume(
     Returns the number of messages processed. ``max_messages=None`` runs
     until terminated; an integer bounds the loop for smoke tests.
     """
-    if not settings.inat_submit_enabled:
-        log.warning("inat.consumer.disabled")
+    if not settings.inat_submit_egress_allowed:
+        log.warning("inat.consumer.egress_not_allowed")
         return 0
     if not settings.service_bus_enabled:
         log.warning("inat.consumer.not_configured")
-        return 0
-
-    # COPPA posture (Option B): when the flag is off, queued messages must
-    # NOT be submitted -- previously only the producers checked the flag,
-    # so messages already in the queue would still push to iNat after a
-    # flip-off. The flag is env-driven (a flip restarts the worker), so a
-    # startup guard fully covers it.
-    if not settings.inat_submit_enabled:
-        log.warning("inat.consumer.disabled_by_flag")
         return 0
 
     from azure.identity.aio import DefaultAzureCredential
@@ -315,7 +307,7 @@ async def consume(
                                 storage,
                                 inat_client,
                                 body=body,
-                                egress_enabled=settings.inat_submit_enabled,
+                                egress_enabled=settings.inat_submit_egress_allowed,
                             )
                         if disposition == "complete":
                             await receiver.complete_message(message)
@@ -351,7 +343,7 @@ async def main(argv: list[str] | None = None) -> None:
     engine = create_async_engine(settings.sqlalchemy_database_url)
     sessions: async_sessionmaker[AsyncSession] = async_sessionmaker(engine, expire_on_commit=False)
     storage = _build_generator_for(settings)
-    inat_client = build_inat_client(settings)
+    inat_client = build_inat_submit_client(settings)
 
     try:
         processed = await consume(
