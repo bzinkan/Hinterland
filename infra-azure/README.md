@@ -25,6 +25,18 @@ artifact for the additive Central environment, identity, and API. It never
 creates jobs, changes DNS, binds certificates, or deletes the East rollback.
 See [ADR 0016](../docs/adr/0016-central-us-api-colocation.md).
 
+Adult QA is a separate, non-W1 lane defined by
+`environments/hinterland-qa.env` and
+[ADR 0018](../docs/adr/0018-isolated-adult-qa-environment.md).
+`adult-qa-preflight.ps1` is read-only: it validates the hard isolation
+allowlist and produces a cost/approval record, but it never provisions
+resources. Promotion uses the protected `adult-qa-promotion` GitHub environment
+and `.github/workflows/adult-qa-promotion.yml`. See
+[`docs/adult-qa-operations.md`](../docs/adult-qa-operations.md).
+The separate `.github/workflows/adult-qa-cv-qualification.yml` temporarily
+enables one protected 50-case provider benchmark and always removes its
+run-scoped runtime lease afterward; it is not a deployment shortcut.
+
 That workflow is the ordinary development path. Observation W1 promotion uses
 the separate, protected `.github/workflows/observation-w1-promotion.yml`. It
 restores the non-skippable containment, authenticated canary, job/digest,

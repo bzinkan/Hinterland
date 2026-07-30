@@ -1,0 +1,496 @@
+name: Adult QA CV qualification
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirmation:
+        description: Type QUALIFY_ADULT_QA_CV after reviewing the disclosure and dataset
+        required: true
+        type: string
+      qualification_run_id:
+        description: Fresh 26-character ULID for this bounded run
+        required: true
+        type: string
+      manifest_sha256:
+        description: SHA-256 of the protected 50-case benchmark manifest
+        required: true
+        type: string
+      expires_at:
+        description: UTC ISO-8601 expiry, at least 30 minutes and at most 24 hours away
+        required: true
+        type: string
+
+concurrency:
+  group: adult-qa-cv-qualification
+  cancel-in-progress: false
+
+env:
+  AZURE_RESOURCE_GROUP: hinterland-qa-rg
+  AZURE_CONTAINER_APP: hinterland-api-qa
+  AZURE_API_UAMI: hinterland-api-qa-mi
+  AZURE_KEY_VAULT: hinterland-kv-qa
+  QA_API_ORIGIN: https://qa-api.thehinterlandguide.app
+  QUALIFICATION_RUN_ID: ${{ inputs.qualification_run_id }}
+  QUALIFICATION_MANIFEST_SHA256: ${{ inputs.manifest_sha256 }}
+  QUALIFICATION_EXPIRES_AT: ${{ inputs.expires_at }}
+
+jobs:
+  qualify:
+    name: Bounded post-clean iNaturalist CV qualification
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    environment:
+      name: adult-qa-promotion
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+
+      - name: Initialize sanitized qualification evidence
+        run: |
+          set -euo pipefail
+          mkdir -p promotion-artifact
+          jq -n \
+            --arg generated_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            --arg commit_sha "${GITHUB_SHA}" \
+            --arg run_id "${QUALIFICATION_RUN_ID}" \
+            --arg manifest_sha256 "${QUALIFICATION_MANIFEST_SHA256}" '
+              {
+                schema_version:1,
+                classification:"sanitized-adult-qa-cv-qualification-evidence",
+                generated_at:$generated_at,
+                commit_sha:$commit_sha,
+                qualification_run_id:$run_id,
+                manifest_sha256:$manifest_sha256,
+                public_inaturalist_submission:"disabled",
+                result:"running"
+              }
+            ' > promotion-artifact/qualification-summary.json
+
+      - name: Install benchmark runtime
+        working-directory: backend
+        run: |
+          set -euo pipefail
+          uv sync --locked
+
+      - name: Validate protected inputs and decode the private manifest
+        env:
+          CONFIRMATION: ${{ inputs.confirmation }}
+          HINTERLAND_QA_CV_BENCHMARK_MANIFEST_B64: ${{ secrets.HINTERLAND_QA_CV_BENCHMARK_MANIFEST_B64 }}
+          HINTERLAND_QA_BENCHMARK_BEARER: ${{ secrets.HINTERLAND_QA_BENCHMARK_BEARER }}
+        run: |
+          set -euo pipefail
+          test "${GITHUB_REF}" = refs/heads/main
+          test "${GITHUB_SHA}" = "$(git rev-parse HEAD)"
+          test "${CONFIRMATION}" = QUALIFY_ADULT_QA_CV
+          [[ "${QUALIFICATION_RUN_ID}" =~ ^[0-9A-HJKMNP-TV-Z]{26}$ ]]
+          [[ "${QUALIFICATION_MANIFEST_SHA256}" =~ ^[0-9a-f]{64}$ ]]
+          test -n "${HINTERLAND_QA_CV_BENCHMARK_MANIFEST_B64}"
+          test -n "${HINTERLAND_QA_BENCHMARK_BEARER}"
+
+          python - <<'PY'
+          from datetime import UTC, datetime, timedelta
+          import os
+
+          raw = os.environ["QUALIFICATION_EXPIRES_AT"].replace("Z", "+00:00")
+          try:
+              expiry = datetime.fromisoformat(raw)
+          except ValueError as exc:
+              raise SystemExit("qualification expiry is not ISO-8601") from exc
+          if expiry.tzinfo is None:
+              raise SystemExit("qualification expiry must be timezone-aware")
+          now = datetime.now(UTC)
+          if expiry <= now + timedelta(minutes=30):
+              raise SystemExit("qualification expiry needs at least 30 minutes")
+          if expiry > now + timedelta(hours=24):
+              raise SystemExit("qualification expiry exceeds 24 hours")
+          PY
+
+          install -d -m 700 runner-temp promotion-artifact
+          umask 077
+          printf '%s' "${HINTERLAND_QA_CV_BENCHMARK_MANIFEST_B64}" |
+            base64 --decode > runner-temp/manifest.json
+          actual_sha="$(sha256sum runner-temp/manifest.json | awk '{print $1}')"
+          test "${actual_sha}" = "${QUALIFICATION_MANIFEST_SHA256}"
+          jq -e '
+            .version == 1 and
+            .consent_policy_version == "2026-07-30-ADULT-QA-EGRESS-V1" and
+            (.entries | length) == 50 and
+            ([.entries[].observation_id] | unique | length) == 50 and
+            ([.entries[].photo_sha256] | unique | length) == 50 and
+            all(.entries[];
+              (.observation_id | test("^[0-9A-HJKMNP-TV-Z]{26}$")) and
+              (.photo_sha256 | test("^[0-9a-f]{64}$")) and
+              (.accepted_taxon_ids | type == "array" and length > 0))
+          ' runner-temp/manifest.json >/dev/null
+          cases="$(jq -c '
+            .entries |
+            map({key:.observation_id, value:.photo_sha256}) |
+            from_entries
+          ' runner-temp/manifest.json)"
+          {
+            echo 'QUALIFICATION_CASES<<HINTERLAND_CASES_EOF'
+            echo "${cases}"
+            echo 'HINTERLAND_CASES_EOF'
+          } >> "${GITHUB_ENV}"
+          qualification_key="$(python - <<'PY'
+          import secrets
+          print(secrets.token_urlsafe(48))
+          PY
+          )"
+          echo "::add-mask::${qualification_key}"
+          echo "HINTERLAND_QA_CV_QUALIFICATION_KEY=${qualification_key}" \
+            >> "${GITHUB_ENV}"
+          echo "QUALIFICATION_SECRET_NAME=inat-cv-qualification-${QUALIFICATION_RUN_ID,,}" \
+            >> "${GITHUB_ENV}"
+
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Require the exact already-promoted QA image and secret metadata
+        run: |
+          set -euo pipefail
+          app_json="$(az containerapp show \
+            --name "${AZURE_CONTAINER_APP}" \
+            --resource-group "${AZURE_RESOURCE_GROUP}" --output json)"
+          IMAGE="$(jq -r '.properties.template.containers[0].image' <<<"${app_json}")"
+          [[ "${IMAGE}" =~ @sha256:[0-9a-f]{64}$ ]]
+          IMAGE_DIGEST="${IMAGE##*@}"
+          APP_VERSION="$(jq -r '
+            [.properties.template.containers[0].env[] |
+              select(.name == "HINTERLAND_APP_VERSION") | .value][0] // empty
+          ' <<<"${app_json}")"
+          test "${APP_VERSION}" = "${GITHUB_SHA}"
+          echo "IMAGE=${IMAGE}" >> "${GITHUB_ENV}"
+          echo "IMAGE_DIGEST=${IMAGE_DIGEST}" >> "${GITHUB_ENV}"
+
+          for secret in \
+            inat-cv-token \
+            content-safety-endpoint \
+            content-safety-key; do
+            az keyvault secret show \
+              --vault-name "${AZURE_KEY_VAULT}" \
+              --name "${secret}" \
+              --query id --output tsv >/dev/null
+          done
+          cv_expires="$(az keyvault secret show \
+            --vault-name "${AZURE_KEY_VAULT}" \
+            --name inat-cv-token \
+            --query attributes.expires --output tsv)"
+          test -n "${cv_expires}"
+          test "$(( $(date -u -d "${cv_expires}" +%s) - $(date -u +%s) ))" -ge 1800
+
+          meta="$(curl --fail --silent --show-error "${QA_API_ORIGIN}/v1/meta")"
+          jq -e \
+            --arg sha "${GITHUB_SHA}" \
+            --arg digest "${IMAGE_DIGEST}" '
+              .release_lane == "adult_qa" and
+              .version == $sha and
+              .image_digest == $digest and
+              .capabilities.integrations.content_safety_enabled == true and
+              .capabilities.integrations.public_inat_submission_enabled == false and
+              .capabilities.integrations.cv_qualification_enabled == false
+            ' <<<"${meta}" >/dev/null
+
+      - name: Enable the exact bounded qualification lease
+        run: |
+          set -euo pipefail
+          identity_id="$(az identity show \
+            --name "${AZURE_API_UAMI}" \
+            --resource-group "${AZURE_RESOURCE_GROUP}" \
+            --query id --output tsv)"
+          test -n "${identity_id}"
+          vault_token="$(az account get-access-token \
+            --resource https://vault.azure.net \
+            --query accessToken --output tsv)"
+          test -n "${vault_token}"
+          python - <<'PY' |
+            curl --fail --silent --show-error \
+              --request PUT \
+              --header "Authorization: Bearer ${vault_token}" \
+              --header 'Content-Type: application/json' \
+              --data-binary @- \
+              --output /dev/null \
+              "https://${AZURE_KEY_VAULT}.vault.azure.net/secrets/${QUALIFICATION_SECRET_NAME}?api-version=7.4"
+          import json
+          import os
+          import sys
+
+          json.dump(
+              {
+                  "value": os.environ["HINTERLAND_QA_CV_QUALIFICATION_KEY"],
+                  "attributes": {
+                      "enabled": True,
+                      "exp": int(
+                          __import__("datetime").datetime.fromisoformat(
+                              os.environ["QUALIFICATION_EXPIRES_AT"].replace(
+                                  "Z", "+00:00"
+                              )
+                          ).timestamp()
+                      ),
+                  },
+                  "tags": {
+                      "environment": "adult-qa",
+                      "release-lane": "adult_qa",
+                      "purpose": "bounded-cv-qualification-only",
+                      "public-submit": "disabled",
+                      "run-id": os.environ["QUALIFICATION_RUN_ID"],
+                  },
+              },
+              sys.stdout,
+              separators=(",", ":"),
+          )
+          PY
+          unset vault_token
+          az containerapp secret set \
+            --name "${AZURE_CONTAINER_APP}" \
+            --resource-group "${AZURE_RESOURCE_GROUP}" \
+            --secrets \
+              "inat-cv-token=keyvaultref:https://${AZURE_KEY_VAULT}.vault.azure.net/secrets/inat-cv-token,identityref:${identity_id}" \
+              "inat-cv-qualification-key=keyvaultref:https://${AZURE_KEY_VAULT}.vault.azure.net/secrets/${QUALIFICATION_SECRET_NAME},identityref:${identity_id}" \
+            --output none
+          az containerapp update \
+            --name "${AZURE_CONTAINER_APP}" \
+            --resource-group "${AZURE_RESOURCE_GROUP}" \
+            --image "${IMAGE}" \
+            --set-env-vars \
+              HINTERLAND_APP_VERSION="${GITHUB_SHA}" \
+              HINTERLAND_DEPLOYMENT_IMAGE_DIGEST="${IMAGE_DIGEST}" \
+              HINTERLAND_RELEASE_LANE=adult_qa \
+              HINTERLAND_MODERATION_PROVIDER=azure_content_safety \
+              HINTERLAND_CONTENT_SAFETY_ENDPOINT=secretref:content-safety-endpoint \
+              HINTERLAND_CONTENT_SAFETY_KEY=secretref:content-safety-key \
+              HINTERLAND_INAT_CV_ENABLED=true \
+              HINTERLAND_INAT_CV_DISCLOSURE_APPROVED=true \
+              HINTERLAND_INAT_CV_BENCHMARK_APPROVED=false \
+              HINTERLAND_INAT_CV_TOKEN=secretref:inat-cv-token \
+              HINTERLAND_INAT_CV_QUALIFICATION_ENABLED=true \
+              HINTERLAND_INAT_CV_QUALIFICATION_KEY=secretref:inat-cv-qualification-key \
+              HINTERLAND_INAT_CV_QUALIFICATION_RUN_ID="${QUALIFICATION_RUN_ID}" \
+              HINTERLAND_INAT_CV_QUALIFICATION_MANIFEST_SHA256="${QUALIFICATION_MANIFEST_SHA256}" \
+              HINTERLAND_INAT_CV_QUALIFICATION_EXPIRES_AT="${QUALIFICATION_EXPIRES_AT}" \
+              HINTERLAND_INAT_CV_QUALIFICATION_CASES="${QUALIFICATION_CASES}" \
+              HINTERLAND_INAT_SUBMIT_ENABLED=false \
+            --output none
+
+          for _ in $(seq 1 90); do
+            meta="$(curl --fail --silent --show-error \
+              "${QA_API_ORIGIN}/v1/meta" 2>/dev/null || true)"
+            if jq -e \
+              --arg sha "${GITHUB_SHA}" \
+              --arg digest "${IMAGE_DIGEST}" \
+              --arg run_id "${QUALIFICATION_RUN_ID}" \
+              --arg manifest "${QUALIFICATION_MANIFEST_SHA256}" '
+                .release_lane == "adult_qa" and
+                .version == $sha and
+                .image_digest == $digest and
+                .capabilities.observation.photo_helper_enabled == false and
+                .capabilities.integrations.public_inat_submission_enabled == false and
+                .capabilities.integrations.cv_qualification_enabled == true and
+                .capabilities.integrations.cv_qualification_run_id == $run_id and
+                .capabilities.integrations.cv_qualification_manifest_sha256 == $manifest
+              ' <<<"${meta}" >/dev/null 2>&1; then
+              break
+            fi
+            sleep 5
+          done
+          jq -e \
+            --arg run_id "${QUALIFICATION_RUN_ID}" '
+              .capabilities.integrations.cv_qualification_enabled == true and
+              .capabilities.integrations.cv_qualification_run_id == $run_id
+            ' <<<"${meta}" >/dev/null
+
+      - name: Run the protected 50-photo provider benchmark
+        env:
+          HINTERLAND_QA_BENCHMARK_BEARER: ${{ secrets.HINTERLAND_QA_BENCHMARK_BEARER }}
+          HINTERLAND_QA_CV_QUALIFICATION_KEY: ${{ secrets.HINTERLAND_QA_CV_QUALIFICATION_KEY }}
+        run: |
+          set -euo pipefail
+          backend/.venv/bin/python scripts/qa_inat_cv_benchmark.py \
+            --manifest "$(pwd)/runner-temp/manifest.json" \
+            --output "$(pwd)/promotion-artifact/benchmark.json"
+          jq -e \
+            --arg sha "${GITHUB_SHA}" \
+            --arg digest "${IMAGE_DIGEST}" \
+            --arg run_id "${QUALIFICATION_RUN_ID}" \
+            --arg manifest "${QUALIFICATION_MANIFEST_SHA256}" '
+              .result == "success" and
+              .release_lane == "adult_qa" and
+              .api_revision == $sha and
+              .image_digest == $digest and
+              .qualification_run_id == $run_id and
+              .manifest_sha256 == $manifest and
+              .case_count == 50 and
+              .unique_photo_hash_count == 50 and
+              .provider_call_count == 50 and
+              .top_three_accuracy >= 0.70 and
+              .provider_unavailable_count == 0 and
+              .malformed_response_count == 0
+            ' promotion-artifact/benchmark.json >/dev/null
+          evidence_sha="$(sha256sum promotion-artifact/benchmark.json | awk '{print $1}')"
+          jq -n \
+            --arg generated_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            --arg commit_sha "${GITHUB_SHA}" \
+            --arg image_digest "${IMAGE_DIGEST}" \
+            --arg run_id "${QUALIFICATION_RUN_ID}" \
+            --arg manifest_sha256 "${QUALIFICATION_MANIFEST_SHA256}" \
+            --arg evidence_sha256 "${evidence_sha}" \
+            --slurpfile benchmark promotion-artifact/benchmark.json '
+              {
+                schema_version:1,
+                classification:"sanitized-adult-qa-cv-qualification-evidence",
+                generated_at:$generated_at,
+                result:$benchmark[0].result,
+                commit_sha:$commit_sha,
+                image_digest:$image_digest,
+                qualification_run_id:$run_id,
+                manifest_sha256:$manifest_sha256,
+                evidence_sha256:$evidence_sha256,
+                case_count:$benchmark[0].case_count,
+                unique_photo_hash_count:$benchmark[0].unique_photo_hash_count,
+                provider_call_count:$benchmark[0].provider_call_count,
+                top_three_accuracy:$benchmark[0].top_three_accuracy,
+                minimum_accuracy:$benchmark[0].minimum_accuracy,
+                provider_unavailable_count:$benchmark[0].provider_unavailable_count,
+                malformed_response_count:$benchmark[0].malformed_response_count,
+                public_inaturalist_submission:"disabled"
+              }
+            ' > promotion-artifact/qualification-summary.json
+
+      - name: Disable qualification and remove runtime credential mappings
+        if: always()
+        run: |
+          set -euo pipefail
+          cleanup_result=not_required
+          if [[ -n "${IMAGE:-}" ]]; then
+            az containerapp update \
+              --name "${AZURE_CONTAINER_APP}" \
+              --resource-group "${AZURE_RESOURCE_GROUP}" \
+              --image "${IMAGE}" \
+              --set-env-vars \
+                HINTERLAND_APP_VERSION="${GITHUB_SHA}" \
+                HINTERLAND_DEPLOYMENT_IMAGE_DIGEST="${IMAGE_DIGEST}" \
+                HINTERLAND_RELEASE_LANE=adult_qa \
+                HINTERLAND_MODERATION_PROVIDER=azure_content_safety \
+                HINTERLAND_INAT_CV_ENABLED=false \
+                HINTERLAND_INAT_CV_DISCLOSURE_APPROVED=false \
+                HINTERLAND_INAT_CV_BENCHMARK_APPROVED=false \
+                HINTERLAND_INAT_CV_QUALIFICATION_ENABLED=false \
+                HINTERLAND_INAT_SUBMIT_ENABLED=false \
+              --remove-env-vars \
+                HINTERLAND_INAT_CV_TOKEN \
+                HINTERLAND_INAT_CV_QUALIFICATION_KEY \
+                HINTERLAND_INAT_CV_QUALIFICATION_RUN_ID \
+                HINTERLAND_INAT_CV_QUALIFICATION_MANIFEST_SHA256 \
+                HINTERLAND_INAT_CV_QUALIFICATION_EXPIRES_AT \
+                HINTERLAND_INAT_CV_QUALIFICATION_CASES \
+              --output none
+            for _ in $(seq 1 90); do
+              meta="$(curl --fail --silent --show-error \
+                "${QA_API_ORIGIN}/v1/meta" 2>/dev/null || true)"
+              if jq -e \
+                --arg sha "${GITHUB_SHA}" \
+                --arg digest "${IMAGE_DIGEST}" '
+                  .release_lane == "adult_qa" and
+                  .version == $sha and
+                  .image_digest == $digest and
+                  .capabilities.observation.photo_helper_enabled == false and
+                  .capabilities.integrations.cv_qualification_enabled == false and
+                  .capabilities.integrations.public_inat_submission_enabled == false
+                ' <<<"${meta}" >/dev/null 2>&1; then
+                break
+              fi
+              sleep 5
+            done
+            jq -e '
+              .capabilities.observation.photo_helper_enabled == false and
+              .capabilities.integrations.cv_qualification_enabled == false and
+              .capabilities.integrations.public_inat_submission_enabled == false
+            ' <<<"${meta}" >/dev/null
+            existing_secrets="$(az containerapp secret list \
+              --name "${AZURE_CONTAINER_APP}" \
+              --resource-group "${AZURE_RESOURCE_GROUP}" \
+              --query '[].name' --output tsv)"
+            secrets_to_remove=()
+            for secret in inat-cv-token inat-cv-qualification-key; do
+              if grep -Fxq "${secret}" <<<"${existing_secrets}"; then
+                secrets_to_remove+=("${secret}")
+              fi
+            done
+            if (( ${#secrets_to_remove[@]} > 0 )); then
+              az containerapp secret remove \
+                --name "${AZURE_CONTAINER_APP}" \
+                --resource-group "${AZURE_RESOURCE_GROUP}" \
+                --secret-names "${secrets_to_remove[@]}" \
+                --output none
+            fi
+            if [[ -n "${QUALIFICATION_SECRET_NAME:-}" ]]; then
+              az keyvault secret delete \
+                --vault-name "${AZURE_KEY_VAULT}" \
+                --name "${QUALIFICATION_SECRET_NAME}" \
+                --output none
+            fi
+            cleanup_result=passed
+          fi
+          if [[ -f promotion-artifact/qualification-summary.json ]]; then
+            jq --arg cleanup_result "${cleanup_result}" \
+              '.runtime_cleanup=$cleanup_result' \
+              promotion-artifact/qualification-summary.json \
+              > promotion-artifact/qualification-summary.tmp
+            mv promotion-artifact/qualification-summary.tmp \
+              promotion-artifact/qualification-summary.json
+          fi
+
+      - name: Destroy the private manifest copy
+        if: always()
+        run: |
+          set -euo pipefail
+          if [[ -f runner-temp/manifest.json ]]; then
+            shred -u runner-temp/manifest.json ||
+              rm -f runner-temp/manifest.json
+          fi
+
+      - name: Finalize qualification result
+        if: always()
+        env:
+          JOB_STATUS: ${{ job.status }}
+        run: |
+          set -euo pipefail
+          if [[ -f promotion-artifact/qualification-summary.json ]]; then
+            jq \
+              --arg job_status "${JOB_STATUS}" \
+              --arg completed_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" '
+                .result = (
+                  if $job_status == "success" and .result == "success"
+                  then "success"
+                  else $job_status
+                  end
+                ) |
+                .completed_at = $completed_at
+              ' promotion-artifact/qualification-summary.json \
+              > promotion-artifact/qualification-summary.tmp
+            mv promotion-artifact/qualification-summary.tmp \
+              promotion-artifact/qualification-summary.json
+          fi
+
+      - name: Publish sanitized aggregate qualification evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: adult-qa-cv-qualification-${{ github.run_id }}
+          path: promotion-artifact
+          if-no-files-found: error
+          retention-days: 90

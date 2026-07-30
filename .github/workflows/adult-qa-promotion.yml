@@ -1,0 +1,1006 @@
+name: Adult QA promotion
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirmation:
+        description: Type PROMOTE_ADULT_QA after reviewing the QA cost approval and runbook
+        required: true
+        type: string
+      enable_cv:
+        description: Enable user-requested post-clean iNaturalist CV
+        required: true
+        default: false
+        type: boolean
+      cv_disclosure_approved:
+        description: Confirm the current Adult QA disclosure is approved
+        required: true
+        default: false
+        type: boolean
+      cv_benchmark_approved:
+        description: Confirm the 50-photo Adult QA benchmark passed
+        required: true
+        default: false
+        type: boolean
+      cv_qualification_run_id:
+        description: Approved bounded CV qualification run ULID (required only when CV is enabled)
+        required: false
+        default: ""
+        type: string
+      cv_qualification_evidence_sha256:
+        description: SHA-256 of the approved aggregate qualification evidence
+        required: false
+        default: ""
+        type: string
+      shared_groups_enabled:
+        description: Enable shared Groups only after the two-family access matrix passed
+        required: true
+        default: false
+        type: boolean
+
+concurrency:
+  group: adult-qa-promotion
+  cancel-in-progress: false
+
+env:
+  AZURE_SUBSCRIPTION_ID_EXPECTED: 3ac5dfb0-91b7-47d3-8187-9dc8d6305e96
+  AZURE_TENANT_ID_EXPECTED: 18dbd7fa-c411-49bc-82fc-9ccaa26e3404
+  AZURE_RESOURCE_GROUP: hinterland-qa-rg
+  AZURE_SHARED_RESOURCE_GROUP: hinterland-dev-rg
+  AZURE_LOCATION_EXPECTED: centralus
+  AZURE_ACR_NAME: hinterlandacrdev
+  AZURE_LOG_ANALYTICS_WORKSPACE: hinterland-law-dev
+  AZURE_POSTGRES_SERVER: hinterland-postgres-dev
+  AZURE_POSTGRES_DATABASE: hinterland_qa
+  AZURE_CONTAINER_APP_ENV: hinterland-cae-qa
+  AZURE_CONTAINER_APP: hinterland-api-qa
+  AZURE_API_UAMI: hinterland-api-qa-mi
+  AZURE_JOBS_UAMI: hinterland-jobs-qa-mi
+  AZURE_KEY_VAULT: hinterland-kv-qa
+  AZURE_STORAGE_ACCOUNT: hinterlandphotosqa
+  AZURE_PHOTOS_CONTAINER: qa-photos
+  AZURE_SERVICE_BUS_NAMESPACE: hinterland-sb-qa
+  AZURE_MODERATION_QUEUE: moderation-pending-qa
+  AZURE_CONTENT_SAFETY_ACCOUNT: hinterland-content-safety-qa
+  AZURE_PARENT_SWA: hinterland-parents-qa-swa
+  AZURE_ACTION_GROUP: hinterland-ops-qa
+  IMAGE_REPOSITORY: hinterland-api
+  QA_API_ORIGIN: https://qa-api.thehinterlandguide.app
+  QA_PARENT_ORIGIN: https://qa-parents.thehinterlandguide.app
+  HINTERLAND_KID_JWKS_PATH: /.well-known/hinterland-kid-jwks.json
+  CV_ENABLED: ${{ inputs.enable_cv }}
+  CV_DISCLOSURE_APPROVED: ${{ inputs.cv_disclosure_approved }}
+  CV_BENCHMARK_APPROVED: ${{ inputs.cv_benchmark_approved }}
+  CV_QUALIFICATION_RUN_ID: ${{ inputs.cv_qualification_run_id }}
+  CV_QUALIFICATION_EVIDENCE_SHA256: ${{ inputs.cv_qualification_evidence_sha256 }}
+  SHARED_GROUPS_ENABLED: ${{ inputs.shared_groups_enabled }}
+
+jobs:
+  promote:
+    name: Strict Adult QA promotion and evidence
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    environment:
+      name: adult-qa-promotion
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Require main, adult approval, and coherent CV gates
+        env:
+          PROMOTION_CONFIRMATION: ${{ inputs.confirmation }}
+          COST_APPROVAL_ID: ${{ vars.HINTERLAND_QA_COST_APPROVAL_ID }}
+          APPROVED_CV_RUN_ID: ${{ vars.HINTERLAND_QA_CV_APPROVED_RUN_ID }}
+          APPROVED_CV_EVIDENCE_SHA256: ${{ vars.HINTERLAND_QA_CV_APPROVED_EVIDENCE_SHA256 }}
+        run: |
+          set -euo pipefail
+          test "${GITHUB_REF}" = "refs/heads/main"
+          test "${GITHUB_SHA}" = "$(git rev-parse HEAD)"
+          test "${PROMOTION_CONFIRMATION}" = "PROMOTE_ADULT_QA"
+          test -n "${COST_APPROVAL_ID}"
+          if [[ "${CV_ENABLED}" == true ]]; then
+            test "${CV_DISCLOSURE_APPROVED}" = true
+            test "${CV_BENCHMARK_APPROVED}" = true
+            [[ "${CV_QUALIFICATION_RUN_ID}" =~ ^[0-9A-HJKMNP-TV-Z]{26}$ ]]
+            [[ "${CV_QUALIFICATION_EVIDENCE_SHA256}" =~ ^[0-9a-f]{64}$ ]]
+            test "${CV_QUALIFICATION_RUN_ID}" = "${APPROVED_CV_RUN_ID}"
+            test "${CV_QUALIFICATION_EVIDENCE_SHA256}" = \
+              "${APPROVED_CV_EVIDENCE_SHA256}"
+          else
+            test "${CV_DISCLOSURE_APPROVED}" = false
+            test "${CV_BENCHMARK_APPROVED}" = false
+            test -z "${CV_QUALIFICATION_RUN_ID}"
+            test -z "${CV_QUALIFICATION_EVIDENCE_SHA256}"
+          fi
+
+      - name: Initialize sanitized evidence
+        run: |
+          set -euo pipefail
+          mkdir -p promotion-artifact
+          echo '[]' > promotion-artifact/job-executions.json
+          jq -n \
+            --arg generated_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            --arg commit_sha "${GITHUB_SHA}" \
+            --arg run_id "${GITHUB_RUN_ID}" \
+            --argjson cv_enabled "${CV_ENABLED}" \
+            --argjson shared_groups_enabled "${SHARED_GROUPS_ENABLED}" \
+            --arg cv_qualification_run_id "${CV_QUALIFICATION_RUN_ID}" \
+            --arg cv_qualification_evidence_sha256 \
+              "${CV_QUALIFICATION_EVIDENCE_SHA256}" \
+            '{
+              schema_version: 1,
+              classification: "sanitized-adult-qa-promotion-evidence",
+              generated_at: $generated_at,
+              commit_sha: $commit_sha,
+              workflow_run_id: $run_id,
+              release_lane: "adult_qa",
+              cv_enabled: $cv_enabled,
+              cv_qualification_run_id:
+                (if $cv_qualification_run_id == "" then null
+                 else $cv_qualification_run_id end),
+              cv_qualification_evidence_sha256:
+                (if $cv_qualification_evidence_sha256 == "" then null
+                 else $cv_qualification_evidence_sha256 end),
+              shared_groups_enabled: $shared_groups_enabled,
+              public_inaturalist_submission: "disabled",
+              result: "running"
+            }' > promotion-artifact/promotion.json
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+
+      - name: Require a fresh dedicated QA test-parent credential
+        env:
+          HINTERLAND_QA_SMOKE_ENTRA_BEARER: ${{ secrets.HINTERLAND_QA_SMOKE_ENTRA_BEARER }}
+          HINTERLAND_QA_ENTRA_API_AUDIENCE: ${{ vars.HINTERLAND_QA_ENTRA_API_AUDIENCE }}
+          HINTERLAND_QA_ENTRA_CLIENT_ID: ${{ vars.HINTERLAND_QA_ENTRA_CLIENT_ID }}
+          HINTERLAND_QA_ENTRA_TENANT_ID: ${{ vars.HINTERLAND_QA_ENTRA_TENANT_ID }}
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import base64
+          import json
+          import os
+          import time
+
+          token = os.environ.get("HINTERLAND_QA_SMOKE_ENTRA_BEARER", "").strip()
+          if not token:
+              raise SystemExit(
+                  "HINTERLAND_QA_SMOKE_ENTRA_BEARER is required; "
+                  "authenticated checks never skip"
+              )
+          try:
+              payload = token.split(".", 2)[1]
+              payload += "=" * (-len(payload) % 4)
+              claims = json.loads(base64.urlsafe_b64decode(payload.encode("ascii")))
+              expires_at = int(claims["exp"])
+          except Exception as exc:
+              raise SystemExit("QA test-parent credential is not a JWT with exp") from exc
+
+          tenant = os.environ["HINTERLAND_QA_ENTRA_TENANT_ID"]
+          audience = os.environ["HINTERLAND_QA_ENTRA_API_AUDIENCE"]
+          client_id = os.environ["HINTERLAND_QA_ENTRA_CLIENT_ID"]
+          accepted_audiences = {audience, audience.removeprefix("api://")}
+          expected_issuer = f"https://login.microsoftonline.com/{tenant}/v2.0"
+          if claims.get("ver") != "2.0":
+              raise SystemExit("QA test-parent credential is not an Entra v2 token")
+          if claims.get("tid") != tenant or claims.get("iss") != expected_issuer:
+              raise SystemExit("QA test-parent credential has the wrong tenant or issuer")
+          if claims.get("aud") not in accepted_audiences:
+              raise SystemExit("QA test-parent credential has the wrong audience")
+          if claims.get("azp") != client_id:
+              raise SystemExit("QA test-parent credential has the wrong client")
+          if "user.access" not in str(claims.get("scp", "")).split():
+              raise SystemExit("QA test-parent credential lacks user.access")
+          if not claims.get("oid"):
+              raise SystemExit("QA test-parent credential has no object identity")
+          if expires_at - int(time.time()) < 1_800:
+              raise SystemExit(
+                  "QA test-parent credential needs at least 1,800 seconds remaining"
+              )
+          PY
+
+      - name: Install and verify backend contracts
+        working-directory: backend
+        run: |
+          set -euo pipefail
+          uv sync --locked
+          uv run ruff check app tests
+          uv run mypy app
+          uv run pytest -q -m "not integration and not postgres"
+
+      - name: Verify Observation contract on disposable PostgreSQL
+        run: |
+          set -euo pipefail
+          pwsh -NoProfile -File scripts/verify_observation_postgres.ps1 \
+            -DispatcherSamples 50
+          jq '.postgres_verification={
+                result:"passed",
+                dispatcher_samples:50
+              }' promotion-artifact/promotion.json \
+            > promotion-artifact/promotion.tmp
+          mv promotion-artifact/promotion.tmp promotion-artifact/promotion.json
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: mobile/package-lock.json
+
+      - name: Verify Adult QA mobile and parent-web contracts
+        working-directory: mobile
+        env:
+          APP_ENV: adult-qa
+          HINTERLAND_QA_EAS_PROJECT_ID: ${{ vars.HINTERLAND_QA_EAS_PROJECT_ID }}
+          HINTERLAND_QA_ENTRA_API_AUDIENCE: ${{ vars.HINTERLAND_QA_ENTRA_API_AUDIENCE }}
+          HINTERLAND_QA_ENTRA_CLIENT_ID: ${{ vars.HINTERLAND_QA_ENTRA_CLIENT_ID }}
+          HINTERLAND_QA_ENTRA_TENANT_ID: ${{ vars.HINTERLAND_QA_ENTRA_TENANT_ID }}
+        run: |
+          set -euo pipefail
+          npm ci
+          npm run typecheck
+          npm test -- --runInBand
+          npm run config:adult-qa
+
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Run read-only isolation and cost-contract preflight
+        run: |
+          set -euo pipefail
+          pwsh -NoProfile -File infra-azure/adult-qa-preflight.ps1 \
+            -Mode PromotionReadiness \
+            -OutputPath promotion-artifact/preflight.json
+
+      - name: Verify exact QA resource placement and shared-service allowlist
+        run: |
+          set -euo pipefail
+          test "${AZURE_RESOURCE_GROUP}" = "hinterland-qa-rg"
+          test "${AZURE_RESOURCE_GROUP}" != "hinterland-dev-rg"
+          test "${AZURE_RESOURCE_GROUP}" != "gordi-pilot-rg"
+          test "$(az account show --query id --output tsv)" = \
+            "${AZURE_SUBSCRIPTION_ID_EXPECTED}"
+          test "$(az account show --query tenantId --output tsv)" = \
+            "${AZURE_TENANT_ID_EXPECTED}"
+
+          group_json="$(az group show --name "${AZURE_RESOURCE_GROUP}" --output json)"
+          test "$(jq -r '.location | ascii_downcase | gsub(" ";"")' <<<"${group_json}")" = centralus
+          test "$(jq -r '.tags.environment // empty' <<<"${group_json}")" = adult-qa
+          test "$(jq -r '.tags["release-lane"] // empty' <<<"${group_json}")" = adult_qa
+
+          # The shared allowlist is exactly ACR, Log Analytics, and the
+          # PostgreSQL server. No data-bearing QA resource may resolve to W1.
+          acr_id="$(az acr show --name "${AZURE_ACR_NAME}" --query id --output tsv)"
+          [[ "${acr_id,,}" == *"/resourcegroups/${AZURE_SHARED_RESOURCE_GROUP}/"* ]]
+          az monitor log-analytics workspace show \
+            --resource-group "${AZURE_SHARED_RESOURCE_GROUP}" \
+            --workspace-name "${AZURE_LOG_ANALYTICS_WORKSPACE}" \
+            --output none
+          postgres_json="$(az postgres flexible-server show \
+            --resource-group "${AZURE_SHARED_RESOURCE_GROUP}" \
+            --name "${AZURE_POSTGRES_SERVER}" --output json)"
+          test "$(jq -r '.location | ascii_downcase | gsub(" ";"")' <<<"${postgres_json}")" = centralus
+          az postgres flexible-server db show \
+            --resource-group "${AZURE_SHARED_RESOURCE_GROUP}" \
+            --server-name "${AZURE_POSTGRES_SERVER}" \
+            --database-name "${AZURE_POSTGRES_DATABASE}" \
+            --output none
+          test "${AZURE_POSTGRES_DATABASE}" != hinterland
+
+          for resource in \
+            "${AZURE_KEY_VAULT}" \
+            "${AZURE_STORAGE_ACCOUNT}" \
+            "${AZURE_SERVICE_BUS_NAMESPACE}" \
+            "${AZURE_CONTENT_SAFETY_ACCOUNT}" \
+            "${AZURE_CONTAINER_APP_ENV}" \
+            "${AZURE_CONTAINER_APP}" \
+            "${AZURE_API_UAMI}" \
+            "${AZURE_JOBS_UAMI}"; do
+            case "${resource}" in
+              hinterland-kv-dev|hinterlandphotosdev|hinterland-sb-dev|\
+              hinterland-api-central|hinterland-api|hinterland-api-central-mi|\
+              hinterland-api-mi|hinterland-cae-central-dev|hinterland-cae-dev)
+                echo "Protected W1 resource selected: ${resource}" >&2
+                exit 1
+                ;;
+            esac
+          done
+
+          az keyvault show --name "${AZURE_KEY_VAULT}" \
+            --resource-group "${AZURE_RESOURCE_GROUP}" --output none
+          az storage account show --name "${AZURE_STORAGE_ACCOUNT}" \
+            --resource-group "${AZURE_RESOURCE_GROUP}" --output none
+          az servicebus namespace show --name "${AZURE_SERVICE_BUS_NAMESPACE}" \
+            --resource-group "${AZURE_RESOURCE_GROUP}" --output none
+          az cognitiveservices account show --name "${AZURE_CONTENT_SAFETY_ACCOUNT}" \
+            --resource-group "${AZURE_RESOURCE_GROUP}" --output none
+          az containerapp env show --name "${AZURE_CONTAINER_APP_ENV}" \
+            --resource-group "${AZURE_RESOURCE_GROUP}" --output none
+          az containerapp show --name "${AZURE_CONTAINER_APP}" \
+            --resource-group "${AZURE_RESOURCE_GROUP}" --output none
+          az identity show --name "${AZURE_API_UAMI}" \
+            --resource-group "${AZURE_RESOURCE_GROUP}" --output none
+          az identity show --name "${AZURE_JOBS_UAMI}" \
+            --resource-group "${AZURE_RESOURCE_GROUP}" --output none
+          az staticwebapp show --name "${AZURE_PARENT_SWA}" \
+            --resource-group "${AZURE_RESOURCE_GROUP}" --output none
+
+      - name: Verify domains, certificates, queues, lifecycle, and alerts
+        env:
+          HINTERLAND_QA_ALERT_EMAIL: ${{ secrets.HINTERLAND_QA_ALERT_EMAIL }}
+        run: |
+          set -euo pipefail
+          app_json="$(az containerapp show --name "${AZURE_CONTAINER_APP}" \
+            --resource-group "${AZURE_RESOURCE_GROUP}" --output json)"
+          jq -e --arg domain "qa-api.thehinterlandguide.app" '
+            any(.properties.configuration.ingress.customDomains[]?;
+              .name == $domain and (.bindingType | length) > 0 and
+              (.certificateId | length) > 0)
+          ' <<<"${app_json}" >/dev/null
+          az staticwebapp hostname show \
+            --name "${AZURE_PARENT_SWA}" \
+            --resource-group "${AZURE_RESOURCE_GROUP}" \
+            --hostname "qa-parents.thehinterlandguide.app" \
+            --output none
+
+          queue_json="$(az servicebus queue show \
+            --namespace-name "${AZURE_SERVICE_BUS_NAMESPACE}" \
+            --resource-group "${AZURE_RESOURCE_GROUP}" \
+            --name "${AZURE_MODERATION_QUEUE}" --output json)"
+          test "$(jq -r '.deadLetteringOnMessageExpiration' <<<"${queue_json}")" = true
+          test "$(jq -r '.maxDeliveryCount' <<<"${queue_json}")" -ge 5
+
+          policy_json="$(az storage account management-policy show \
+            --account-name "${AZURE_STORAGE_ACCOUNT}" \
+            --resource-group "${AZURE_RESOURCE_GROUP}" --output json)"
+          for rule in \
+            adult-qa-unattached-upload-24h \
+            adult-qa-quarantine-rejected-90d; do
+            jq -e --arg rule "${rule}" '
+              any(.policy.rules[]?; .name == $rule and .enabled == true)
+            ' <<<"${policy_json}" >/dev/null
+          done
+
+          required_alerts=(
+            hinterland-qa-moderation-age
+            hinterland-qa-pending-photo-age
+            hinterland-qa-moderation-queue
+            hinterland-qa-moderation-dlq
+            hinterland-qa-rebuild-backlog
+            hinterland-qa-rebuild-failure
+            hinterland-qa-dispatcher-work
+            hinterland-qa-dispatcher-p95
+            hinterland-qa-idempotency-conflicts
+            hinterland-qa-state-mismatches
+            hinterland-qa-failed-jobs
+          )
+          for alert in "${required_alerts[@]}"; do
+            alert_json="$(az monitor scheduled-query show \
+              --name "${alert}" --resource-group "${AZURE_RESOURCE_GROUP}" \
+              --output json)"
+            test "$(jq -r '.enabled' <<<"${alert_json}")" = true
+            test "$(jq -r '.actions.actionGroups | length' <<<"${alert_json}")" -gt 0
+          done
+
+          action_group_json="$(az monitor action-group show \
+            --name "${AZURE_ACTION_GROUP}" \
+            --resource-group "${AZURE_RESOURCE_GROUP}" --output json)"
+          receiver_name="$(jq -r --arg email "${HINTERLAND_QA_ALERT_EMAIL}" '
+            [.emailReceivers[]? | select(
+              (.emailAddress | ascii_downcase) == ($email | ascii_downcase)
+              and .status == "Enabled"
+            )][0].name // empty
+          ' <<<"${action_group_json}")"
+          receiver_email="$(jq -r --arg email "${HINTERLAND_QA_ALERT_EMAIL}" '
+            [.emailReceivers[]? | select(
+              (.emailAddress | ascii_downcase) == ($email | ascii_downcase)
+              and .status == "Enabled"
+            )][0].emailAddress // empty
+          ' <<<"${action_group_json}")"
+          test -n "${receiver_name}"
+          test -n "${receiver_email}"
+          az monitor action-group test-notifications create \
+            --action-group "${AZURE_ACTION_GROUP}" \
+            --resource-group "${AZURE_RESOURCE_GROUP}" \
+            --alert-type logalertv2 \
+            --add-action email "${receiver_name}" "${receiver_email}" \
+              usecommonalertschema \
+            --no-wait --output none
+          jq -n \
+            --arg tested_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            --arg action_group "${AZURE_ACTION_GROUP}" \
+            --argjson alert_count "${#required_alerts[@]}" \
+            '{
+              result:"accepted",
+              tested_at:$tested_at,
+              action_group:$action_group,
+              required_alert_count:$alert_count
+            }' > promotion-artifact/monitoring.json
+
+      - name: Verify dedicated secrets without reading values
+        run: |
+          set -euo pipefail
+          mapfile -t secret_names < <(az keyvault secret list \
+            --vault-name "${AZURE_KEY_VAULT}" --query '[].name' --output tsv)
+          printf '%s\n' "${secret_names[@]}" | grep -Fxq postgres-qa-password
+          printf '%s\n' "${secret_names[@]}" | grep -Fxq content-safety-endpoint
+          printf '%s\n' "${secret_names[@]}" | grep -Fxq content-safety-key
+          ! printf '%s\n' "${secret_names[@]}" | \
+            grep -Eix 'inat-submit-token|inat-oauth-token'
+
+          if [[ "${CV_ENABLED}" == true ]]; then
+            printf '%s\n' "${secret_names[@]}" | grep -Fxq inat-cv-token
+            expires_at="$(az keyvault secret show \
+              --vault-name "${AZURE_KEY_VAULT}" \
+              --name inat-cv-token \
+              --query attributes.expires \
+              --output tsv)"
+            expires_unix="$(date -u -d "${expires_at}" +%s)"
+            remaining="$((expires_unix - $(date -u +%s)))"
+            test "${remaining}" -ge 1800
+            jq -n \
+              --arg expires_at "${expires_at}" \
+              --argjson remaining_seconds "${remaining}" \
+              '{
+                secret_name:"inat-cv-token",
+                expires_at:$expires_at,
+                remaining_seconds:$remaining_seconds
+              }' > promotion-artifact/inat-cv-expiry.json
+          fi
+
+      - name: Build one immutable API image
+        run: |
+          set -euo pipefail
+          az acr build \
+            --registry "${AZURE_ACR_NAME}" \
+            --image "${IMAGE_REPOSITORY}:${GITHUB_SHA}" \
+            --file backend/Dockerfile \
+            . --output none
+          IMAGE_DIGEST="$(az acr manifest show-metadata \
+            --registry "${AZURE_ACR_NAME}" \
+            --name "${IMAGE_REPOSITORY}:${GITHUB_SHA}" \
+            --query digest --output tsv)"
+          [[ "${IMAGE_DIGEST}" =~ ^sha256:[0-9a-f]{64}$ ]]
+          IMAGE="${AZURE_ACR_NAME}.azurecr.io/${IMAGE_REPOSITORY}@${IMAGE_DIGEST}"
+          echo "IMAGE_DIGEST=${IMAGE_DIGEST}" >> "${GITHUB_ENV}"
+          echo "IMAGE=${IMAGE}" >> "${GITHUB_ENV}"
+          jq --arg digest "${IMAGE_DIGEST}" \
+            '.image_digest=$digest' promotion-artifact/promotion.json \
+            > promotion-artifact/promotion.tmp
+          mv promotion-artifact/promotion.tmp promotion-artifact/promotion.json
+
+      - name: Resolve Alembic head and require exact QA job inventory
+        run: |
+          set -euo pipefail
+          ALEMBIC_HEAD="$(cd backend && uv run alembic heads | awk '{print $1}')"
+          test "$(wc -w <<<"${ALEMBIC_HEAD}")" = 1
+          echo "ALEMBIC_HEAD=${ALEMBIC_HEAD}" >> "${GITHUB_ENV}"
+
+          required_jobs=(
+            hinterland-qa-moderation
+            hinterland-qa-rarity-refresh
+            hinterland-qa-sweep-stale-reviews
+            hinterland-qa-sync-expeditions
+            hinterland-qa-obs-preflight
+            hinterland-qa-migrate
+            hinterland-qa-taxa-catalog-ingest
+            hinterland-qa-state-rebuild
+            hinterland-qa-mod-outbox-relay
+            hinterland-qa-dispatcher-replay
+            hinterland-qa-obs-retention
+            hinterland-qa-obs-health
+            hinterland-qa-expedition-funnel
+            hinterland-qa-photo-revocation-replay
+          )
+          mapfile -t actual_jobs < <(az containerapp job list \
+            --resource-group "${AZURE_RESOURCE_GROUP}" \
+            --query '[].name' --output tsv)
+          test "${#actual_jobs[@]}" = "${#required_jobs[@]}"
+          for job in "${required_jobs[@]}"; do
+            printf '%s\n' "${actual_jobs[@]}" | grep -Fxq "${job}"
+          done
+          for job in "${actual_jobs[@]}"; do
+            [[ "${job}" == hinterland-qa-* ]]
+            secret_names="$(az containerapp job secret list \
+              --name "${job}" --resource-group "${AZURE_RESOURCE_GROUP}" \
+              --query '[].name' --output tsv)"
+            grep -Fxq pg-password <<<"${secret_names}"
+            ! grep -Eixq 'inat-submit-token|inat-oauth-token|inat-cv-token' \
+              <<<"${secret_names}"
+          done
+
+      - name: Pin only preflight and migration to the new digest
+        run: |
+          set -euo pipefail
+          for job in hinterland-qa-obs-preflight hinterland-qa-migrate; do
+            az containerapp job update \
+              --name "${job}" \
+              --resource-group "${AZURE_RESOURCE_GROUP}" \
+              --image "${IMAGE}" \
+              --set-env-vars \
+                HINTERLAND_APP_VERSION="${GITHUB_SHA}" \
+                HINTERLAND_DEPLOYMENT_IMAGE_DIGEST="${IMAGE_DIGEST}" \
+                HINTERLAND_RELEASE_LANE=adult_qa \
+                HINTERLAND_DATABASE_NAME=hinterland_qa \
+                HINTERLAND_DATABASE_USER=hinterland_qa_app \
+                HINTERLAND_DATABASE_PASSWORD=secretref:pg-password \
+                HINTERLAND_MODERATION_PROVIDER=noop \
+                HINTERLAND_INAT_CV_ENABLED=false \
+                HINTERLAND_INAT_SUBMIT_ENABLED=false \
+                HINTERLAND_DEV_AUTH_ENABLED=false \
+                HINTERLAND_ALLOW_STUB_AUTH=false \
+              --output none
+          done
+
+      - name: Run read-only preflight and additive migrations first
+        run: |
+          set -euo pipefail
+          run_job() {
+            local job="$1" execution status=""
+            execution="$(az containerapp job start \
+              --name "${job}" --resource-group "${AZURE_RESOURCE_GROUP}" \
+              --query name --output tsv)"
+            for _ in $(seq 1 90); do
+              status="$(az containerapp job execution show \
+                --name "${job}" --job-execution-name "${execution}" \
+                --resource-group "${AZURE_RESOURCE_GROUP}" \
+                --query properties.status --output tsv)"
+              case "${status}" in
+                Succeeded|Failed|Canceled) break ;;
+              esac
+              sleep 10
+            done
+            jq --arg job "${job}" --arg execution "${execution}" \
+              --arg status "${status}" \
+              '. + [{job:$job, execution:$execution, status:$status}]' \
+              promotion-artifact/job-executions.json \
+              > promotion-artifact/job-executions.tmp
+            mv promotion-artifact/job-executions.tmp \
+              promotion-artifact/job-executions.json
+            test "${status}" = Succeeded
+          }
+          run_job hinterland-qa-obs-preflight
+          run_job hinterland-qa-migrate
+
+      - name: Pin every worker and scheduled job after migration succeeds
+        run: |
+          set -euo pipefail
+          mapfile -t jobs < <(az containerapp job list \
+            --resource-group "${AZURE_RESOURCE_GROUP}" \
+            --query '[].name' --output tsv)
+          for job in "${jobs[@]}"; do
+            az containerapp job update \
+              --name "${job}" \
+              --resource-group "${AZURE_RESOURCE_GROUP}" \
+              --image "${IMAGE}" \
+              --set-env-vars \
+                HINTERLAND_APP_VERSION="${GITHUB_SHA}" \
+                HINTERLAND_DEPLOYMENT_IMAGE_DIGEST="${IMAGE_DIGEST}" \
+                HINTERLAND_RELEASE_LANE=adult_qa \
+                HINTERLAND_DATABASE_NAME=hinterland_qa \
+                HINTERLAND_DATABASE_USER=hinterland_qa_app \
+                HINTERLAND_DATABASE_PASSWORD=secretref:pg-password \
+                HINTERLAND_MODERATION_PROVIDER=noop \
+                HINTERLAND_INAT_CV_ENABLED=false \
+                HINTERLAND_INAT_CV_DISCLOSURE_APPROVED=false \
+                HINTERLAND_INAT_CV_BENCHMARK_APPROVED=false \
+                HINTERLAND_INAT_SUBMIT_ENABLED=false \
+                HINTERLAND_SHARED_GROUPS_ENABLED="${SHARED_GROUPS_ENABLED}" \
+                HINTERLAND_DEV_AUTH_ENABLED=false \
+                HINTERLAND_ALLOW_STUB_AUTH=false \
+                HINTERLAND_OBSERVATION_IDEMPOTENCY_REQUIRED=true \
+              --output none
+            stale_provider_vars=(
+              HINTERLAND_INAT_CV_TOKEN
+              HINTERLAND_INAT_CV_QUALIFICATION_ENABLED
+              HINTERLAND_INAT_CV_QUALIFICATION_KEY
+              HINTERLAND_INAT_CV_QUALIFICATION_RUN_ID
+              HINTERLAND_INAT_CV_QUALIFICATION_MANIFEST_SHA256
+              HINTERLAND_INAT_CV_QUALIFICATION_EXPIRES_AT
+              HINTERLAND_INAT_CV_QUALIFICATION_CASES
+              HINTERLAND_INAT_SUBMIT_TOKEN
+            )
+            if [[ "${job}" != hinterland-qa-moderation ]]; then
+              stale_provider_vars+=(
+                HINTERLAND_CONTENT_SAFETY_ENDPOINT
+                HINTERLAND_CONTENT_SAFETY_KEY
+              )
+            fi
+            az containerapp job update \
+              --name "${job}" \
+              --resource-group "${AZURE_RESOURCE_GROUP}" \
+              --remove-env-vars "${stale_provider_vars[@]}" \
+              --output none
+          done
+          az containerapp job update \
+            --name hinterland-qa-moderation \
+            --resource-group "${AZURE_RESOURCE_GROUP}" \
+            --set-env-vars \
+              HINTERLAND_MODERATION_PROVIDER=azure_content_safety \
+              HINTERLAND_CONTENT_SAFETY_ENDPOINT=secretref:content-safety-endpoint \
+              HINTERLAND_CONTENT_SAFETY_KEY=secretref:content-safety-key \
+            --output none
+          az containerapp job update \
+            --name hinterland-qa-state-rebuild \
+            --resource-group "${AZURE_RESOURCE_GROUP}" \
+            --set-env-vars \
+              HINTERLAND_DERIVED_REBUILD_STRICT_DRAIN=true \
+              HINTERLAND_DERIVED_REBUILD_MAX_PASSES=20 \
+            --output none
+
+      - name: Run catalog, Expeditions, and strict rebuild
+        run: |
+          set -euo pipefail
+          run_job() {
+            local job="$1" execution status=""
+            execution="$(az containerapp job start \
+              --name "${job}" --resource-group "${AZURE_RESOURCE_GROUP}" \
+              --query name --output tsv)"
+            for _ in $(seq 1 90); do
+              status="$(az containerapp job execution show \
+                --name "${job}" --job-execution-name "${execution}" \
+                --resource-group "${AZURE_RESOURCE_GROUP}" \
+                --query properties.status --output tsv)"
+              case "${status}" in
+                Succeeded|Failed|Canceled) break ;;
+              esac
+              sleep 10
+            done
+            jq --arg job "${job}" --arg execution "${execution}" \
+              --arg status "${status}" \
+              '. + [{job:$job, execution:$execution, status:$status}]' \
+              promotion-artifact/job-executions.json \
+              > promotion-artifact/job-executions.tmp
+            mv promotion-artifact/job-executions.tmp \
+              promotion-artifact/job-executions.json
+            test "${status}" = Succeeded
+          }
+          run_job hinterland-qa-taxa-catalog-ingest
+          run_job hinterland-qa-sync-expeditions
+          run_job hinterland-qa-state-rebuild
+
+      - name: Deploy API last with controlled CV and no public submit
+        run: |
+          set -euo pipefail
+          cv_token_setting=()
+          if [[ "${CV_ENABLED}" == true ]]; then
+            identity_id="$(az identity show \
+              --name "${AZURE_API_UAMI}" \
+              --resource-group "${AZURE_RESOURCE_GROUP}" \
+              --query id --output tsv)"
+            test -n "${identity_id}"
+            az containerapp secret set \
+              --name "${AZURE_CONTAINER_APP}" \
+              --resource-group "${AZURE_RESOURCE_GROUP}" \
+              --secrets \
+                "inat-cv-token=keyvaultref:https://${AZURE_KEY_VAULT}.vault.azure.net/secrets/inat-cv-token,identityref:${identity_id}" \
+              --output none
+            cv_token_setting=(
+              HINTERLAND_INAT_CV_TOKEN=secretref:inat-cv-token
+            )
+          fi
+          app_secret_names="$(az containerapp secret list \
+            --name "${AZURE_CONTAINER_APP}" \
+            --resource-group "${AZURE_RESOURCE_GROUP}" \
+            --query '[].name' --output tsv)"
+          ! grep -Eixq 'inat-submit-token|inat-oauth-token' \
+            <<<"${app_secret_names}"
+          if [[ "${CV_ENABLED}" == true ]]; then
+            grep -Fxq inat-cv-token <<<"${app_secret_names}"
+          fi
+
+          az containerapp update \
+            --name "${AZURE_CONTAINER_APP}" \
+            --resource-group "${AZURE_RESOURCE_GROUP}" \
+            --image "${IMAGE}" \
+            --set-env-vars \
+              HINTERLAND_APP_VERSION="${GITHUB_SHA}" \
+              HINTERLAND_DEPLOYMENT_IMAGE_DIGEST="${IMAGE_DIGEST}" \
+              HINTERLAND_RELEASE_LANE=adult_qa \
+              HINTERLAND_DATABASE_NAME=hinterland_qa \
+              HINTERLAND_DATABASE_USER=hinterland_qa_app \
+              HINTERLAND_DATABASE_PASSWORD=secretref:pg-password \
+              HINTERLAND_MODERATION_PROVIDER=azure_content_safety \
+              HINTERLAND_CONTENT_SAFETY_ENDPOINT=secretref:content-safety-endpoint \
+              HINTERLAND_CONTENT_SAFETY_KEY=secretref:content-safety-key \
+              HINTERLAND_INAT_CV_ENABLED="${CV_ENABLED}" \
+              HINTERLAND_INAT_CV_DISCLOSURE_APPROVED="${CV_DISCLOSURE_APPROVED}" \
+              HINTERLAND_INAT_CV_BENCHMARK_APPROVED="${CV_BENCHMARK_APPROVED}" \
+              HINTERLAND_INAT_SUBMIT_ENABLED=false \
+              HINTERLAND_SHARED_GROUPS_ENABLED="${SHARED_GROUPS_ENABLED}" \
+              HINTERLAND_DEV_AUTH_ENABLED=false \
+              HINTERLAND_ALLOW_STUB_AUTH=false \
+              HINTERLAND_OBSERVATION_IDEMPOTENCY_REQUIRED=true \
+              "${cv_token_setting[@]}" \
+            --output none
+          stale_api_vars=(
+            HINTERLAND_INAT_CV_QUALIFICATION_ENABLED
+            HINTERLAND_INAT_CV_QUALIFICATION_KEY
+            HINTERLAND_INAT_CV_QUALIFICATION_RUN_ID
+            HINTERLAND_INAT_CV_QUALIFICATION_MANIFEST_SHA256
+            HINTERLAND_INAT_CV_QUALIFICATION_EXPIRES_AT
+            HINTERLAND_INAT_CV_QUALIFICATION_CASES
+            HINTERLAND_INAT_SUBMIT_TOKEN
+            HINTERLAND_INAT_OAUTH_TOKEN
+          )
+          if [[ "${CV_ENABLED}" != true ]]; then
+            stale_api_vars+=(HINTERLAND_INAT_CV_TOKEN)
+          fi
+          az containerapp update \
+            --name "${AZURE_CONTAINER_APP}" \
+            --resource-group "${AZURE_RESOURCE_GROUP}" \
+            --remove-env-vars "${stale_api_vars[@]}" \
+            --output none
+      - name: Wait for exact healthy API revision
+        run: |
+          set -euo pipefail
+          deadline=$((SECONDS + 900))
+          API_READY_REVISION=""
+          while (( SECONDS < deadline )); do
+            app_json="$(az containerapp show --name "${AZURE_CONTAINER_APP}" \
+              --resource-group "${AZURE_RESOURCE_GROUP}" --output json)"
+            latest="$(jq -r '.properties.latestRevisionName // empty' <<<"${app_json}")"
+            ready="$(jq -r '.properties.latestReadyRevisionName // empty' <<<"${app_json}")"
+            if [[ -n "${latest}" && "${latest}" = "${ready}" ]]; then
+              revision_json="$(az containerapp revision show \
+                --name "${AZURE_CONTAINER_APP}" \
+                --resource-group "${AZURE_RESOURCE_GROUP}" \
+                --revision "${latest}" --output json)"
+              revision_image="$(jq -r '.properties.template.containers[0].image' \
+                <<<"${revision_json}")"
+              version="$(jq -r '
+                [.properties.template.containers[0].env[]
+                  | select(.name == "HINTERLAND_APP_VERSION") | .value][0] // empty
+              ' <<<"${revision_json}")"
+              if [[ "${revision_image}" = "${IMAGE}" && \
+                    "${version}" = "${GITHUB_SHA}" && \
+                    "$(jq -r '.properties.healthState' <<<"${revision_json}")" = Healthy ]]; then
+                echo "API_READY_REVISION=${latest}" >> "${GITHUB_ENV}"
+                API_READY_REVISION="${latest}"
+                break
+              fi
+            fi
+            sleep 10
+          done
+          test -n "${API_READY_REVISION:-}"
+          if [[ "${CV_ENABLED}" != true ]]; then
+            app_secret_names="$(az containerapp secret list \
+              --name "${AZURE_CONTAINER_APP}" \
+              --resource-group "${AZURE_RESOURCE_GROUP}" \
+              --query '[].name' --output tsv)"
+            if grep -Fxq inat-cv-token <<<"${app_secret_names}"; then
+              az containerapp secret remove \
+                --name "${AZURE_CONTAINER_APP}" \
+                --resource-group "${AZURE_RESOURCE_GROUP}" \
+                --secret-names inat-cv-token \
+                --output none
+            fi
+          fi
+
+      - name: Export and deploy exact QA parent web
+        working-directory: mobile
+        env:
+          APP_ENV: adult-qa
+          HINTERLAND_QA_EAS_PROJECT_ID: ${{ vars.HINTERLAND_QA_EAS_PROJECT_ID }}
+          HINTERLAND_QA_ENTRA_API_AUDIENCE: ${{ vars.HINTERLAND_QA_ENTRA_API_AUDIENCE }}
+          HINTERLAND_QA_ENTRA_CLIENT_ID: ${{ vars.HINTERLAND_QA_ENTRA_CLIENT_ID }}
+          HINTERLAND_QA_ENTRA_TENANT_ID: ${{ vars.HINTERLAND_QA_ENTRA_TENANT_ID }}
+        run: |
+          set -euo pipefail
+          npx expo export --platform web
+          npm run config:parent-web -- --dist
+          mkdir -p dist/.well-known
+          jq -n --arg sha "${GITHUB_SHA}" \
+            '{surface:"parents-qa", commit_sha:$sha, release_lane:"adult_qa"}' \
+            > dist/.well-known/hinterland-build.json
+
+      - name: Upload QA parent web
+        uses: Azure/static-web-apps-deploy@v1
+        with:
+          azure_static_web_apps_api_token: ${{ secrets.HINTERLAND_QA_PARENTS_SWA_TOKEN }}
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          action: upload
+          app_location: mobile/dist
+          output_location: ""
+          skip_app_build: true
+
+      - name: Verify release lane, readiness, parent web, digest, and queues
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 36); do
+            if health="$(curl --fail --silent --show-error "${QA_API_ORIGIN}/health")" &&
+              ready="$(curl --fail --silent --show-error "${QA_API_ORIGIN}/ready")" &&
+              meta_headers="$(mktemp)" &&
+              meta="$(curl --fail --silent --show-error \
+                --dump-header "${meta_headers}" "${QA_API_ORIGIN}/v1/meta")" &&
+              jq -e --arg sha "${GITHUB_SHA}" \
+                '.status == "ok" and .version == $sha' <<<"${health}" >/dev/null &&
+              jq -e --arg sha "${GITHUB_SHA}" \
+                '.status == "ready" and .version == $sha and
+                 any(.checks[]; .name == "database" and .status == "ok")' \
+                <<<"${ready}" >/dev/null &&
+              jq -e \
+                --arg sha "${GITHUB_SHA}" \
+                --arg digest "${IMAGE_DIGEST}" \
+                --argjson cv_enabled "${CV_ENABLED}" '
+                .release_lane == "adult_qa" and
+                .version == $sha and
+                .image_digest == $digest and
+                .capabilities.integrations.content_safety_enabled == true and
+                .capabilities.integrations.public_inat_submission_enabled == false and
+                .capabilities.integrations.cv_qualification_enabled == false and
+                .capabilities.observation.photo_helper_enabled == $cv_enabled
+              ' <<<"${meta}" >/dev/null &&
+              grep -Eiq '^x-hinterland-release-lane:[[:space:]]*adult_qa' \
+                "${meta_headers}"; then
+              rm -f "${meta_headers}"
+              break
+            fi
+            rm -f "${meta_headers:-}"
+            if [[ "${attempt}" = 36 ]]; then
+              echo "QA API did not converge to the exact release lane." >&2
+              exit 1
+            fi
+            sleep 5
+          done
+          curl --fail --silent --show-error \
+            "${QA_API_ORIGIN}${HINTERLAND_KID_JWKS_PATH}" | \
+            jq -e '.keys | length > 0' >/dev/null
+          curl --fail --silent --show-error \
+            "${QA_PARENT_ORIGIN}/.well-known/hinterland-build.json" | \
+            jq -e --arg sha "${GITHUB_SHA}" '
+              .surface == "parents-qa" and .commit_sha == $sha and
+              .release_lane == "adult_qa"
+            ' >/dev/null
+
+          app_image="$(az containerapp show --name "${AZURE_CONTAINER_APP}" \
+            --resource-group "${AZURE_RESOURCE_GROUP}" \
+            --query 'properties.template.containers[0].image' --output tsv)"
+          test "${app_image}" = "${IMAGE}"
+          mapfile -t jobs < <(az containerapp job list \
+            --resource-group "${AZURE_RESOURCE_GROUP}" \
+            --query '[].name' --output tsv)
+          for job in "${jobs[@]}"; do
+            job_image="$(az containerapp job show --name "${job}" \
+              --resource-group "${AZURE_RESOURCE_GROUP}" \
+              --query 'properties.template.containers[0].image' --output tsv)"
+            test "${job_image}" = "${IMAGE}"
+            submit_enabled="$(az containerapp job show --name "${job}" \
+              --resource-group "${AZURE_RESOURCE_GROUP}" \
+              --query "properties.template.containers[0].env[?name=='HINTERLAND_INAT_SUBMIT_ENABLED'].value | [0]" \
+              --output tsv)"
+            test "${submit_enabled}" = false
+            job_digest="$(az containerapp job show --name "${job}" \
+              --resource-group "${AZURE_RESOURCE_GROUP}" \
+              --query "properties.template.containers[0].env[?name=='HINTERLAND_DEPLOYMENT_IMAGE_DIGEST'].value | [0]" \
+              --output tsv)"
+            test "${job_digest}" = "${IMAGE_DIGEST}"
+            job_lane="$(az containerapp job show --name "${job}" \
+              --resource-group "${AZURE_RESOURCE_GROUP}" \
+              --query "properties.template.containers[0].env[?name=='HINTERLAND_RELEASE_LANE'].value | [0]" \
+              --output tsv)"
+            test "${job_lane}" = adult_qa
+            provider="$(az containerapp job show --name "${job}" \
+              --resource-group "${AZURE_RESOURCE_GROUP}" \
+              --query "properties.template.containers[0].env[?name=='HINTERLAND_MODERATION_PROVIDER'].value | [0]" \
+              --output tsv)"
+            if [[ "${job}" = hinterland-qa-moderation ]]; then
+              test "${provider}" = azure_content_safety
+            else
+              test "${provider}" = noop
+            fi
+          done
+
+          queue_json="$(az servicebus queue show \
+            --namespace-name "${AZURE_SERVICE_BUS_NAMESPACE}" \
+            --resource-group "${AZURE_RESOURCE_GROUP}" \
+            --name "${AZURE_MODERATION_QUEUE}" --output json)"
+          active_count="$(jq -r '.countDetails.activeMessageCount' <<<"${queue_json}")"
+          dlq_count="$(jq -r '.countDetails.deadLetterMessageCount' <<<"${queue_json}")"
+          test "${active_count}" = 0
+          test "${dlq_count}" = 0
+
+          jq \
+            --arg revision "${API_READY_REVISION}" \
+            --arg alembic_head "${ALEMBIC_HEAD}" \
+            --arg digest "${IMAGE_DIGEST}" \
+            --argjson queue_active "${active_count}" \
+            --argjson queue_dlq "${dlq_count}" \
+            '.deployment={
+               api_revision:$revision,
+               alembic_head:$alembic_head,
+               image_digest:$digest,
+               api_domain:"qa-api.thehinterlandguide.app",
+               parent_domain:"qa-parents.thehinterlandguide.app",
+               region:"centralus",
+               database:"hinterland_qa",
+               queue_active:$queue_active,
+               queue_dlq:$queue_dlq
+             }' promotion-artifact/promotion.json \
+            > promotion-artifact/promotion.tmp
+          mv promotion-artifact/promotion.tmp promotion-artifact/promotion.json
+
+      - name: Non-skipped authenticated parent, kid, and Adult QA Observation canary
+        env:
+          HINTERLAND_API_BASE_URL: https://qa-api.thehinterlandguide.app
+          HINTERLAND_QA_SMOKE_ENTRA_BEARER: ${{ secrets.HINTERLAND_QA_SMOKE_ENTRA_BEARER }}
+          HINTERLAND_SMOKE_EVIDENCE_PATH: promotion-artifact/authenticated-canary.json
+        run: |
+          set -euo pipefail
+          test -n "${HINTERLAND_QA_SMOKE_ENTRA_BEARER}"
+          python - <<'PY'
+          import base64
+          import json
+          import os
+          import time
+
+          token = os.environ["HINTERLAND_QA_SMOKE_ENTRA_BEARER"]
+          payload = token.split(".", 2)[1]
+          payload += "=" * (-len(payload) % 4)
+          expires_at = int(json.loads(base64.urlsafe_b64decode(payload))["exp"])
+          if expires_at - int(time.time()) < 900:
+              raise SystemExit(
+                  "QA test-parent credential needs at least 900 seconds "
+                  "at the authenticated canary"
+              )
+          PY
+          backend/.venv/bin/python scripts/smoke_adult_qa_parent_kid.py
+          jq -e '
+            .result == "passed" and
+            .release_lane_verified == true and
+            .content_safety_enabled == true and
+            .public_inaturalist_submission_disabled == true and
+            .idempotent_replay == true and
+            .field_journal_exactly_once == true and
+            .child_presentation_status == "clean" and
+            .signed_photo_allowed == true and
+            .child_dto_minimized == true
+          ' promotion-artifact/authenticated-canary.json >/dev/null
+
+          queue_json="$(az servicebus queue show \
+            --namespace-name "${AZURE_SERVICE_BUS_NAMESPACE}" \
+            --resource-group "${AZURE_RESOURCE_GROUP}" \
+            --name "${AZURE_MODERATION_QUEUE}" --output json)"
+          test "$(jq -r '.countDetails.activeMessageCount' <<<"${queue_json}")" = 0
+          test "$(jq -r '.countDetails.deadLetterMessageCount' <<<"${queue_json}")" = 0
+
+          jq --slurpfile canary promotion-artifact/authenticated-canary.json \
+            '.authenticated_canary=($canary[0] | del(.request_ids))' \
+            promotion-artifact/promotion.json \
+            > promotion-artifact/promotion.tmp
+          mv promotion-artifact/promotion.tmp promotion-artifact/promotion.json
+
+      - name: Mark promotion result
+        if: always()
+        env:
+          JOB_STATUS: ${{ job.status }}
+        run: |
+          set -euo pipefail
+          if [[ -f promotion-artifact/promotion.json ]]; then
+            jq --arg result "${JOB_STATUS}" \
+              --arg completed_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+              '.result=$result | .completed_at=$completed_at' \
+              promotion-artifact/promotion.json \
+              > promotion-artifact/promotion.tmp
+            mv promotion-artifact/promotion.tmp promotion-artifact/promotion.json
+          fi
+
+      - name: Publish sanitized Adult QA evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: adult-qa-promotion-${{ github.run_id }}
+          path: promotion-artifact
+          if-no-files-found: error
+          retention-days: 90

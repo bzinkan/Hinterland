@@ -1,0 +1,49 @@
+{
+  "rules": [
+    {
+      "enabled": true,
+      "name": "adult-qa-unattached-upload-24h",
+      "type": "Lifecycle",
+      "definition": {
+        "actions": {
+          "baseBlob": {
+            "delete": {
+              "daysAfterModificationGreaterThan": 1
+            }
+          }
+        },
+        "filters": {
+          "blobTypes": [
+            "blockBlob"
+          ],
+          "prefixMatch": [
+            "qa-photos/pending/uploads/"
+          ]
+        }
+      }
+    },
+    {
+      "enabled": true,
+      "name": "adult-qa-quarantine-rejected-90d",
+      "type": "Lifecycle",
+      "definition": {
+        "actions": {
+          "baseBlob": {
+            "delete": {
+              "daysAfterModificationGreaterThan": 90
+            }
+          }
+        },
+        "filters": {
+          "blobTypes": [
+            "blockBlob"
+          ],
+          "prefixMatch": [
+            "qa-photos/quarantine/",
+            "qa-photos/rejected/"
+          ]
+        }
+      }
+    }
+  ]
+}
