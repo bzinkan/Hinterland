@@ -15,6 +15,7 @@ import {
   clearPendingInvitationToken,
   readPendingInvitationToken,
 } from "@/src/groups/invitationToken";
+import { useGroupCapabilities } from "@/src/groups/useGroupCapabilities";
 
 type InviteState = "loading" | "available" | "unavailable";
 
@@ -25,6 +26,7 @@ export default function GroupInviteScreen() {
   const [signInPending, setSignInPending] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [supportCode, setSupportCode] = useState<string | null>(null);
+  const { sharedGroupsEnabled, query: capabilityQuery } = useGroupCapabilities();
 
   useEffect(() => {
     const token = captureInvitationTokenFromFragment();
@@ -37,6 +39,14 @@ export default function GroupInviteScreen() {
       setInviteState("unavailable");
     }
   }, [session]);
+
+  useEffect(() => {
+    if (!capabilityQuery.isPending && !sharedGroupsEnabled) {
+      clearPendingInvitationToken();
+      setInviteState("unavailable");
+      setMessage("Shared group invitations are not available in this release.");
+    }
+  }, [capabilityQuery.isPending, sharedGroupsEnabled]);
 
   const redeem = useMutation({
     mutationFn: (token: string) => redeemAdultInvitation(token),
@@ -95,7 +105,11 @@ export default function GroupInviteScreen() {
     }
   }
 
-  if (inviteState === "loading" || session.status === "initializing") {
+  if (
+    inviteState === "loading" ||
+    session.status === "initializing" ||
+    capabilityQuery.isPending
+  ) {
     return (
       <InviteShell>
         <ActivityIndicator accessibilityLabel="Loading group invitation" />
@@ -103,7 +117,11 @@ export default function GroupInviteScreen() {
     );
   }
 
-  if (inviteState === "unavailable" || (session.status === "authenticated" && session.user.role === "kid")) {
+  if (
+    !sharedGroupsEnabled ||
+    inviteState === "unavailable" ||
+    (session.status === "authenticated" && session.user.role === "kid")
+  ) {
     return (
       <InviteShell>
         <Text style={styles.heading}>Invitation unavailable</Text>

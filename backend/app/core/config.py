@@ -51,6 +51,12 @@ class Settings(BaseSettings):
     def shared_groups_allowed_for(self, group_id: str) -> bool:
         return self.shared_groups_enabled or group_id in self.shared_groups_canary_group_ids
 
+    @property
+    def shared_groups_capability_enabled(self) -> bool:
+        """True when any global or explicitly scoped shared-Groups rollout exists."""
+
+        return self.shared_groups_enabled or bool(self.shared_groups_canary_group_ids)
+
     photos_bucket: str = "photos"
     # W1 pilot environments require the same ULID on presign and finalization.
     observation_idempotency_required: bool = False

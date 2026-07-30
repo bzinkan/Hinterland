@@ -10,6 +10,7 @@ const mockMutate = jest.fn();
 const mockReset = jest.fn();
 const mockInvalidateQueries = jest.fn();
 let mockColorScheme: "light" | "dark" = "light";
+let mockSharedGroupsEnabled = true;
 
 jest.mock("expo-router", () => ({
   router: { back: jest.fn(), replace: jest.fn() },
@@ -24,6 +25,13 @@ jest.mock("react-native-qrcode-svg", () => "QRCode");
 
 jest.mock("@/components/useColorScheme", () => ({
   useColorScheme: () => mockColorScheme,
+}));
+
+jest.mock("@/src/groups/useGroupCapabilities", () => ({
+  useGroupCapabilities: () => ({
+    sharedGroupsEnabled: mockSharedGroupsEnabled,
+    query: { isPending: false, isSuccess: true, isError: false },
+  }),
 }));
 
 jest.mock("@tanstack/react-query", () => ({
@@ -139,6 +147,7 @@ describe("GroupsScreen presentation contract", () => {
     jest.useFakeTimers();
     jest.clearAllMocks();
     mockColorScheme = "light";
+    mockSharedGroupsEnabled = true;
     ownerGroups = [ownerGroup, secondOwnerGroup];
     ownedChildrenByUser = {};
     rosterChildrenByUserGroup = {};
@@ -335,6 +344,24 @@ describe("GroupsScreen presentation contract", () => {
 
     act(() => tree.unmount());
     ownerGroup.permissions.can_invite_parents = true;
+  });
+
+  it("hides invitation creation and retrieval when the release capability is unavailable", () => {
+    mockSharedGroupsEnabled = false;
+    let tree!: renderer.ReactTestRenderer;
+    act(() => {
+      tree = renderer.create(<GroupsScreen />);
+    });
+
+    const invitationQuery = mockUseQuery.mock.calls
+      .map(([options]) => options as { queryKey: [string, ...unknown[]]; enabled?: boolean })
+      .find((options) => options.queryKey[0] === "group-adult-invitations");
+    expect(invitationQuery?.enabled).toBe(false);
+    expect(tree.root.findAllByProps({ testID: "groups-create-invitation" })).toHaveLength(0);
+    expect(JSON.stringify(tree.toJSON())).not.toContain("Parent invitations");
+    expect(tree.root.findAllByProps({ testID: "groups-rename-button" }).length).toBeGreaterThan(0);
+
+    act(() => tree.unmount());
   });
 
   it("shows a joined parent only their own child plus an aggregate peer count", () => {

@@ -132,7 +132,7 @@ def test_v1_meta_keeps_photo_helper_disabled_without_provider_credentials() -> N
     }
 
 
-def test_v1_meta_reports_only_the_global_shared_groups_rollout() -> None:
+def test_v1_meta_reports_an_explicit_shared_groups_canary_rollout() -> None:
     app = create_app(
         Settings(
             env="local",

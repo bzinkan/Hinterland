@@ -44,6 +44,7 @@ import {
   copyInvitationUrl,
   validateInvitationUrl,
 } from "@/src/groups/invitationToken";
+import { useGroupCapabilities } from "@/src/groups/useGroupCapabilities";
 
 const AGE_BANDS: AgeBand[] = ["9-10", "11-12", "13+"];
 
@@ -67,6 +68,7 @@ export default function GroupsScreen() {
     queryFn: listOwnedChildren,
     enabled: parentUserId != null,
   });
+  const { sharedGroupsEnabled } = useGroupCapabilities();
   const [selectedGroupId, setSelectedGroupId] = useState<string | null>(null);
 
   useEffect(() => {
@@ -218,6 +220,7 @@ export default function GroupsScreen() {
           <GroupDetail
             key={`${ownerUserId ?? "anonymous"}:${activeGroup.id}`}
             group={activeGroup}
+            sharedGroupsEnabled={sharedGroupsEnabled}
           />
         ) : session.user.role === "parent" ? (
           <NoGroupYet onCreated={(g) => setSelectedGroupId(g.id)} />
@@ -516,7 +519,13 @@ function NoGroupYet({ onCreated }: { onCreated: (g: Group) => void }) {
   );
 }
 
-function GroupDetail({ group }: { group: Group }) {
+function GroupDetail({
+  group,
+  sharedGroupsEnabled,
+}: {
+  group: Group;
+  sharedGroupsEnabled: boolean;
+}) {
   const currentUser = useAuthSession((state) =>
     state.status === "authenticated" ? state.user : null,
   );
@@ -616,6 +625,7 @@ function GroupDetail({ group }: { group: Group }) {
               group={currentGroup}
               adults={roster.data.adults}
               userId={userId ?? "anonymous"}
+              sharedGroupsEnabled={sharedGroupsEnabled}
             />
           ) : null}
 
@@ -740,6 +750,7 @@ function OwnerGroupControls({
   group,
   adults,
   userId,
+  sharedGroupsEnabled,
 }: {
   group: Group;
   adults: Array<{
@@ -749,6 +760,7 @@ function OwnerGroupControls({
     status: string;
   }>;
   userId: string;
+  sharedGroupsEnabled: boolean;
 }) {
   const queryClient = useQueryClient();
   const [renameDraft, setRenameDraft] = useState(group.name);
@@ -804,7 +816,7 @@ function OwnerGroupControls({
   const invitations = useQuery({
     queryKey: ["group-adult-invitations", userId, group.id],
     queryFn: () => listAdultInvitations(group.id),
-    enabled: group.permissions.can_manage_invitations,
+    enabled: sharedGroupsEnabled && group.permissions.can_manage_invitations,
   });
   async function issueInvitation() {
     setCreateInvitePending(true);
@@ -887,7 +899,7 @@ function OwnerGroupControls({
         )
       ) : null}
 
-      {group.permissions.can_manage_invitations ? (
+      {sharedGroupsEnabled && group.permissions.can_manage_invitations ? (
         <RNView style={styles.subsection}>
           <RNView style={styles.row}>
             <RNView style={{ flex: 1 }}>

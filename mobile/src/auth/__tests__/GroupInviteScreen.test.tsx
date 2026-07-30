@@ -11,6 +11,7 @@ const mockMutate = jest.fn();
 const mockReset = jest.fn();
 const mockInvalidate = jest.fn();
 const mockSignIn = jest.fn();
+let mockSharedGroupsEnabled = true;
 
 jest.mock("expo-router", () => ({
   router: { push: jest.fn(), replace: jest.fn() },
@@ -42,12 +43,23 @@ jest.mock("@/src/groups/invitationToken", () => ({
   readPendingInvitationToken: () => mockRead(),
   clearPendingInvitationToken: () => mockClear(),
 }));
+jest.mock("@/src/groups/useGroupCapabilities", () => ({
+  useGroupCapabilities: () => ({
+    sharedGroupsEnabled: mockSharedGroupsEnabled,
+    query: {
+      isPending: false,
+      isSuccess: mockSharedGroupsEnabled,
+      isError: !mockSharedGroupsEnabled,
+    },
+  }),
+}));
 
 describe("GroupInviteScreen privacy boundary", () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockCapture.mockReturnValue("A".repeat(48));
     mockRead.mockReturnValue("A".repeat(48));
+    mockSharedGroupsEnabled = true;
   });
 
   it("keeps the tab invitation across sign-in and returns for explicit confirmation", () => {
@@ -108,6 +120,28 @@ describe("GroupInviteScreen privacy boundary", () => {
     });
     expect(mockClear).toHaveBeenCalled();
     expect(JSON.stringify(tree.toJSON())).toContain("Group invitations are for parents and guardians");
+    expect(mockMutate).not.toHaveBeenCalled();
+    act(() => tree.unmount());
+  });
+
+  it("clears and refuses the invitation when shared Groups is unavailable", () => {
+    mockSharedGroupsEnabled = false;
+    useAuthSession.getState().setAuthenticated({
+      id: "parent-1",
+      entra_oid: "entra-1",
+      role: "parent",
+      display_name: "Parent One",
+    });
+    let tree!: renderer.ReactTestRenderer;
+    act(() => {
+      tree = renderer.create(<GroupInviteScreen />);
+    });
+
+    expect(mockClear).toHaveBeenCalled();
+    expect(JSON.stringify(tree.toJSON())).toContain(
+      "Shared group invitations are not available in this release.",
+    );
+    expect(tree.root.findAllByProps({ testID: "groups-invite-confirm" })).toHaveLength(0);
     expect(mockMutate).not.toHaveBeenCalled();
     act(() => tree.unmount());
   });
