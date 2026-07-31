@@ -16,6 +16,7 @@ import json
 import os
 import re
 import time
+from collections.abc import Callable
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -32,6 +33,8 @@ _FORBIDDEN_CHILD_FIELDS = {
     "photo_object_name",
     "photo_status",
 }
+W1_NOOP_SERVER_TRANSITION_SLO_SECONDS = 150.0
+W1_NOOP_STATUS_POLL_SECONDS = 5.0
 
 
 @dataclass(frozen=True)
@@ -41,7 +44,9 @@ class ObservationCanaryEvidence:
     block_blob_header: bool
     idempotent_replay: bool
     field_journal_exactly_once: bool
+    initial_child_presentation_status: str
     child_presentation_status: str
+    moderation_transition_ms: int
     signed_photo_denied: bool
     child_dto_minimized: bool
 
@@ -155,6 +160,51 @@ def _write_evidence(path: str | os.PathLike[str], evidence: dict[str, object]) -
     destination.write_text(json.dumps(evidence, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
 
+def _await_w1_pilot_private(
+    fetch_status: Callable[[], str],
+    *,
+    transition_started_at: float,
+    monotonic: Callable[[], float] = time.monotonic,
+    sleep: Callable[[float], None] = time.sleep,
+) -> tuple[str, int]:
+    """Measure only the deployed server transition, independent of mobile.
+
+    The W1 relay and moderation Container Apps jobs both start once per minute.
+    Under healthy queue/job state, a committed outbox row can cross at most two
+    minute boundaries before NoOp commits ``pilot_private``. The remaining
+    30-second margin covers bounded receive, startup, Blob, and PostgreSQL work.
+    """
+
+    deadline = transition_started_at + W1_NOOP_SERVER_TRANSITION_SLO_SECONDS
+    status = "pending"
+    while True:
+        status = fetch_status()
+        now = monotonic()
+        elapsed_seconds = max(0.0, now - transition_started_at)
+        elapsed_ms = round(elapsed_seconds * 1000)
+        if status == "pilot_private":
+            if elapsed_seconds > W1_NOOP_SERVER_TRANSITION_SLO_SECONDS:
+                raise RuntimeError(
+                    "NoOp first returned pilot_private after the "
+                    f"{int(W1_NOOP_SERVER_TRANSITION_SLO_SECONDS)}s server SLO"
+                )
+            return status, elapsed_ms
+        if status in {"clean", "adult_review", "failed"}:
+            raise RuntimeError(f"W1 entered forbidden child state {status}")
+        if status not in {"pending", "processing"}:
+            raise RuntimeError(f"W1 returned unknown child state {status!r}")
+
+        remaining = deadline - now
+        if remaining <= 0:
+            break
+        sleep(min(W1_NOOP_STATUS_POLL_SECONDS, remaining))
+
+    raise RuntimeError(
+        "NoOp did not reach pilot_private within "
+        f"{int(W1_NOOP_SERVER_TRANSITION_SLO_SECONDS)}s: {status}"
+    )
+
+
 def run_canary(
     *,
     base_url: str,
@@ -216,8 +266,34 @@ def run_canary(
             headers={**auth, "Idempotency-Key": key},
             json=payload,
         )
+        create_response_at = time.monotonic()
         _expect(created, 201)
         observation = created.json()
+        initial_presentation_status = observation.get("child_presentation_status")
+        if initial_presentation_status != "pending":
+            raise RuntimeError(
+                "new W1 observation did not return the truthful pending state: "
+                f"{initial_presentation_status!r}"
+            )
+
+        def fetch_presentation_status() -> str:
+            detail = _request(
+                client,
+                request_ids,
+                "GET",
+                f"{base_url}/v1/observations/{observation['id']}",
+                headers=auth,
+            )
+            _expect(detail, 200)
+            detail_payload = detail.json()
+            _assert_child_dto_minimized(detail_payload)
+            status = detail_payload.get("child_presentation_status", "")
+            return status if isinstance(status, str) else ""
+
+        _presentation_status, moderation_transition_ms = _await_w1_pilot_private(
+            fetch_presentation_status,
+            transition_started_at=create_response_at,
+        )
 
         replay = _request(
             client,
@@ -275,30 +351,6 @@ def run_canary(
             raise RuntimeError(f"Field Journal contained {len(matches)} copies")
         _assert_child_dto_minimized(matches[0])
 
-        deadline = time.monotonic() + 180
-        presentation_status = "pending"
-        while time.monotonic() < deadline:
-            detail = _request(
-                client,
-                request_ids,
-                "GET",
-                f"{base_url}/v1/observations/{observation['id']}",
-                headers=auth,
-            )
-            _expect(detail, 200)
-            detail_payload = detail.json()
-            _assert_child_dto_minimized(detail_payload)
-            presentation_status = detail_payload.get("child_presentation_status", "")
-            if presentation_status == "pilot_private":
-                break
-            if presentation_status in {"clean", "adult_review", "failed"}:
-                raise RuntimeError(f"W1 entered forbidden child state {presentation_status}")
-            if presentation_status not in {"pending", "processing"}:
-                raise RuntimeError(f"W1 returned unknown child state {presentation_status!r}")
-            time.sleep(5)
-        if presentation_status != "pilot_private":
-            raise RuntimeError(f"NoOp did not reach pilot_private: {presentation_status}")
-
         final_listing = _request(
             client,
             request_ids,
@@ -333,7 +385,9 @@ def run_canary(
         block_blob_header=True,
         idempotent_replay=True,
         field_journal_exactly_once=True,
+        initial_child_presentation_status="pending",
         child_presentation_status="pilot_private",
+        moderation_transition_ms=moderation_transition_ms,
         signed_photo_denied=True,
         child_dto_minimized=True,
     )

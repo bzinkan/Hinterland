@@ -165,6 +165,28 @@ device with at most 4 GB RAM. The required Maestro assertion is a real saved
 Journal card in the metadata-only private state with no photo request—not only
 that the Field Journal screen exists.
 
+The exact-build test also proves the W1 NoOp timing contract without creating a
+second observation:
+
+1. The persisted create response displays “This photo is being checked.”
+   (`pending`).
+2. The protected server canary measures from that create response and requires
+   the API to first return `pilot_private` within 150 seconds, recording the
+   backend-only result as `moderation_transition_ms`.
+3. Journal and detail refetch every five seconds in the foreground only while
+   presentation is `pending` or `processing`.
+4. Maestro captures one absolute 160-second deadline when the persisted
+   `pending` response first renders. Navigation counts against that budget; a
+   continuation-only assertion waits only for the remaining time before
+   requiring “This photo is private during the pilot.” It also confirms that
+   neither screen mounts a photo and that the photo helper remains hidden.
+
+The 150-second server SLO reflects the deployed once-per-minute outbox relay
+and once-per-minute bounded NoOp consumer. The additional ten seconds is a
+mobile reconciliation allowance, not extra server processing time. A skipped
+assertion, a second Save tap, a later transition, or any `clean`, image, or
+photo-helper presentation fails promotion.
+
 Also perform airplane capture, kill after PUT/lost-create-response, picker
 recovery, account switch, location denial/imported-photo, catalog/manual/Unknown,
 and private-photo non-rendering tests. Record device/Android details and request

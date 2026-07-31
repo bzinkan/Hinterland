@@ -2,6 +2,7 @@ import { useInfiniteQuery } from "@tanstack/react-query";
 
 import { listMyObservations, type ObservationListResponse } from "@/src/api/observations";
 import { useAuthSession } from "@/src/auth/session";
+import { listPresentationPollInterval } from "@/src/observation/moderationReconciliation";
 
 const PAGE_SIZE = 20;
 
@@ -27,5 +28,10 @@ export function useMyObservations() {
     initialPageParam: null,
     getNextPageParam: (last) => last.next_cursor,
     enabled: ownerUserId != null,
+    // Poll only while a visible server row is still pending/processing.
+    // Terminal/private rows fall back to the screen's ordinary 30s refresh.
+    refetchInterval: (query) =>
+      listPresentationPollInterval(query.state.data),
+    refetchIntervalInBackground: false,
   });
 }
