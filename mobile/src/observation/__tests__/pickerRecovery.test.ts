@@ -4,7 +4,9 @@ import {
   beginPickerRequest,
   clearPickerRequest,
   pickerMarkerMatches,
+  pollPendingPickerResult,
   readPickerRequestMarker,
+  type PickerRequestMarker,
 } from "@/src/observation/pickerRecovery";
 
 jest.mock("expo-secure-store", () => ({
@@ -81,5 +83,103 @@ describe("Android picker recovery marker", () => {
       readPickerRequestMarker(new Date("2026-07-09T12:31:00.000Z")),
     ).resolves.toBeNull();
     expect(deleteItemAsync).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("pollPendingPickerResult", () => {
+  const marker: PickerRequestMarker = {
+    ownerUserId: "kid-1",
+    requestId: "01J00000000000000000000000",
+    createdAt: "2026-07-31T12:00:00.000Z",
+  };
+
+  it("retries null native results and returns the first recovered result", async () => {
+    const recovered = { assets: [{ uri: "file:///recovered.jpg" }] };
+    const readPendingResult = jest
+      .fn<Promise<typeof recovered | null>, []>()
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(recovered);
+    const requestIsStillCurrent = jest.fn().mockResolvedValue(true);
+    const wait = jest.fn().mockResolvedValue(undefined);
+
+    await expect(
+      pollPendingPickerResult(marker, readPendingResult, requestIsStillCurrent, {
+        delaysMs: [20, 40],
+        wait,
+      }),
+    ).resolves.toBe(recovered);
+
+    expect(readPendingResult).toHaveBeenCalledTimes(3);
+    expect(wait.mock.calls).toEqual([[20], [40]]);
+    expect(requestIsStillCurrent).toHaveBeenCalledWith(marker);
+  });
+
+  it("returns null after exhausting the configured attempts", async () => {
+    const readPendingResult = jest.fn().mockResolvedValue(null);
+    const wait = jest.fn().mockResolvedValue(undefined);
+
+    await expect(
+      pollPendingPickerResult(marker, readPendingResult, () => true, {
+        delaysMs: [10, 30],
+        wait,
+      }),
+    ).resolves.toBeNull();
+
+    expect(readPendingResult).toHaveBeenCalledTimes(3);
+    expect(wait.mock.calls).toEqual([[10], [30]]);
+  });
+
+  it("cancels when the exact owner/request marker is no longer current", async () => {
+    let current = {
+      ownerUserId: marker.ownerUserId,
+      requestId: marker.requestId,
+    };
+    const readPendingResult = jest.fn().mockResolvedValue(null);
+    const wait = jest.fn(async () => {
+      current = { ...current, requestId: "01J00000000000000000000001" };
+    });
+    const requestIsStillCurrent = jest.fn(
+      async (candidate: PickerRequestMarker) =>
+        candidate.ownerUserId === current.ownerUserId &&
+        candidate.requestId === current.requestId,
+    );
+
+    await expect(
+      pollPendingPickerResult(marker, readPendingResult, requestIsStillCurrent, {
+        delaysMs: [20, 40],
+        wait,
+      }),
+    ).resolves.toBeNull();
+
+    expect(readPendingResult).toHaveBeenCalledTimes(1);
+    expect(wait).toHaveBeenCalledTimes(1);
+    expect(requestIsStillCurrent).toHaveBeenCalledWith(marker);
+  });
+
+  it("returns a consumed native result when ownership changes during its read", async () => {
+    const recovered = { assets: [{ uri: "file:///recovered.jpg" }] };
+    let resolveRead!: (value: typeof recovered) => void;
+    const nativeRead = new Promise<typeof recovered>((resolve) => {
+      resolveRead = resolve;
+    });
+    let current = true;
+    const readPendingResult = jest.fn(() => nativeRead);
+
+    const pending = pollPendingPickerResult(
+      marker,
+      readPendingResult,
+      () => current,
+      { delaysMs: [] },
+    );
+    for (let index = 0; index < 3; index += 1) {
+      await Promise.resolve();
+    }
+    expect(readPendingResult).toHaveBeenCalledTimes(1);
+
+    current = false;
+    resolveRead(recovered);
+
+    await expect(pending).resolves.toBe(recovered);
   });
 });

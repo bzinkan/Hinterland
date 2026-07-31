@@ -1,0 +1,11 @@
+appId: app.thehinterlandguide
+name: picker_process_death_finish
+---
+- runFlow: "../partials/pick_first_android_image.yaml"
+- extendedWaitUntil:
+    visible:
+      id: "observation-confirm-screen"
+    timeout: 30000
+- assertVisible:
+    id: "observation-confirm-image"
+- takeScreenshot: "w1-picker-process-death-recovered"

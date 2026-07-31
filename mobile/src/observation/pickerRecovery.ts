@@ -4,12 +4,74 @@ import { createSubmissionUlid } from "@/src/observation/ulid";
 
 const PICKER_MARKER_KEY = "hinterland.observation_picker_request.v1";
 const PICKER_MARKER_TTL_MS = 30 * 60_000;
+const DEFAULT_PENDING_RESULT_DELAYS_MS = [
+  200,
+  200,
+  200,
+  200,
+  200,
+  200,
+  200,
+  200,
+  200,
+] as const;
 
 export type PickerRequestMarker = {
   ownerUserId: string;
   requestId: string;
   createdAt: string;
 };
+
+type PendingPickerResultPollOptions = {
+  delaysMs?: readonly number[];
+  wait?: (delayMs: number) => Promise<void>;
+  isCancelled?: () => boolean;
+};
+
+async function waitFor(delayMs: number): Promise<void> {
+  await new Promise<void>((resolve) => setTimeout(resolve, delayMs));
+}
+
+/**
+ * Polls Android's process-death picker result while the exact persisted
+ * owner/request pair remains current. One read is made immediately, followed
+ * by one read after each configured delay.
+ */
+export async function pollPendingPickerResult<T>(
+  marker: PickerRequestMarker,
+  readPendingResult: () => Promise<T | null>,
+  requestIsStillCurrent: (
+    marker: PickerRequestMarker,
+  ) => boolean | Promise<boolean>,
+  options: PendingPickerResultPollOptions = {},
+): Promise<T | null> {
+  const delaysMs = options.delaysMs ?? DEFAULT_PENDING_RESULT_DELAYS_MS;
+  const wait = options.wait ?? waitFor;
+  const isCancelled = options.isCancelled ?? (() => false);
+
+  const mayContinue = async () =>
+    !isCancelled() && (await requestIsStillCurrent(marker));
+
+  for (let attempt = 0; attempt <= delaysMs.length; attempt += 1) {
+    if (!(await mayContinue())) return null;
+
+    const result = await readPendingResult();
+    // Android's native slot is one-shot. Once a read that began under the
+    // exact owner/request returns a value, hand it back for durable storage
+    // under that snapshot even if lifecycle/account state changed meanwhile.
+    // Presentation remains separately gated by the active owner.
+    if (result !== null) return result;
+
+    // Null is not consumptive, so stop before another read when the request is
+    // no longer current or the owning effect has been cancelled.
+    if (!(await mayContinue())) return null;
+
+    if (attempt === delaysMs.length) break;
+    await wait(delaysMs[attempt]);
+  }
+
+  return null;
+}
 
 export async function beginPickerRequest(
   ownerUserId: string,

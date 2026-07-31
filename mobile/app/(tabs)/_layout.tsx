@@ -45,6 +45,11 @@ export default function TabLayout() {
         name="observe"
         options={{
           title: "Observe",
+          // Android can recreate the app while the system photo picker owns
+          // the foreground. Keep this lightweight screen mounted so it can
+          // consume the pending result even when navigation restarts on the
+          // default Journal tab.
+          lazy: Platform.OS !== "android",
           tabBarButtonTestID: "tab-observe",
           tabBarIcon: ({ color }) => <TabBarIcon name="camera" color={color} />,
           href: IS_WEB ? null : "/observe",
