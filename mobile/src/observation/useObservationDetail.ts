@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 
 import { getObservation } from "@/src/api/observations";
 import { useAuthSession } from "@/src/auth/session";
+import { detailPresentationPollInterval } from "@/src/observation/moderationReconciliation";
 
 export function useObservationDetail(observationId: string | null) {
   const ownerUserId = useAuthSession((state) =>
@@ -11,5 +12,8 @@ export function useObservationDetail(observationId: string | null) {
     queryKey: ["observations", ownerUserId ?? "anonymous", "detail", observationId],
     queryFn: ({ signal }) => getObservation(observationId ?? "", signal),
     enabled: ownerUserId != null && observationId !== null,
+    refetchInterval: (query) =>
+      detailPresentationPollInterval(query.state.data),
+    refetchIntervalInBackground: false,
   });
 }

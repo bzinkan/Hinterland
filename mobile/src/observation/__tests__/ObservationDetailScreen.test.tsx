@@ -1,3 +1,4 @@
+import { StyleSheet, Text, TextInput } from "react-native";
 import renderer, { act } from "react-test-renderer";
 
 import ObservationDetailScreen from "@/app/observation/[id]";
@@ -5,6 +6,7 @@ import type { Observation } from "@/src/api/observations";
 
 let mockDetail: Observation;
 let mockPhotoHelperEnabled = false;
+let mockColorScheme: "light" | "dark" = "light";
 
 jest.mock("expo-router", () => {
   const React = require("react");
@@ -23,6 +25,10 @@ jest.mock("@/src/auth/session", () => ({
     };
     return selector ? selector(state) : state;
   },
+}));
+
+jest.mock("@/components/useColorScheme", () => ({
+  useColorScheme: () => mockColorScheme,
 }));
 
 jest.mock("@/src/observation/useObservationDetail", () => ({
@@ -67,11 +73,104 @@ function detail(status: Observation["child_presentation_status"]): Observation {
   };
 }
 
+const nonImagePresentations = [
+  ["pending", "This photo is being checked."],
+  ["processing", "This photo is being checked."],
+  ["pilot_private", "This photo is private during the pilot."],
+  ["adult_review", "An adult is reviewing this photo."],
+  ["failed", "This photo is private while we sort out a check."],
+] as const;
+
+const expectedThemeColors = {
+  light: {
+    border: "#6b7280",
+    controlBackground: "#ffffff",
+    controlText: "#1f2937",
+    inputBackground: "#ffffff",
+    inputPlaceholder: "#4b5563",
+    inputText: "#111827",
+    panelBackground: "#f3f4f6",
+    panelText: "#111827",
+    secondaryText: "#111827",
+  },
+  dark: {
+    border: "#9ca3af",
+    controlBackground: "#1f2937",
+    controlText: "#f9fafb",
+    inputBackground: "#111827",
+    inputPlaceholder: "#9ca3af",
+    inputText: "#f9fafb",
+    panelBackground: "#1a1a1a",
+    panelText: "#f9fafb",
+    secondaryText: "#d1d5db",
+  },
+} as const;
+
+function textNode(
+  tree: renderer.ReactTestRenderer,
+  value: string,
+) {
+  const textContent = (children: unknown): string =>
+    Array.isArray(children)
+      ? children.map(textContent).join("")
+      : typeof children === "string" || typeof children === "number"
+        ? String(children)
+        : "";
+  return tree.root
+    .findAllByType(Text)
+    .find((node) => textContent(node.props.children) === value)!;
+}
+
+function contrastRatio(
+  foreground: string,
+  background: string,
+  opacity = 1,
+): number {
+  const parseHex = (hex: string) =>
+    hex
+      .slice(1)
+      .match(/.{2}/g)!
+      .map((channel) => Number.parseInt(channel, 16));
+  const backgroundChannels = parseHex(background);
+  const foregroundChannels = parseHex(foreground).map((channel, index) =>
+    Math.round(
+      channel * opacity + backgroundChannels[index] * (1 - opacity),
+    ),
+  );
+  const luminance = (hex: string) => {
+    const channels = parseHex(hex)
+      .map((channel) => channel / 255)
+      .map((channel) =>
+        channel <= 0.04045
+          ? channel / 12.92
+          : ((channel + 0.055) / 1.055) ** 2.4,
+      );
+    return (
+      0.2126 * channels[0] +
+      0.7152 * channels[1] +
+      0.0722 * channels[2]
+    );
+  };
+  const effectiveForeground = `#${foregroundChannels
+    .map((channel) => channel.toString(16).padStart(2, "0"))
+    .join("")}`;
+  const light = Math.max(
+    luminance(effectiveForeground),
+    luminance(background),
+  );
+  const dark = Math.min(
+    luminance(effectiveForeground),
+    luminance(background),
+  );
+  return (light + 0.05) / (dark + 0.05);
+}
+
 describe("Observation detail presentation", () => {
   beforeEach(() => {
     jest.useFakeTimers();
     mockDetail = detail("pilot_private");
     mockPhotoHelperEnabled = false;
+    mockColorScheme = "light";
   });
 
   afterEach(() => jest.useRealTimers());
@@ -99,6 +198,133 @@ describe("Observation detail presentation", () => {
     expect(rendered).not.toContain("Ask the photo helper");
     act(() => tree.unmount());
   });
+
+  it.each(["light", "dark"] as const)(
+    "keeps every metadata-only state and correction control readable in %s mode",
+    (colorScheme) => {
+      mockColorScheme = colorScheme;
+      const colors = expectedThemeColors[colorScheme];
+
+      for (const [status, message] of nonImagePresentations) {
+        mockDetail = detail(status);
+        let tree!: renderer.ReactTestRenderer;
+        act(() => {
+          tree = renderer.create(<ObservationDetailScreen />);
+        });
+
+        const statusSurface = tree.root.findByProps({
+          accessibilityLabel: message,
+        });
+        const statusSurfaceStyle = StyleSheet.flatten(statusSurface.props.style);
+        const statusTextStyle = StyleSheet.flatten(
+          textNode(tree, message).props.style,
+        );
+        expect(statusSurfaceStyle).toMatchObject({
+          backgroundColor: colors.panelBackground,
+        });
+        expect(statusTextStyle).toMatchObject({ color: colors.panelText });
+        expect(
+          contrastRatio(
+            statusTextStyle.color,
+            statusSurfaceStyle.backgroundColor,
+            statusTextStyle.opacity,
+          ),
+        ).toBeGreaterThanOrEqual(4.5);
+
+        const headingStyle = StyleSheet.flatten(
+          textNode(tree, "Improve identification").props.style,
+        );
+        expect(headingStyle).toMatchObject({ color: colors.panelText });
+        expect(
+          contrastRatio(headingStyle.color, colors.panelBackground),
+        ).toBeGreaterThanOrEqual(4.5);
+
+        const currentStyle = StyleSheet.flatten(
+          textNode(tree, "Current: Moth").props.style,
+        );
+        expect(currentStyle).toMatchObject({ color: colors.secondaryText });
+        expect(
+          contrastRatio(
+            currentStyle.color,
+            colors.panelBackground,
+            currentStyle.opacity,
+          ),
+        ).toBeGreaterThanOrEqual(4.5);
+
+        const manualInput = tree.root.findByProps({
+          accessibilityLabel: "Manual identification correction",
+        });
+        expect(manualInput.type).toBe(TextInput);
+        const inputStyle = StyleSheet.flatten(manualInput.props.style);
+        expect(inputStyle).toMatchObject({
+          backgroundColor: colors.inputBackground,
+          borderColor: colors.border,
+          color: colors.inputText,
+        });
+        expect(manualInput.props.placeholderTextColor).toBe(
+          colors.inputPlaceholder,
+        );
+        expect(
+          contrastRatio(inputStyle.color, inputStyle.backgroundColor),
+        ).toBeGreaterThanOrEqual(4.5);
+        expect(
+          contrastRatio(
+            manualInput.props.placeholderTextColor,
+            inputStyle.backgroundColor,
+          ),
+        ).toBeGreaterThanOrEqual(4.5);
+        expect(
+          contrastRatio(inputStyle.borderColor, inputStyle.backgroundColor),
+        ).toBeGreaterThanOrEqual(3);
+        expect(
+          contrastRatio(inputStyle.borderColor, colors.panelBackground),
+        ).toBeGreaterThanOrEqual(3);
+
+        const unknownControl = tree.root.findByProps({
+          accessibilityLabel: "Mark identification Unknown",
+        });
+        const unknownControlStyle = StyleSheet.flatten(
+          unknownControl.props.style,
+        );
+        expect(unknownControlStyle).toMatchObject({
+          backgroundColor: colors.controlBackground,
+          borderColor: colors.border,
+        });
+        const unknownStyle = StyleSheet.flatten(
+          textNode(tree, "Use Unknown").props.style,
+        );
+        expect(unknownStyle).toMatchObject({ color: colors.controlText });
+        expect(
+          contrastRatio(unknownStyle.color, colors.controlBackground),
+        ).toBeGreaterThanOrEqual(4.5);
+        expect(
+          contrastRatio(
+            unknownControlStyle.borderColor,
+            unknownControlStyle.backgroundColor,
+          ),
+        ).toBeGreaterThanOrEqual(3);
+        expect(
+          contrastRatio(
+            unknownControlStyle.borderColor,
+            colors.panelBackground,
+          ),
+        ).toBeGreaterThanOrEqual(3);
+
+        expect(
+          tree.root.findAllByProps({
+            testID: "observation-detail-photo-image",
+          }),
+        ).toHaveLength(0);
+        expect(
+          tree.root.findAllByProps({
+            testID: "observation-photo-helper-button",
+          }),
+        ).toHaveLength(0);
+
+        act(() => tree.unmount());
+      }
+    },
+  );
 
   it("shows the helper only when both capability and clean-photo gates pass", () => {
     mockDetail = detail("clean");

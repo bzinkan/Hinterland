@@ -11,6 +11,7 @@ import {
 } from "react-native";
 
 import { Text, View } from "@/components/Themed";
+import { useColorScheme } from "@/components/useColorScheme";
 import {
   type CvSuggestion,
   type IdentificationUpdate,
@@ -57,6 +58,58 @@ import {
   ScopedRequestSupersededError,
 } from "@/src/observation/scopedRequestBoundary";
 
+type ObservationDetailPalette = {
+  border: string;
+  controlBackground: string;
+  controlText: string;
+  inputBackground: string;
+  inputPlaceholder: string;
+  inputText: string;
+  panelBackground: string;
+  panelText: string;
+  secondaryText: string;
+  suggestionBackground: string;
+};
+
+const OBSERVATION_DETAIL_PALETTES: Record<
+  "light" | "dark",
+  ObservationDetailPalette
+> = {
+  light: {
+    border: "#6b7280",
+    controlBackground: "#ffffff",
+    controlText: "#1f2937",
+    inputBackground: "#ffffff",
+    inputPlaceholder: "#4b5563",
+    inputText: "#111827",
+    panelBackground: "#f3f4f6",
+    panelText: "#111827",
+    // These labels retain the existing 0.6–0.7 visual opacity. Starting from
+    // the same near-black as primary copy keeps their composited light-mode
+    // contrast at or above 4.5:1.
+    secondaryText: "#111827",
+    suggestionBackground: "#ffffff",
+  },
+  dark: {
+    border: "#9ca3af",
+    controlBackground: "#1f2937",
+    controlText: "#f9fafb",
+    inputBackground: "#111827",
+    inputPlaceholder: "#9ca3af",
+    inputText: "#f9fafb",
+    panelBackground: "#1a1a1a",
+    panelText: "#f9fafb",
+    secondaryText: "#d1d5db",
+    suggestionBackground: "#262626",
+  },
+};
+
+function useObservationDetailPalette(): ObservationDetailPalette {
+  return OBSERVATION_DETAIL_PALETTES[
+    useColorScheme() === "dark" ? "dark" : "light"
+  ];
+}
+
 /**
  * Full-size view of one observation, opened from the Field Journal.
  *
@@ -85,6 +138,7 @@ function suggestionDisplayName(s: CvSuggestion): string | null {
 }
 
 export default function ObservationDetailScreen() {
+  const palette = useObservationDetailPalette();
   const session = useAuthSession();
   const ownerUserId =
     session.status === "authenticated" ? session.user.id : null;
@@ -198,17 +252,35 @@ export default function ObservationDetailScreen() {
               <Pressable
                 accessibilityRole="button"
                 accessibilityLabel="Retry Field Journal entry"
-                style={[styles.button, styles.buttonGhost]}
+                style={[
+                  styles.button,
+                  styles.buttonGhost,
+                  {
+                    backgroundColor: palette.controlBackground,
+                    borderColor: palette.border,
+                  },
+                ]}
                 onPress={() => void detailQuery.refetch()}
               >
-                <Text style={styles.buttonText}>Retry</Text>
+                <Text style={[styles.buttonText, { color: palette.controlText }]}>
+                  Retry
+                </Text>
               </Pressable>
             ) : (
               <Pressable
-                style={[styles.button, styles.buttonGhost]}
+                style={[
+                  styles.button,
+                  styles.buttonGhost,
+                  {
+                    backgroundColor: palette.controlBackground,
+                    borderColor: palette.border,
+                  },
+                ]}
                 onPress={() => router.back()}
               >
-                <Text style={styles.buttonText}>Back</Text>
+                <Text style={[styles.buttonText, { color: palette.controlText }]}>
+                  Back
+                </Text>
               </Pressable>
             )}
           </>
@@ -281,10 +353,17 @@ export default function ObservationDetailScreen() {
           accessible
           accessibilityRole="text"
           accessibilityLabel={presentation.message ?? "Photo unavailable"}
-          style={styles.photoPlaceholder}
+          style={[
+            styles.photoPlaceholder,
+            { backgroundColor: palette.panelBackground },
+          ]}
         >
           <Text style={styles.placeholderGlyph}>🔒</Text>
-          <Text style={styles.placeholderText}>{presentation.message}</Text>
+          <Text
+            style={[styles.placeholderText, { color: palette.panelText }]}
+          >
+            {presentation.message}
+          </Text>
         </View>
       )}
 
@@ -323,10 +402,20 @@ export default function ObservationDetailScreen() {
       </Text>
 
       <Pressable
-        style={[styles.button, styles.buttonGhost, styles.backButton]}
+        style={[
+          styles.button,
+          styles.buttonGhost,
+          styles.backButton,
+          {
+            backgroundColor: palette.controlBackground,
+            borderColor: palette.border,
+          },
+        ]}
         onPress={() => router.back()}
       >
-        <Text style={styles.buttonText}>Back</Text>
+        <Text style={[styles.buttonText, { color: palette.controlText }]}>
+          Back
+        </Text>
       </Pressable>
     </ScrollView>
   );
@@ -339,6 +428,7 @@ function DetailPhoto({
   photoId: string;
   description: string;
 }) {
+  const palette = useObservationDetailPalette();
   const ownerUserId = useAuthSession((state) =>
     state.status === "authenticated" ? state.user.id : null,
   );
@@ -354,7 +444,10 @@ function DetailPhoto({
         accessibilityRole="button"
         accessibilityLabel={`Retry ${description}`}
         accessibilityHint="Requests a new private photo link"
-        style={styles.photoPlaceholder}
+        style={[
+          styles.photoPlaceholder,
+          { backgroundColor: palette.panelBackground },
+        ]}
         onPress={() => {
           setLoadFailed(false);
           setLoadRetried(false);
@@ -362,7 +455,7 @@ function DetailPhoto({
         }}
       >
         <Text style={styles.placeholderGlyph}>🌿</Text>
-        <Text style={styles.placeholderText}>
+        <Text style={[styles.placeholderText, { color: palette.panelText }]}>
           Couldn&apos;t load the photo. Tap to try again.
         </Text>
       </Pressable>
@@ -373,7 +466,12 @@ function DetailPhoto({
   // wait for the background re-mint instead of handing <Image> an expiring SAS.
   if (urlQuery.isPending || !isUrlUsable(urlQuery.data.expires_at)) {
     return (
-      <View style={styles.photoPlaceholder}>
+      <View
+        style={[
+          styles.photoPlaceholder,
+          { backgroundColor: palette.panelBackground },
+        ]}
+      >
         <ActivityIndicator />
       </View>
     );
@@ -408,11 +506,17 @@ function DetailPhoto({
  * card is a bonus, never a failure state.
  */
 function SpeciesFactsCard({ taxonId }: { taxonId: number }) {
+  const palette = useObservationDetailPalette();
   const facts = useSpeciesFacts(taxonId);
 
   if (facts.isPending) {
     return (
-      <View style={styles.factsCard}>
+      <View
+        style={[
+          styles.factsCard,
+          { backgroundColor: palette.panelBackground },
+        ]}
+      >
         <ActivityIndicator />
       </View>
     );
@@ -429,17 +533,30 @@ function SpeciesFactsCard({ taxonId }: { taxonId: number }) {
   const conservation = conservationLabel(facts.data.conservation_status);
 
   return (
-    <View style={styles.factsCard}>
-      <Text style={styles.factsHeading}>About this species</Text>
+    <View
+      style={[
+        styles.factsCard,
+        { backgroundColor: palette.panelBackground },
+      ]}
+    >
+      <Text style={[styles.factsHeading, { color: palette.panelText }]}>
+        About this species
+      </Text>
       {facts.data.scientific_name ? (
-        <Text style={styles.factsScientific}>
+        <Text
+          style={[styles.factsScientific, { color: palette.secondaryText }]}
+        >
           {facts.data.scientific_name}
           {facts.data.rank ? ` · ${facts.data.rank}` : ""}
         </Text>
       ) : null}
-      {worldwide ? <Text style={styles.factRow}>🌍 {worldwide}</Text> : null}
+      {worldwide ? (
+        <Text style={[styles.factRow, { color: palette.panelText }]}>
+          🌍 {worldwide}
+        </Text>
+      ) : null}
       {conservation ? (
-        <Text style={styles.factRow}>
+        <Text style={[styles.factRow, { color: palette.panelText }]}>
           💚 Conservation status: {conservation}
         </Text>
       ) : null}
@@ -464,6 +581,7 @@ function IdentifySection({
   photoHelperEnabled: boolean;
   onIdentified: (observation: Observation) => void;
 }) {
+  const palette = useObservationDetailPalette();
   const [catalogQuery, setCatalogQuery] = useState("");
   const [catalogResults, setCatalogResults] = useState<TaxonCatalogItem[]>([]);
   const [suggestions, setSuggestions] = useState<CvSuggestion[]>([]);
@@ -598,20 +716,34 @@ function IdentifySection({
   }
 
   return (
-    <View style={styles.factsCard}>
-      <Text style={styles.factsHeading}>Improve identification</Text>
-      <Text style={styles.identifyHelp}>
+    <View
+      style={[
+        styles.factsCard,
+        { backgroundColor: palette.panelBackground },
+      ]}
+    >
+      <Text style={[styles.factsHeading, { color: palette.panelText }]}>
+        Improve identification
+      </Text>
+      <Text style={[styles.identifyHelp, { color: palette.secondaryText }]}>
         Current: {currentSpeciesName ?? (currentTaxonId ? `Taxon ${currentTaxonId}` : "Unknown")}
       </Text>
 
       <TextInput
         accessibilityLabel="Search the organism catalog"
         accessibilityHint="Type at least two letters to find a catalog identification"
-        style={styles.input}
+        style={[
+          styles.input,
+          {
+            backgroundColor: palette.inputBackground,
+            borderColor: palette.border,
+            color: palette.inputText,
+          },
+        ]}
         value={catalogQuery}
         onChangeText={setCatalogQuery}
         placeholder="Search the organism catalog"
-        placeholderTextColor="#999"
+        placeholderTextColor={palette.inputPlaceholder}
       />
       {searching ? <ActivityIndicator /> : null}
       {catalogResults.map((taxon) => (
@@ -621,14 +753,23 @@ function IdentifySection({
           accessibilityHint="Updates this entry and recalculates progress"
           accessibilityState={{ disabled: busy != null }}
           key={taxon.taxon_id}
-          style={styles.suggestion}
+          style={[
+            styles.suggestion,
+            { backgroundColor: palette.suggestionBackground },
+          ]}
           disabled={busy != null}
           onPress={() =>
             void save({ source: "catalog", taxon_id: taxon.taxon_id })
           }
         >
-          <Text style={styles.suggestionName}>{taxonDisplayName(taxon)}</Text>
-          <Text style={styles.suggestionMeta}>{taxon.scientific_name}</Text>
+          <Text style={[styles.suggestionName, { color: palette.panelText }]}>
+            {taxonDisplayName(taxon)}
+          </Text>
+          <Text
+            style={[styles.suggestionMeta, { color: palette.secondaryText }]}
+          >
+            {taxon.scientific_name}
+          </Text>
         </Pressable>
       ))}
 
@@ -639,11 +780,21 @@ function IdentifySection({
           accessibilityLabel="Ask the photo helper"
           accessibilityHint="Gets optional suggestions from the approved photo helper"
           accessibilityState={{ disabled: busy != null, busy: busy === "photo" }}
-          style={[styles.button, styles.buttonGhost, styles.identifyAction]}
+          style={[
+            styles.button,
+            styles.buttonGhost,
+            styles.identifyAction,
+            {
+              backgroundColor: palette.controlBackground,
+              borderColor: palette.border,
+            },
+          ]}
           disabled={busy != null}
           onPress={() => void askPhotoHelper()}
         >
-          <Text style={styles.buttonText}>Ask the photo helper</Text>
+          <Text style={[styles.buttonText, { color: palette.controlText }]}>
+            Ask the photo helper
+          </Text>
         </Pressable>
       ) : null}
       {photoHelperEnabled ? suggestions.map((suggestion) => (
@@ -652,27 +803,41 @@ function IdentifySection({
           accessibilityLabel={`Use ${suggestionDisplayName(suggestion) ?? `Taxon ${suggestion.taxon_id}`} from the photo helper`}
           accessibilityState={{ disabled: busy != null }}
           key={`cv-${suggestion.taxon_id}`}
-          style={styles.suggestion}
+          style={[
+            styles.suggestion,
+            { backgroundColor: palette.suggestionBackground },
+          ]}
           disabled={busy != null}
           onPress={() =>
             void save({ source: "cv", taxon_id: suggestion.taxon_id })
           }
         >
-          <Text style={styles.suggestionName}>
+          <Text style={[styles.suggestionName, { color: palette.panelText }]}>
             {suggestionDisplayName(suggestion) ?? `Taxon ${suggestion.taxon_id}`}
           </Text>
-          <Text style={styles.suggestionMeta}>{Math.round(suggestion.score)}%</Text>
+          <Text
+            style={[styles.suggestionMeta, { color: palette.secondaryText }]}
+          >
+            {Math.round(suggestion.score)}%
+          </Text>
         </Pressable>
       )) : null}
 
       <TextInput
         accessibilityLabel="Manual identification correction"
         accessibilityHint="Enter only an organism identification, not a general journal note"
-        style={styles.input}
+        style={[
+          styles.input,
+          {
+            backgroundColor: palette.inputBackground,
+            borderColor: palette.border,
+            color: palette.inputText,
+          },
+        ]}
         value={manualSpecies}
         onChangeText={setManualSpecies}
         placeholder="Or enter a short identification"
-        placeholderTextColor="#999"
+        placeholderTextColor={palette.inputPlaceholder}
         maxLength={200}
       />
       <View style={styles.identificationActions}>
@@ -684,30 +849,56 @@ function IdentifySection({
             disabled: busy != null || manualSpecies.trim().length === 0,
             busy: busy === "save",
           }}
-          style={[styles.button, styles.buttonGhost, styles.identificationButton]}
+          style={[
+            styles.button,
+            styles.buttonGhost,
+            styles.identificationButton,
+            {
+              backgroundColor: palette.controlBackground,
+              borderColor: palette.border,
+            },
+          ]}
           disabled={busy != null || manualSpecies.trim().length === 0}
           onPress={() =>
             void save({ source: "manual_text", manual_text: manualSpecies.trim() })
           }
         >
-          <Text style={styles.buttonText}>Use identification</Text>
+          <Text style={[styles.buttonText, { color: palette.controlText }]}>
+            Use identification
+          </Text>
         </Pressable>
         <Pressable
           accessibilityRole="button"
           accessibilityLabel="Mark identification Unknown"
           accessibilityHint="Keeps the observation without adding a Dex species"
           accessibilityState={{ disabled: busy != null, busy: busy === "save" }}
-          style={[styles.button, styles.buttonGhost, styles.identificationButton]}
+          style={[
+            styles.button,
+            styles.buttonGhost,
+            styles.identificationButton,
+            {
+              backgroundColor: palette.controlBackground,
+              borderColor: palette.border,
+            },
+          ]}
           disabled={busy != null}
           onPress={() => void save({ source: "unknown" })}
         >
-          <Text style={styles.buttonText}>Use Unknown</Text>
+          <Text style={[styles.buttonText, { color: palette.controlText }]}>
+            Use Unknown
+          </Text>
         </Pressable>
       </View>
       {busy === "photo" || busy === "save" ? <ActivityIndicator /> : null}
-      {message ? <Text style={styles.identifyHelp}>{message}</Text> : null}
+      {message ? (
+        <Text style={[styles.identifyHelp, { color: palette.secondaryText }]}>
+          {message}
+        </Text>
+      ) : null}
       {supportCode ? (
-        <Text style={styles.supportCode}>Adult support code: {supportCode}</Text>
+        <Text style={[styles.supportCode, { color: palette.secondaryText }]}>
+          Adult support code: {supportCode}
+        </Text>
       ) : null}
     </View>
   );
@@ -746,7 +937,6 @@ const styles = StyleSheet.create({
     width: "100%",
     aspectRatio: 1,
     borderRadius: 8,
-    backgroundColor: "#1a1a1a",
     alignItems: "center",
     justifyContent: "center",
     padding: 24,
@@ -788,7 +978,6 @@ const styles = StyleSheet.create({
     marginTop: 10,
   },
   buttonGhost: {
-    borderColor: "#888",
     borderWidth: StyleSheet.hairlineWidth,
   },
   buttonDisabled: {
@@ -828,7 +1017,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     marginTop: 14,
     borderRadius: 8,
-    backgroundColor: "#1a1a1a",
   },
   factsHeading: {
     fontSize: 15,
@@ -883,7 +1071,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     marginTop: 8,
     borderRadius: 6,
-    backgroundColor: "#262626",
   },
   suggestionGhost: {
     backgroundColor: "transparent",
@@ -900,13 +1087,11 @@ const styles = StyleSheet.create({
   input: {
     width: "100%",
     minHeight: 44,
-    borderColor: "#888",
     borderWidth: StyleSheet.hairlineWidth,
     borderRadius: 6,
     paddingHorizontal: 8,
     marginTop: 8,
     fontSize: 14,
-    color: "#fff",
   },
   supportCode: {
     fontSize: 11,

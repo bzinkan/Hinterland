@@ -175,6 +175,35 @@ creates no iNaturalist work. W1 also enforces independent false gates at route,
 producer, consumer, replay, and manual-endpoint boundaries for both iNaturalist
 CV and public submission.
 
+The W1 transition is intentionally asynchronous but has a release SLO. The
+deployed moderation-outbox relay and NoOp moderation consumer are both
+scheduled once per minute (`* * * * *`); the consumer processes a bounded batch
+of eight messages. A newly committed outbox row can therefore cross two
+minute boundaries before the consumer commits `pilot_private`. The protected
+Observation canary measures from the successful create response—not from the
+first later status poll—and requires:
+
+- the create response to report truthful `pending`;
+- the API to first report `pilot_private` within 150 seconds;
+- only `pending` or `processing` before that transition; and
+- no resubmission to cause or observe the transition.
+
+The canary records the backend-only duration as `moderation_transition_ms`.
+This separates server scheduling/processing latency from presentation
+reconciliation. While a visible Journal or detail record remains `pending` or
+`processing`, mobile refetches it every five seconds in the foreground and
+stops polling after a terminal presentation state. The protected-device bound
+is 160 seconds from the persisted create response: the 150-second server SLO
+plus two foreground polling intervals. Its Maestro flow captures one absolute
+deadline as soon as the persisted response renders “This photo is being
+checked.” Navigation consumes that same budget; the continuation-only
+Journal/detail assertion waits only for the remaining time before requiring
+“This photo is private during the pilot.” It must never tap Save again, render
+a photo component, or show the photo helper.
+
+Breaching either bound blocks W1 promotion. Do not make the image visible,
+mark it clean, invoke iNaturalist, or bypass the outbox to reduce latency.
+
 Pilot-private bytes are removed after seven days. W1 groups remain isolated
 from beta leaderboards and are archived before closed-beta promotion.
 

@@ -33,7 +33,9 @@ import {
 } from "@/src/expeditions/logic";
 import { ObservationFlowStepper } from "@/src/observation/ObservationFlowStepper";
 import { useDraftStore } from "@/src/observation/draftStore";
+import { childPhotoPresentation } from "@/src/observation/journalLogic";
 import { mergeTaxonResults, searchCoreTaxa } from "@/src/observation/coreTaxa";
+import { childPresentationNeedsReconciliation } from "@/src/observation/moderationReconciliation";
 import { searchInstalledTaxa } from "@/src/observation/taxonomyPacks";
 import { encodeGeohash4 } from "@/src/expeditions/geohash";
 import {
@@ -123,6 +125,11 @@ export default function ObserveSubmitScreen() {
   });
 
   const rewards = record?.observation?.rewards ?? [];
+  const savedPhotoPresentation = record?.observation
+    ? childPhotoPresentation(
+        record.observation.child_presentation_status,
+      )
+    : null;
   const visibleRewards = rewards.slice(0, visibleRewardCount);
   const sanctuaryRewards = rewards.filter(
     (reward) => reward.type === "world_unlock" || reward.type === "world_evolution",
@@ -643,6 +650,17 @@ export default function ObserveSubmitScreen() {
       {record.stage === "complete" ? (
         <View testID="observation-stage-complete" style={styles.panel}>
           <PanelHeader icon="check" title="Observation saved" />
+          {savedPhotoPresentation &&
+          childPresentationNeedsReconciliation(
+            savedPhotoPresentation.status,
+          ) ? (
+            <Text
+              testID="observation-created-pending-status"
+              style={styles.help}
+            >
+              {savedPhotoPresentation.message}
+            </Text>
+          ) : null}
           {record.observation?.dispatch_status === "partial" || record.observation?.dispatch_status === "pending" ? (
             <Text style={styles.help}>Your find is saved. A few rewards are still catching up.</Text>
           ) : null}

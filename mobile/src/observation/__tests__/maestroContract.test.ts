@@ -12,8 +12,18 @@ describe("Play Internal Maestro contract", () => {
     join(root, ".maestro", "partials", "pick_first_android_image.yaml"),
     "utf8",
   );
+  const pilotPrivate = readFileSync(
+    join(
+      root,
+      ".maestro",
+      "partials",
+      "assert_saved_observation_pilot_private.yaml",
+    ),
+    "utf8",
+  );
   const normalizedFlow = flow.replace(/\r\n/g, "\n");
   const normalizedPicker = picker.replace(/\r\n/g, "\n");
+  const normalizedPilotPrivate = pilotPrivate.replace(/\r\n/g, "\n");
 
   it("targets the store package and the committed media fixture", () => {
     expect(flow).toContain("appId: app.thehinterlandguide");
@@ -46,6 +56,7 @@ describe("Play Internal Maestro contract", () => {
       ["observation-unknown-button", submit],
       ["observation-save-button", submit],
       ["observation-stage-complete", submit],
+      ["observation-created-pending-status", submit],
       ["observation-done-button", submit],
       ["field-journal-screen", journal],
       ["field-journal-observation-card", journal],
@@ -58,14 +69,38 @@ describe("Play Internal Maestro contract", () => {
     ] as const;
 
     for (const [id, source] of contracts) {
-      expect(flow).toContain(`id: "${id}"`);
+      expect(`${flow}\n${pilotPrivate}`).toContain(`id: "${id}"`);
       expect(source).toContain(`"${id}"`);
     }
 
     expect(flow).toContain("Your Field Journal is empty");
-    expect(flow).toContain("This photo is private during the pilot.");
-    expect(flow).toContain("assertNotVisible");
-    expect(flow).toContain('takeScreenshot: "w1-pilot-private-observation"');
+    expect(flow).toContain("This photo is being checked.");
+    expect(flow).toContain(
+      'file: "../partials/assert_saved_observation_pilot_private.yaml"',
+    );
+    expect(pilotPrivate).toContain("This photo is private during the pilot.");
+    expect(pilotPrivate).toContain("assertNotVisible");
+    expect(pilotPrivate).toContain(
+      'takeScreenshot: "w1-pilot-private-observation"',
+    );
+  });
+
+  it("asserts the create response is truthfully pending before leaving submit", () => {
+    const pendingContract = [
+      "- extendedWaitUntil:",
+      "    visible:",
+      '      id: "observation-created-pending-status"',
+      "    timeout: 30000",
+      "- evalScript: ${output.w1VisibleDeadlineMs = new Date().getTime() + 160000}",
+      '- assertVisible: "This photo is being checked."',
+    ].join("\n");
+
+    expect(normalizedFlow).toContain(pendingContract);
+    expect(
+      normalizedFlow.match(
+        /- tapOn:\n {4}id: "observation-save-button"/g,
+      ),
+    ).toHaveLength(1);
   });
 
   it("scrolls off-screen controls into view before tapping them", () => {
@@ -104,10 +139,15 @@ describe("Play Internal Maestro contract", () => {
       "    speed: 40",
       "    visibilityPercentage: 100",
       "    centerElement: true",
+      "- assertNotVisible:",
+      '    id: "field-journal-photo-image"',
       "- extendedWaitUntil:",
       "    visible:",
       '      id: "field-journal-private-status"',
-      "    timeout: 30000",
+      "    timeout: ${Math.max(1, Number(W1_VISIBLE_DEADLINE_MS) - new Date().getTime())}",
+      "- assertTrue:",
+      "    condition: ${new Date().getTime() <= Number(W1_VISIBLE_DEADLINE_MS)}",
+      '    label: "pilot_private became visible within 160 seconds of the persisted pending response"',
       "- assertVisible:",
       '    id: "field-journal-observation-card"',
       '- assertVisible: "This photo is private during the pilot."',
@@ -117,7 +157,7 @@ describe("Play Internal Maestro contract", () => {
       '    id: "field-journal-observation-card"',
     ].join("\n");
 
-    expect(normalizedFlow).toContain(guardedJournalCard);
+    expect(normalizedPilotPrivate).toContain(guardedJournalCard);
 
     const manualInputScroll = [
       "- scrollUntilVisible:",
@@ -132,9 +172,29 @@ describe("Play Internal Maestro contract", () => {
       '    id: "observation-photo-helper-button"',
     ].join("\n");
 
-    expect(normalizedFlow).toContain(manualInputScroll);
-    expect(normalizedFlow.indexOf('takeScreenshot: "w1-pilot-private-observation"')).toBeLessThan(
-      normalizedFlow.indexOf(manualInputScroll),
+    expect(normalizedPilotPrivate).toContain(manualInputScroll);
+    expect(
+      normalizedPilotPrivate.indexOf(
+        'takeScreenshot: "w1-pilot-private-observation"',
+      ),
+    ).toBeLessThan(
+      normalizedPilotPrivate.indexOf(manualInputScroll),
+    );
+  });
+
+  it("reconciles the saved observation without any second submission path", () => {
+    expect(pilotPrivate).not.toContain("tab-observe");
+    expect(pilotPrivate).not.toContain("observation-save-button");
+    expect(pilotPrivate).not.toContain("observation-library-button");
+    expect(pilotPrivate).not.toContain("addMedia");
+    expect(flow).toContain(
+      "W1_VISIBLE_DEADLINE_MS: ${output.w1VisibleDeadlineMs}",
+    );
+    expect(pilotPrivate).toContain(
+      "timeout: ${Math.max(1, Number(W1_VISIBLE_DEADLINE_MS) - new Date().getTime())}",
+    );
+    expect(pilotPrivate).toContain(
+      "condition: ${new Date().getTime() <= Number(W1_VISIBLE_DEADLINE_MS)}",
     );
   });
 
