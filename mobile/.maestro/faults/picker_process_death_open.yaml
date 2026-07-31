@@ -1,0 +1,29 @@
+appId: app.thehinterlandguide
+name: picker_process_death_open
+---
+- launchApp:
+    clearState: false
+- tapOn:
+    id: "tab-observe"
+- extendedWaitUntil:
+    visible:
+      id: "observe-screen"
+    timeout: 30000
+- scrollUntilVisible:
+    element:
+      id: "observation-library-button"
+    direction: DOWN
+    timeout: 20000
+    speed: 40
+    visibilityPercentage: 100
+    centerElement: true
+- tapOn:
+    id: "observation-library-button"
+- extendedWaitUntil:
+    visible: "Photo taken on .*"
+    timeout: 30000
+- takeScreenshot: "w1-picker-open-before-process-death"
+# EXTERNAL_KILL_WINDOW: after this flow exits, preserve the picker task, run
+# exactly one `adb shell am kill` for app.thehinterlandguide, and verify the old
+# PID disappears or changes. If the OEM ignores a visible-process kill, press
+# Home before that single kill and resume this picker task from Recents.

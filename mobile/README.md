@@ -123,7 +123,15 @@ scenarios on the same exact AAB and device:
 
 - Capture in airplane mode, kill the app, relaunch, reconnect, and confirm one observation.
 - Kill after the Azure PUT, relaunch, and confirm create replays without another photo or reward set.
-- Destroy the picker activity, relaunch, and confirm the pending library result returns only to its initiating account.
+- Exercise picker process-death recovery with the committed two-stage harness:
+  run `.maestro/faults/picker_process_death_open.yaml`, execute exactly one
+  `adb -s $serial shell am kill app.thehinterlandguide` while the system-picker
+  task remains open, and verify the pre-kill app PID disappears or changes. If
+  an OEM keeps the caller process visible and ignores `am kill`, press Home
+  before that single kill and resume the preserved picker task from Recents.
+  Then run `.maestro/faults/picker_process_death_finish.yaml`. Do not use
+  `launchApp` or tap a tab after choosing the photo; the pending result must
+  return to the initiating account's confirmation screen.
 - Switch kid accounts during location, upload, identification, review, and delete requests; confirm no prior-account photo, draft, result, or alert appears.
 - Choose **No location** while location/reverse-geocode work is pending and confirm no coarse area later reappears.
 - Inspect pending, pilot-private, quarantined, rejected, and completed queue states and confirm child surfaces never render local or signed private bytes.

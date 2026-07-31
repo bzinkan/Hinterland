@@ -153,9 +153,17 @@ the tapping.
   photo state is invisible.
 - [ ] Sign back in as the original kid and resume or explicitly discard only
   that kid's work.
-- [ ] Destroy/recreate the Android picker activity and verify the selected
-  result recovers. Deny location and verify save still succeeds; an imported
-  library image never inherits current-device location.
+- [ ] Run `mobile/.maestro/faults/picker_process_death_open.yaml`, execute
+  exactly one `adb shell am kill app.thehinterlandguide` while retaining the
+  system-picker task, and verify that the pre-kill app PID disappears or
+  changes. If the OEM keeps the caller visible and ignores `am kill`, press
+  Home before that single kill and resume the preserved picker from Recents;
+  do not launch the app. Then run
+  `mobile/.maestro/faults/picker_process_death_finish.yaml`. After selection,
+  do not relaunch the app or tap a tab; verify the pending result reaches the
+  initiating account's confirmation screen. Deny location and verify save
+  still succeeds; an imported library image never inherits current-device
+  location.
 
 ## Adult review (parent account, after the kid step)
 

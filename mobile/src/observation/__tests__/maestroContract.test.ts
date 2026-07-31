@@ -21,9 +21,25 @@ describe("Play Internal Maestro contract", () => {
     ),
     "utf8",
   );
+  const pickerProcessDeathOpen = readFileSync(
+    join(root, ".maestro", "faults", "picker_process_death_open.yaml"),
+    "utf8",
+  );
+  const pickerProcessDeathFinish = readFileSync(
+    join(root, ".maestro", "faults", "picker_process_death_finish.yaml"),
+    "utf8",
+  );
   const normalizedFlow = flow.replace(/\r\n/g, "\n");
   const normalizedPicker = picker.replace(/\r\n/g, "\n");
   const normalizedPilotPrivate = pilotPrivate.replace(/\r\n/g, "\n");
+  const normalizedPickerProcessDeathOpen = pickerProcessDeathOpen.replace(
+    /\r\n/g,
+    "\n",
+  );
+  const normalizedPickerProcessDeathFinish = pickerProcessDeathFinish.replace(
+    /\r\n/g,
+    "\n",
+  );
 
   it("targets the store package and the committed media fixture", () => {
     expect(flow).toContain("appId: app.thehinterlandguide");
@@ -83,6 +99,35 @@ describe("Play Internal Maestro contract", () => {
     expect(pilotPrivate).toContain(
       'takeScreenshot: "w1-pilot-private-observation"',
     );
+  });
+
+  it("keeps every reusable Maestro partial independently valid", () => {
+    expect(normalizedPicker).toMatch(
+      /^appId: app\.thehinterlandguide\n---\n/,
+    );
+    expect(normalizedPilotPrivate).toMatch(
+      /^appId: app\.thehinterlandguide\n---\n/,
+    );
+  });
+
+  it("defines one external picker kill window and never relaunches after selection", () => {
+    const supervisedHarness = `${normalizedPickerProcessDeathOpen}\n${normalizedPickerProcessDeathFinish}`;
+
+    expect(supervisedHarness.match(/EXTERNAL_KILL_WINDOW/g)).toHaveLength(1);
+    expect(normalizedPickerProcessDeathOpen).toContain(
+      'visible: "Photo taken on .*"',
+    );
+    expect(normalizedPickerProcessDeathOpen).not.toContain(
+      "com.google.android.providers.media.module",
+    );
+    expect(normalizedPickerProcessDeathFinish).toContain(
+      '- runFlow: "../partials/pick_first_android_image.yaml"',
+    );
+    expect(normalizedPickerProcessDeathFinish).toContain(
+      'id: "observation-confirm-screen"',
+    );
+    expect(normalizedPickerProcessDeathFinish).not.toContain("launchApp");
+    expect(normalizedPickerProcessDeathFinish).not.toContain("tab-observe");
   });
 
   it("asserts the create response is truthfully pending before leaving submit", () => {

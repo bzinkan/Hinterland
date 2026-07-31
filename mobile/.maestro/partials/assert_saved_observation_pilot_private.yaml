@@ -1,3 +1,5 @@
+appId: app.thehinterlandguide
+---
 - scrollUntilVisible:
     element:
       id: "field-journal-observation-card"

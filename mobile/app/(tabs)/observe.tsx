@@ -8,6 +8,7 @@ import { useFocusEffect, useIsFocused } from "@react-navigation/native";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  AppState,
   Alert,
   Image,
   Pressable,
@@ -30,9 +31,11 @@ import {
 import { createSubmissionUlid } from "@/src/observation/ulid";
 import { useObservationQueue } from "@/src/observation/useObservationQueue";
 import { mayRenderLocalPhoto } from "@/src/observation/queuePolicy";
+import type { QueuedObservation } from "@/src/observation/queueTypes";
 import {
   beginPickerRequest,
   clearPickerRequest,
+  pollPendingPickerResult,
   pickerMarkerMatches,
   readPickerRequestMarker,
   type PickerRequestMarker,
@@ -59,6 +62,11 @@ type Captured = {
 };
 
 type Mode = "intro" | "camera" | "preview";
+type PreparePhotoOutcome = "preview" | "routed" | "stale";
+type PreparePhotoOptions = {
+  authorizedPickerResult?: boolean;
+  canPresent?: () => boolean;
+};
 
 function clampZoom(value: number) {
   return Math.min(MAX_CAMERA_ZOOM, Math.max(MIN_CAMERA_ZOOM, value));
@@ -80,19 +88,28 @@ export default function ObserveScreen() {
   const ownerUserId = session.status === "authenticated" ? session.user.id : null;
   const [permission, requestPermission] = useCameraPermissions();
   const isFocused = useIsFocused();
+  const isFocusedRef = useRef(isFocused);
+  isFocusedRef.current = isFocused;
   const cameraRef = useRef<CameraView>(null);
   const zoomRef = useRef(0);
   const pinchStartDistanceRef = useRef<number | null>(null);
   const pinchStartZoomRef = useRef(0);
+  const previewActionInFlightRef = useRef(false);
   const [mode, setMode] = useState<Mode>("intro");
   const [busy, setBusy] = useState(false);
   const [preview, setPreview] = useState<DraftPhoto | null>(null);
+  const [suppressedSubmissionKeys, setSuppressedSubmissionKeys] = useState<
+    ReadonlySet<string>
+  >(() => new Set());
   const [cameraMounted, setCameraMounted] = useState(false);
   const [cameraSession, setCameraSession] = useState(0);
   const [zoom, setZoom] = useState(0);
   const setDraftPhoto = useDraftStore((s) => s.setPhoto);
   const clearDraft = useDraftStore((s) => s.clear);
   const queue = useObservationQueue(ownerUserId);
+  const queueItemsForDisplay = queue.items.filter(
+    (item) => !suppressedSubmissionKeys.has(item.submissionKey),
+  );
   const mission = useQuery({
     queryKey: ["expeditions", ownerUserId ?? "anonymous", "me"],
     queryFn: ({ signal }) => listMyExpeditions(signal),
@@ -162,6 +179,7 @@ export default function ObserveScreen() {
       resetPinch();
       return () => {
         setBusy(false);
+        previewActionInFlightRef.current = false;
         setCameraZoom(0);
         resetPinch();
       };
@@ -180,39 +198,149 @@ export default function ObserveScreen() {
   useEffect(() => {
     if (Platform.OS !== "android" || !ownerUserId) return;
     let cancelled = false;
-    void (async () => {
-      const marker = await readPickerRequestMarker();
-      // Never consume Android's pending result for a different account.
-      if (cancelled || marker?.ownerUserId !== ownerUserId) return;
-      const result = await ImagePicker.getPendingResultAsync();
-      if (cancelled || !result) return;
-      if ("code" in result || result.canceled) {
-        await clearPickerRequest(marker);
+    let recoveryInFlight = false;
+    let retryRequested = false;
+
+    const recoverPendingPickerResult = () => {
+      if (recoveryInFlight) {
+        // AppState can become active while the mount-time poll is completing.
+        // Preserve that signal so a final null read cannot strand a result
+        // published immediately afterward.
+        retryRequested = true;
         return;
       }
-      const asset = result.assets[0];
-      if (!asset) {
-        await clearPickerRequest(marker);
-        return;
-      }
-      try {
-        await preparePhoto(
+      recoveryInFlight = true;
+      void (async () => {
+        const marker = await readPickerRequestMarker();
+        // Never consume Android's pending result for a different account.
+        if (cancelled || marker?.ownerUserId !== ownerUserId) return;
+
+        // The native pending-result slot is one-shot. Prefer the durable row
+        // first in case an earlier process already consumed and persisted it
+        // but died before restoring navigation/UI state.
+        const existing = await getQueuedObservation(
+          marker.ownerUserId,
+          marker.requestId,
+        );
+        if (cancelled) return;
+        if (existing) {
+          const outcome = await restoreQueuedPhoto(existing, marker);
+          if (outcome === "stale") return;
+          if (
+            outcome === "preview" &&
+            !isFocusedRef.current &&
+            ownerIsActive(marker.ownerUserId) &&
+            (await pickerRequestIsCurrent(marker))
+          ) {
+            router.replace("/observe");
+          }
+          await clearPickerRequest(marker);
+          return;
+        }
+
+        const result = await pollPendingPickerResult(
+          marker,
+          () => ImagePicker.getPendingResultAsync(),
+          pickerRequestIsCurrent,
+          { isCancelled: () => cancelled },
+        );
+        // A null result is not terminal: retain the marker so a later active
+        // transition can retry after Android has delivered the picker result.
+        if (!result) return;
+        if ("code" in result || result.canceled) {
+          await clearPickerRequest(marker);
+          return;
+        }
+        const asset = result.assets[0];
+        if (!asset) {
+          await clearPickerRequest(marker);
+          return;
+        }
+        const outcome = await preparePhoto(
           asset.uri,
           asset.width,
           asset.height,
           "library",
           marker,
+          {
+            authorizedPickerResult: true,
+            canPresent: () => !cancelled,
+          },
         );
-      } catch (error) {
-        Alert.alert("Photo recovery failed", messageFromError(error));
-      } finally {
+        // A stale account/request must not receive the preview. Keep the
+        // marker so its initiating owner can restore any durable row later.
+        if (outcome === "stale") return;
+        if (
+          outcome === "preview" &&
+          !cancelled &&
+          !isFocusedRef.current &&
+          ownerIsActive(marker.ownerUserId) &&
+          (await pickerRequestIsCurrent(marker))
+        ) {
+          router.replace("/observe");
+        }
         await clearPickerRequest(marker);
-      }
-    })();
+      })()
+        .catch((error) => {
+          if (!cancelled) {
+            Alert.alert("Photo recovery failed", messageFromError(error));
+          }
+        })
+        .finally(() => {
+          recoveryInFlight = false;
+          if (!cancelled && retryRequested) {
+            retryRequested = false;
+            recoverPendingPickerResult();
+          }
+        });
+    };
+
+    recoverPendingPickerResult();
+    const appStateSubscription = AppState.addEventListener(
+      "change",
+      (state) => {
+        if (state === "active") recoverPendingPickerResult();
+      },
+    );
     return () => {
       cancelled = true;
+      appStateSubscription.remove();
     };
   }, [ownerUserId]);
+
+  async function restoreQueuedPhoto(
+    existing: QueuedObservation,
+    marker?: PickerRequestMarker,
+  ): Promise<PreparePhotoOutcome> {
+    const expectedOwnerUserId = marker?.ownerUserId ?? ownerUserId;
+    if (
+      !expectedOwnerUserId ||
+      existing.ownerUserId !== expectedOwnerUserId ||
+      !ownerIsActive(expectedOwnerUserId)
+    ) {
+      return "stale";
+    }
+    if (marker && !(await pickerRequestIsCurrent(marker))) return "stale";
+
+    const recoveredDraft: DraftPhoto = {
+      localUri: existing.localUri,
+      width: existing.width,
+      height: existing.height,
+      submissionKey: existing.submissionKey,
+      ownerUserId: existing.ownerUserId,
+      observedAt: existing.observedAt,
+      source: existing.source,
+    };
+    setDraftPhoto(recoveredDraft);
+    if (mayRenderLocalPhoto(existing)) {
+      setPreview(recoveredDraft);
+      setMode("preview");
+      return "preview";
+    }
+
+    router.push("/observe-submit");
+    return "routed";
+  }
 
   async function preparePhoto(
     uri: string,
@@ -220,44 +348,47 @@ export default function ObserveScreen() {
     height: number,
     source: "camera" | "library",
     marker?: PickerRequestMarker,
-  ): Promise<void> {
+    options: PreparePhotoOptions = {},
+  ): Promise<PreparePhotoOutcome> {
     const expectedOwnerUserId = marker?.ownerUserId ?? ownerUserId;
-    if (!expectedOwnerUserId || !ownerIsActive(expectedOwnerUserId)) {
+    if (!expectedOwnerUserId) {
       throw new Error("The active account changed. Start this observation again.");
     }
-    if (marker && !(await pickerRequestIsCurrent(marker))) return;
+    if (marker) {
+      if (
+        !options.authorizedPickerResult &&
+        !(await pickerRequestIsPersisted(marker))
+      ) {
+        return "stale";
+      }
+    } else if (!ownerIsActive(expectedOwnerUserId)) {
+      return "stale";
+    }
     if (marker) {
       const existing = await getQueuedObservation(
         expectedOwnerUserId,
         marker.requestId,
       );
       if (existing) {
-        if (!ownerIsActive(expectedOwnerUserId) || !(await pickerRequestIsCurrent(marker))) {
-          return;
-        }
-        const recoveredDraft: DraftPhoto = {
-          localUri: existing.localUri,
-          width: existing.width,
-          height: existing.height,
-          submissionKey: existing.submissionKey,
-          ownerUserId: existing.ownerUserId,
-          observedAt: existing.observedAt,
-          source: existing.source,
-        };
-        setDraftPhoto(recoveredDraft);
-        if (mayRenderLocalPhoto(existing)) {
-          setPreview(recoveredDraft);
-          setMode("preview");
-        } else {
-          router.push("/observe-submit");
-        }
-        return;
+        if (options.canPresent && !options.canPresent()) return "stale";
+        return restoreQueuedPhoto(existing, marker);
       }
     }
     const observedAt = new Date().toISOString();
     const normalized = await normalizePhoto(uri, width, height);
-    if (!ownerIsActive(expectedOwnerUserId)) return;
-    if (marker && !(await pickerRequestIsCurrent(marker))) return;
+    if (marker) {
+      // Once Android has returned the asset, preserve it for the initiating
+      // owner even if the active account changes during normalization. UI
+      // restoration remains blocked until that owner is active again.
+      if (
+        !options.authorizedPickerResult &&
+        !(await pickerRequestIsPersisted(marker))
+      ) {
+        return "stale";
+      }
+    } else if (!ownerIsActive(expectedOwnerUserId)) {
+      return "stale";
+    }
     const submissionKey = marker?.requestId ?? (await createSubmissionUlid());
     const record = await persistObservationDraft({
       submissionKey,
@@ -268,8 +399,10 @@ export default function ObserveScreen() {
       source,
       observedAt,
     });
-    if (!ownerIsActive(expectedOwnerUserId)) return;
-    setPreview({
+    if (options.canPresent && !options.canPresent()) return "stale";
+    if (!ownerIsActive(expectedOwnerUserId)) return "stale";
+    if (marker && !(await pickerRequestIsCurrent(marker))) return "stale";
+    const recoveredDraft: DraftPhoto = {
       localUri: record.localUri,
       width: record.width,
       height: record.height,
@@ -277,8 +410,11 @@ export default function ObserveScreen() {
       ownerUserId: expectedOwnerUserId,
       observedAt,
       source,
-    });
+    };
+    setDraftPhoto(recoveredDraft);
+    setPreview(recoveredDraft);
     setMode("preview");
+    return "preview";
   }
 
   async function handleStartCamera() {
@@ -317,18 +453,14 @@ export default function ObserveScreen() {
         await clearPickerRequest(marker);
         return;
       }
-      if (!ownerIsActive(initiatingOwnerUserId)) {
-        await clearPickerRequest(marker);
-        return;
-      }
-      await preparePhoto(
+      const outcome = await preparePhoto(
         asset.uri,
         asset.width,
         asset.height,
         "library",
         marker,
       );
-      await clearPickerRequest(marker);
+      if (outcome !== "stale") await clearPickerRequest(marker);
     } catch (err) {
       if (marker) await clearPickerRequest(marker);
       Alert.alert("Photo pick failed", messageFromError(err));
@@ -480,13 +612,46 @@ export default function ObserveScreen() {
           <Pressable
             style={[styles.button, styles.buttonGhost]}
             onPress={() => {
-              void discardQueuedObservation(
-                preview.ownerUserId,
-                preview.submissionKey,
-              ).then(() => {
-                setPreview(null);
-                setMode("intro");
+              if (previewActionInFlightRef.current) return;
+              previewActionInFlightRef.current = true;
+              const discardedPreview = preview;
+              const draft = useDraftStore.getState().photo;
+              if (
+                draft?.ownerUserId === discardedPreview.ownerUserId &&
+                draft.submissionKey === discardedPreview.submissionKey
+              ) {
+                clearDraft();
+              }
+              // Exit preview synchronously so Continue cannot race the
+              // owner-scoped row/file deletion below.
+              setSuppressedSubmissionKeys((current) => {
+                const next = new Set(current);
+                next.add(discardedPreview.submissionKey);
+                return next;
               });
+              setPreview(null);
+              setMode("intro");
+              // Keep this per-session tombstone after a successful delete:
+              // the SQLite notification reload is asynchronous, so clearing
+              // it on promise resolution could briefly expose a stale row.
+              void discardQueuedObservation(
+                discardedPreview.ownerUserId,
+                discardedPreview.submissionKey,
+              )
+                .catch(() => {
+                  setSuppressedSubmissionKeys((current) => {
+                    const next = new Set(current);
+                    next.delete(discardedPreview.submissionKey);
+                    return next;
+                  });
+                  Alert.alert(
+                    "Retake failed",
+                    "The saved draft is still safe on this device. Try again from the saved-observations list.",
+                  );
+                })
+                .finally(() => {
+                  previewActionInFlightRef.current = false;
+                });
             }}
           >
             <Text style={styles.buttonText}>Retake</Text>
@@ -495,6 +660,8 @@ export default function ObserveScreen() {
             testID="observation-confirm-button"
             style={[styles.button, styles.buttonPrimary]}
             onPress={() => {
+              if (previewActionInFlightRef.current) return;
+              previewActionInFlightRef.current = true;
               setDraftPhoto({
                 ...preview,
               });
@@ -533,18 +700,24 @@ export default function ObserveScreen() {
         <FlowBullet icon="trophy" label="Dispatcher returns rewards" />
       </View>
 
-      {queue.items.length > 0 && (
+      {queueItemsForDisplay.length > 0 && (
         <View style={styles.panel}>
           <Text style={styles.eyebrow}>Saved on this device</Text>
           <Text style={styles.body}>
-            {queue.items.length} {queue.items.length === 1 ? "observation is" : "observations are"} waiting for you.
+            {queueItemsForDisplay.length} {queueItemsForDisplay.length === 1 ? "observation is" : "observations are"} waiting for you.
           </Text>
-          {queue.items.slice(0, 3).map((item) => (
+          {queueItemsForDisplay.slice(0, 3).map((item) => (
             <Pressable
               testID="observation-queue-item"
               key={item.submissionKey}
               style={styles.queueRow}
               onPress={() => {
+                if (
+                  previewActionInFlightRef.current ||
+                  suppressedSubmissionKeys.has(item.submissionKey)
+                ) {
+                  return;
+                }
                 setDraftPhoto({
                   localUri: item.localUri,
                   width: item.width,
@@ -616,11 +789,22 @@ function ownerIsActive(ownerUserId: string): boolean {
 async function pickerRequestIsCurrent(
   marker: PickerRequestMarker,
 ): Promise<boolean> {
-  const persisted = await readPickerRequestMarker();
+  if (!(await pickerRequestIsPersisted(marker))) return false;
   const state = useAuthSession.getState();
   const currentOwnerUserId =
     state.status === "authenticated" ? state.user.id : null;
-  return pickerMarkerMatches(persisted, currentOwnerUserId, marker.requestId);
+  return currentOwnerUserId === marker.ownerUserId;
+}
+
+async function pickerRequestIsPersisted(
+  marker: PickerRequestMarker,
+): Promise<boolean> {
+  const persisted = await readPickerRequestMarker();
+  return pickerMarkerMatches(
+    persisted,
+    marker.ownerUserId,
+    marker.requestId,
+  );
 }
 
 function MissionBanner({
