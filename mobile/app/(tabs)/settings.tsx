@@ -240,9 +240,9 @@ export default function SettingsScreen() {
         <Pressable
           accessibilityRole="button"
           style={[styles.button, styles.buttonGhost]}
-          onPress={() => router.push("/classroom")}
+          onPress={() => router.push("/groups")}
         >
-          <Text style={[styles.buttonText, styles.buttonGhostText]}>Open classroom</Text>
+          <Text style={[styles.buttonText, styles.buttonGhostText]}>Open groups</Text>
         </Pressable>
         <Pressable
           accessibilityRole="button"
@@ -252,8 +252,8 @@ export default function SettingsScreen() {
           <Text style={[styles.buttonText, styles.buttonGhostText]}>Open review queue</Text>
         </Pressable>
         <Text style={styles.help}>
-          Parents and teachers only. Kid accounts get a "not available"
-          message.
+          Availability depends on the adult account's permissions. Kid
+          accounts get a "not available" message.
         </Text>
 
         <View

@@ -55,7 +55,7 @@ export default function KidHandoffScreen() {
         <View style={styles.container}>
           <Text style={styles.title}>Scan your QR code</Text>
           <Text style={styles.subtitle}>
-            Ask your adult to show the kid handoff QR from Classroom.
+            Ask your adult to show the sign-in QR from Groups.
           </Text>
           {error && <Text style={styles.error}>{error}</Text>}
           <Pressable style={[styles.button, styles.buttonPrimary]} onPress={requestPermission}>

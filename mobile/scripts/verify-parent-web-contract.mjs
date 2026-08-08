@@ -4,6 +4,8 @@ import { join } from "node:path";
 
 const projectRoot = fileURLToPath(new URL("..", import.meta.url));
 const callbackSource = join(projectRoot, "app", "auth", "callback.tsx");
+const groupsSource = join(projectRoot, "app", "groups.tsx");
+const classroomSource = join(projectRoot, "app", "classroom.tsx");
 const sourceConfig = join(projectRoot, "public", "staticwebapp.config.json");
 const verifyDist = process.argv.includes("--dist");
 
@@ -43,11 +45,33 @@ function verifyConfig(raw, label) {
   if (config.navigationFallback != null) {
     fail(`${label} must not hide missing parent routes behind a navigation fallback`);
   }
+  const classroomRedirects = (config.routes ?? []).filter(
+    (route) => route.route === "/classroom",
+  );
+  if (classroomRedirects.length !== 1) {
+    fail(`${label} must define exactly one legacy /classroom redirect`);
+  }
+  const classroomRedirect = classroomRedirects[0];
+  if (
+    JSON.stringify(classroomRedirect.methods) !== JSON.stringify(["GET"]) ||
+    classroomRedirect.redirect !== "/groups" ||
+    classroomRedirect.statusCode !== 302
+  ) {
+    fail(`${label} must temporarily redirect GET /classroom to /groups`);
+  }
 }
 
 const callbackSourceText = requireFile(callbackSource, "parent callback source");
 if (!callbackSourceText.includes("Finishing secure sign-in")) {
   fail("parent callback source must contain its route-specific loading marker");
+}
+const groupsSourceText = requireFile(groupsSource, "groups source");
+if (!groupsSourceText.includes("Manage your groups")) {
+  fail("groups source must contain its route-specific heading marker");
+}
+const classroomSourceText = requireFile(classroomSource, "classroom compatibility source");
+if (!classroomSourceText.includes('href="/groups"')) {
+  fail("legacy classroom route must redirect to /groups");
 }
 verifyConfig(requireFile(sourceConfig, "parent SWA config"), "parent SWA config");
 
@@ -66,7 +90,7 @@ if (verifyDist) {
     ),
     "exported parent SWA config",
   );
-  for (const route of ["consent", "sign-in", "classroom"]) {
+  for (const route of ["consent", "sign-in", "groups", "classroom"]) {
     requireFile(join(projectRoot, "dist", `${route}.html`), `exported /${route}`);
   }
 }

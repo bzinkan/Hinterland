@@ -37,14 +37,14 @@ export default function SignInScreen() {
       <View style={styles.container}>
         <Text style={styles.title}>Sign in</Text>
         <Text style={styles.subtitle}>
-          Parent and teacher setup happens on the parents web app. Kids use
-          the QR code shown by their adult.
+          Parent setup happens on the parents web app. Kids use the QR code
+          shown by their adult.
         </Text>
         <Pressable
           style={[styles.button, styles.buttonPrimary]}
           onPress={() => router.push("/kid-handoff")}
         >
-          <Text style={styles.buttonText}>Scan kid QR</Text>
+          <Text style={styles.buttonText}>Scan my QR</Text>
         </Pressable>
 
         <Pressable
@@ -91,7 +91,7 @@ export function ParentWebSignIn() {
   useEffect(() => {
     if (!isCanonicalAdult) return;
     if (!pendingProof) {
-      router.replace("/classroom");
+      router.replace("/groups");
       return;
     }
     if (existingAdultLinkInFlight.current) return;
@@ -103,7 +103,7 @@ export function ParentWebSignIn() {
         try {
           clearPendingParentConsentProof(pendingProof);
           setPendingProof(null);
-          router.replace("/classroom");
+          router.replace("/groups");
         } catch (error) {
           existingAdultLinkInFlight.current = false;
           setResolving(false);
@@ -141,17 +141,17 @@ export function ParentWebSignIn() {
   }, [isCanonicalAdult]);
 
   async function handleMsalSignIn() {
-    if (!readPendingParentConsentProof()) {
-      setSetupError(missingParentConsentProofError());
-      return;
-    }
     setSubmitting(true);
     setSetupError(null);
     try {
       await msalSignIn();
       // loginRedirect navigates away; ensureTokenSync() handles the return.
     } catch {
-      setSetupError(safeParentSetupError(null));
+      setSetupError({
+        message: "Microsoft sign-in could not start. It is safe to try again.",
+        needsCurrentConsent: false,
+        supportCode: null,
+      });
       setSubmitting(false);
     }
   }
@@ -242,7 +242,7 @@ export function ParentWebSignIn() {
                     try {
                       clearPendingParentConsentProof(pendingProof);
                       setPendingProof(null);
-                      router.replace("/classroom");
+                      router.replace("/groups");
                     } catch (error) {
                       existingAdultLinkInFlight.current = false;
                       setResolving(false);
@@ -264,7 +264,7 @@ export function ParentWebSignIn() {
               )}
             </Pressable>
           ) : (
-            <Text style={styles.subtitle}>Opening your classroom…</Text>
+            <Text style={styles.subtitle}>Opening your groups…</Text>
           )
         ) : waitingForIdentity || accountState.kind === "loading" ? (
           <View style={styles.progressRow}>
@@ -307,7 +307,40 @@ export function ParentWebSignIn() {
               )}
             </Pressable>
           </>
-        ) : pendingProof ? (
+        ) : accountState.kind === "ready" ? (
+          <>
+            <Text style={styles.subtitle}>
+              This Microsoft account is not linked to a Hinterland parent
+              account yet. New parents must review and record the current
+              pilot consent before setup.
+            </Text>
+            <Pressable
+              accessibilityRole="link"
+              accessibilityLabel="Review current pilot consent"
+              onPress={() => router.push("/consent")}
+              style={[styles.button, styles.buttonGhost]}
+            >
+              <Text style={styles.buttonGhostText}>Review current pilot consent</Text>
+            </Pressable>
+            <Pressable
+              testID="parent-switch-msal-account"
+              accessibilityRole="button"
+              style={[
+                styles.button,
+                styles.buttonPrimary,
+                submitting && styles.buttonDisabled,
+              ]}
+              disabled={submitting}
+              onPress={() => void handleMsalSignIn()}
+            >
+              {submitting ? (
+                <ActivityIndicator color="#fff" />
+              ) : (
+                <Text style={styles.buttonText}>Use a different Microsoft account</Text>
+              )}
+            </Pressable>
+          </>
+        ) : (
           <>
             <Pressable
               testID="parent-msal-sign-in"
@@ -327,23 +360,27 @@ export function ParentWebSignIn() {
               )}
             </Pressable>
             <Text style={styles.subtitle}>
-              New here? Pick "Sign up now" on the Microsoft sign-in page.
+              {pendingProof
+                ? 'New here? Pick "Sign up now" on the Microsoft sign-in page.'
+                : "Already have a parent account? Sign in without recording consent again."}
             </Text>
-          </>
-        ) : (
-          <>
-            <Text style={styles.subtitle}>
-              Review and record the current pilot consent in this browser tab
-              before continuing with Microsoft.
-            </Text>
-            <Pressable
-              accessibilityRole="link"
-              accessibilityLabel="Review current pilot consent"
-              onPress={() => router.push("/consent")}
-              style={[styles.button, styles.buttonGhost]}
-            >
-              <Text style={styles.buttonGhostText}>Review current pilot consent</Text>
-            </Pressable>
+            {!pendingProof && (
+              <>
+                <Text style={styles.subtitle}>
+                  New parent? Review and record the current pilot consent first.
+                </Text>
+                <Pressable
+                  accessibilityRole="link"
+                  accessibilityLabel="Review current pilot consent"
+                  onPress={() => router.push("/consent")}
+                  style={[styles.button, styles.buttonGhost]}
+                >
+                  <Text style={styles.buttonGhostText}>
+                    Review current pilot consent
+                  </Text>
+                </Pressable>
+              </>
+            )}
           </>
         )}
       </View>

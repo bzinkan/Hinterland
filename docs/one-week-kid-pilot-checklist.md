@@ -43,6 +43,11 @@ exposure is out of scope.
   [`docs/risks/0007-google-play-families-location-policy.md`](risks/0007-google-play-families-location-policy.md)
   must be acknowledged.
 
+The existing Play v12 evidence must finish this checklist before Group-first
+changes merge or deploy. In particular, the Samsung shakedown does not replace
+the at-most-4-GB device, adult dry run, actual alert receipt, supervised family
+session, post-session audit, or recorded decisions.
+
 ## Gate 1: before AAB upload
 
 Nothing leaves Brian's laptop until every box in this gate is

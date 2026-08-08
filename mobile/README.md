@@ -1,7 +1,7 @@
 # Hinterland mobile
 
 Expo (React Native) app for The Hinterland Guide. iOS, Android, and a thin web build for the
-parent-consent / teacher dashboard surface (per `docs/mobile.md`).
+parent-consent / parent-managed Groups surface (per `docs/mobile.md`).
 
 Phase 6+ surface: Field Journal tab (route `index`) opens to saved photos
 from `GET /v1/observations/me` and includes a Species segment backed by
@@ -25,8 +25,10 @@ old Dex tab route redirects back to Field Journal for compatibility.
 Sanctuary are hidden from the nav since those are kid-phone surfaces. The review queue is
 reachable from Settings the same way on both platforms. The kid capture flow
 isn't there because: (a) docs/mobile.md is explicit that web isn't the kid
-experience, and (b) outdoor-with-a-laptop isn't the kid use case. Classroom
-Chromebooks are a real future case but they're not Phase 1.
+experience, and (b) outdoor-with-a-laptop isn't the kid use case. The parent web
+uses `/groups` for group ownership, parent-owned child management, invitations,
+and handoff QR codes. `/classroom` is a one-release compatibility redirect;
+educator-specific classroom tooling is deferred.
 
 ## Quick start
 
@@ -90,9 +92,11 @@ no-location, Unknown, upload, persisted completion, and Field Journal return
 flow by stable React Native `testID`. It deliberately uses `clearState: false`:
 the exact store build must already be authenticated as the isolated W1 kid.
 
-Physical execution is a remaining promotion gate, not a result produced by
-the repository checks. At implementation time no exact Play Internal artifact,
-Maestro CLI, or physical device was attached, so no device pass is claimed.
+Physical execution is a promotion gate, not a result produced by repository
+checks. The Play v12 Samsung evidence does not close the required at-most-4-GB
+device, adult dry-run, received-alert, supervised-family-session, post-session
+audit, or recorded-decision gates. Group-first changes remain under a
+merge/deploy hold until those v12 records are completed and archived.
 Run it as follows:
 
 1. Use a physical Android device with no more than 4 GB RAM, enable USB

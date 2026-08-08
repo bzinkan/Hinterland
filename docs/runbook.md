@@ -9,6 +9,13 @@ The release authority for Observation W1 is
 **W1-ready**, **W1 fully evidenced**, and **closed-beta promoted** as distinct
 states. A green ordinary development deployment is not a W1 promotion.
 
+The current single-family Play v12 W1 record is a hard merge/deploy hold for
+the Group-first parent experience. Before this branch merges or deploys,
+archive the required at-most-4-GB physical-device run, adult dry run, actual
+alert receipt, supervised family session, post-session privacy/data audit, and
+explicit go/no-go and continuation decisions. Any later Groups build requires
+a new protected promotion, higher Play version, and repeated device evidence.
+
 ## Environment Boundary
 
 Active dev resources are in the Gordi-backed Azure subscription and isolated
@@ -85,10 +92,11 @@ labels, statuses, header pass facts, and callback artifact hash.
 
 After the automated gates pass, complete the browser smoke in a fresh browser
 context: `/consent` -> record consent -> Entra sign-in -> `/auth/callback` ->
-authenticated `/v1/me` -> `/classroom`. Do not reuse an authorization code from
-a failed or earlier attempt. A callback 404/redirect, an unhandled login result,
-a failed canonical `/v1/me`, or failure to reach the classroom is a hard W1
-promotion stop.
+authenticated `/v1/me` -> `/groups`. Do not reuse an authorization code from a
+failed or earlier attempt. A callback 404/redirect, an unhandled login result,
+a failed canonical `/v1/me`, or failure to reach Groups is a hard W1 promotion
+stop. `/classroom` is a one-release compatibility redirect and does not replace
+the canonical-route assertion.
 
 The authenticated parent/kid smoke requires an operator-provided test-parent
 Entra v2 access token for `api://hinterland-api/user.access`. The requested

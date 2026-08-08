@@ -7,6 +7,11 @@ It is a planning document only. It does not implement the website, add
 dependencies, or finalize legal copy. Legal, privacy, store, and compliance
 language must be reviewed before any production/public launch claim is made.
 
+Current product direction is family-and-friends **Groups**. The group creator
+manages group settings and adult invitations/removal; each parent manages only
+their own children. Teacher/classroom variants below are exploratory future
+positioning, not an implemented or approved educator product.
+
 Before using the public landing/support URLs in Google Play Console, run the
 final [`landing-pre-play-checklist.md`](landing-pre-play-checklist.md) and the
 deployment smoke in [`landing-deploy-runbook.md`](landing-deploy-runbook.md).
@@ -36,11 +41,12 @@ Parents need to know what the app does, what data is collected, who manages the
 kid account, how photos and location are used, what safety boundaries exist,
 and how to contact a real operator.
 
-### Teachers and group leaders
+### Friends, parents, and group organizers
 
-Teachers need to know that Hinterland is invite-only, adult-managed, group-based,
-and designed around real outdoor observation rather than classroom screen time.
-They also need confidence that kids do not self-register or message each other.
+Adults need to know that Hinterland is invite-only, parent-managed, group-based,
+and designed around real outdoor observation. The group organizer does not gain
+authority over another family's child, and kids do not self-register, see peer
+data, or message each other.
 
 ### Google Play reviewers
 
@@ -64,7 +70,7 @@ Use this exact first-pass page structure:
 3. How Hinterland works
 4. Meet The Sanctuary
 5. Built for families, with kids managed by adults
-6. For families / for teachers
+6. For families and groups
 7. Closed Android pilot
 8. FAQ
 9. Footer
@@ -160,7 +166,7 @@ Read the privacy draft
 ### Trust line
 
 No ads. No public chat. No direct messages. Kid accounts are created and managed
-by a parent or teacher.
+by their parent.
 
 ### How it works section
 
@@ -215,8 +221,8 @@ a living scene.
 **Heading:** Built for families, with kids managed by adults
 
 **Copy:** Hinterland is designed for curious explorers of all ages, while kid
-account setup belongs to adults. Parents or teachers create kid accounts, manage
-group access, and supervise pilot participation.
+account setup belongs to parents. Each parent creates and manages only their own
+children; the group creator manages group settings and adult membership.
 
 **Trust points:**
 
@@ -229,17 +235,18 @@ group access, and supervise pilot participation.
 - There are no ads, public chat, direct messages, or public kid profiles.
 - The pilot is invite-only and adult-supervised.
 
-### For families / for teachers section
+### For families and groups section
 
-**Heading:** For families and teachers
+**Heading:** Explore together, with each parent in control
 
 **Families copy:** Families can use Hinterland as a supervised way to help kids
 notice more of the living world around them. A parent creates and manages the
 kid account, then the kid uses the mobile app to record observations.
 
-**Teachers copy:** Teachers and group leaders can use Hinterland for controlled
-pilot groups, nature clubs, school gardens, and field walks. Teacher use stays
-invite-only while the app is being tested with real families.
+**Groups copy:** A group creator can organize friends and invite their parents.
+The creator manages the group, while every parent creates and manages only their
+own children. Group membership never exposes another family's photos,
+observations, QR codes, reviews, or private child information.
 
 **Shared note:** Hinterland is still in pilot. We are intentionally starting
 small so safety, support, and account-deletion workflows can be verified before
@@ -290,11 +297,12 @@ store, and field-testing gates.
 **Who is Hinterland for?**
 
 Hinterland is designed for curious explorers of all ages. Kid accounts are
-managed by adults: parents, guardians, teachers, and group leaders.
+managed by their parents. Adults may organize invite-only groups for friends
+and their families.
 
 **Can kids create their own accounts?**
 
-No. Kid accounts are created and managed by a parent or teacher. Kids do not
+No. Kid accounts are created and managed by their parent. Kids do not
 self-register with email or password.
 
 **Does Hinterland have chat or direct messages?**
@@ -337,7 +345,8 @@ adult contact information and pilot logistics, not kid names.
 - No public chat.
 - No direct messages.
 - No public kid profiles.
-- Parent- or teacher-managed accounts.
+- Parent-managed child accounts.
+- Group-owner-managed settings and adult invitations.
 - Invite-only beta groups.
 - Adult-supervised pilot.
 - Approximate/coarse foreground location for the Android Internal Testing build.

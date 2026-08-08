@@ -11,7 +11,8 @@ Required before any kid sees the build:
 
 1. Azure API deploy path is green and the stale Cloud Run workflow cannot
    recreate GCP services.
-2. Parent/teacher setup works through the parents web app using Entra.
+2. Parent setup works through the parents web app using Entra and lands in
+   parent-managed Groups.
 3. Native kid QR handoff works end to end:
    `create kid -> QR -> /v1/auth/kid-exchange -> /v1/me`.
 4. `play-internal` Android build blocks fine location and requests coarse
@@ -19,6 +20,11 @@ Required before any kid sees the build:
 5. Consent ledger writes are visible in Postgres and logs.
 6. iNat public submission is off.
 7. Physical-device pilot script passes.
+
+The current Play v12 evidence has not completed the at-most-4-GB device,
+accepted adult dry run, actual alert receipt, supervised family session,
+post-session audit, or recorded go/no-go decisions. Group-first changes remain
+under a merge/deploy hold until those records are complete and archived.
 
 ## Risk Closure Order
 
@@ -39,6 +45,12 @@ Required before any kid sees the build:
   tokens.
 - Kids sign in by scanning `hinterland.kid-handoff.v1` QR payloads.
 - Account deletion request exists at `DELETE /v1/me` and is wired in Settings.
+- `/groups` is the canonical adult route; `/classroom` is retained only as a
+  one-release redirect.
+- The group creator manages group settings and adult invitations/removal. Every
+  parent manages only their own children; shared group membership grants no
+  cross-family photo, review, handoff, or child-data access.
+- Educator-specific onboarding and classroom administration remain deferred.
 
 ### 3. Store And Privacy Gates
 
