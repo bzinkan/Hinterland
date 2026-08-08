@@ -73,7 +73,7 @@ jobs:
         with:
           python-version: "3.12"
 
-      - uses: astral-sh/setup-uv@v3
+      - uses: astral-sh/setup-uv@v7
 
       - name: Require a usable protected test-parent credential
         env:
@@ -121,7 +121,7 @@ jobs:
           print(f"test-parent credential lifetime accepted ({remaining}s remaining)")
           PY
 
-      - uses: astral-sh/setup-uv@v3
+      - uses: astral-sh/setup-uv@v7
         with:
           enable-cache: true
 
