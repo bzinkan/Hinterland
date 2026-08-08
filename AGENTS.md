@@ -48,6 +48,33 @@ grow a Sanctuary. Kid accounts are adult-managed.
 - The Azure deploy workflow is the sole API deployment path. Do not add an
   alternate cloud runtime or a compatibility configuration layer.
 
+## Current W1 and Adult QA Hold
+
+- Play Internal v12 (version code 12, commit
+  `20a8b54717ed7a450f5c0811f2543288a8571ab0`) is an immutable W1 evidence
+  artifact. Do not rebuild, update, or combine its evidence with a later source
+  revision.
+- The operator-approved low-memory exception is scoped only to v12's additional
+  hardware gate for devices with 4 GB of RAM or less. A 2 GiB Google Play
+  emulator completed the constrained run; this does not claim physical
+  low-end-device compatibility or carry to a later build.
+- The constrained run passed execution, exactly-once saving, and private-photo
+  assertions, but the formal W1 device gate is not green: the original Maestro
+  assertion timed out at 30 seconds, `pilot_private` was observed 66–69 seconds
+  after save, and Observation detail has unreadable dark-on-dark text in light
+  mode. Repair these defects in a new immutable Play version, rerun protected
+  promotion, and repeat device evidence.
+- Remaining human W1 gates are received synthetic-alert evidence, the adult
+  consent/group/QR/Observation and rollback dry run with GO/NO-GO, one
+  supervised family session, and the post-session privacy/operations audit and
+  continuation decision.
+- PRs #229, #230, and #231 remain a draft stack. Do not merge or deploy any of
+  them while this W1 hold is active.
+- Adult QA has no provisioned resources and no deployed release. Do not
+  provision or deploy Adult QA, enable real Content Safety or CV, or add public
+  iNaturalist submission without the plan's explicit operator approvals and
+  promotion gates. Public iNaturalist submission remains disabled.
+
 ## Done Means
 
 - Focused tests, lint, formatting, type checks, content validation, and the
@@ -55,3 +82,7 @@ grow a Sanctuary. Kid accounts are adult-managed.
 - Azure health, readiness, and authenticated smoke checks pass after deploy.
 - Mobile builds use the current Hinterland app identity and are tested on a
   physical device before release.
+- A documented, version-scoped operator exception may substitute a constrained
+  Google Play emulator only for an additional hardware-class requirement. It
+  does not replace baseline physical-device testing, establish physical-device
+  compatibility, or carry to later builds.
