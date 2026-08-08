@@ -52,7 +52,7 @@ dev = [
     "types-python-jose",
 
     # Local dev
-    "watchfiles>=0.24.0",
+    "watchfiles>=1.2.0",
 ]
 
 [tool.ruff]
