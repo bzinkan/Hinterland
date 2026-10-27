@@ -4,6 +4,16 @@ The Hinterland Guide is a citizen-science field app for curious explorers.
 People record observations, build a personal Dex, complete Expeditions, and
 grow a Sanctuary. Kid accounts are adult-managed.
 
+## Hintergrove Successor Planning
+
+For the approved fresh Hintergrove build, read
+`docs/adr/0017-hintergrove-fresh-aws-unity.md` and
+`docs/hintergrove-first-playable.md` first. Begin in a clean sibling
+workspace/new repository with fresh instructions. The existing Azure runtime,
+Skia renderer, and Hinterland identities described below are reference
+constraints for the existing app, not requirements for that new foundation.
+Keep changes to the existing application under its current guardrails.
+
 ## Read First
 
 1. `README.md`
