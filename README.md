@@ -8,6 +8,15 @@ outdoor observations, fill a personal Dex, complete expeditions, and may
 eventually contribute approved observations to iNaturalist through a reviewed
 contribution flow. Kid accounts remain adult-managed.
 
+## Hintergrove successor plan
+
+**Hintergrove** is the approved next direction: a fresh AWS application with
+an Expo mobile host and a Unity sanctuary. Start with the
+[interactive first-playable specification](docs/hintergrove-first-playable.md)
+and [ADR 0017](docs/adr/0017-hintergrove-fresh-aws-unity.md).
+The sections below describe the existing Hinterland application; this
+planning update does not implement or deploy the successor.
+
 **Live landing page:** [thehinterlandguide.app](https://thehinterlandguide.app)
 
 <table>
